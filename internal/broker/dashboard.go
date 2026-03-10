@@ -1,0 +1,585 @@
+package broker
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"crypto/subtle"
+	"github.com/sprawl/clauth/internal/audit"
+)
+
+// dashboardAuth returns middleware that validates a dashboard API token.
+// Static file requests (/ and /static/) are allowed without authentication.
+func dashboardAuth(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Allow static file serving and the root page without auth.
+		if r.URL.Path == "/" || strings.HasPrefix(r.URL.Path, "/static/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Check token from Authorization header or query param.
+		t := r.Header.Get("Authorization")
+		if strings.HasPrefix(t, "Bearer ") {
+			t = t[7:]
+		}
+		if t == "" {
+			t = r.URL.Query().Get("token")
+		}
+		if subtle.ConstantTimeCompare([]byte(t), []byte(token)) != 1 {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// corsMiddleware adds permissive CORS headers for the dashboard.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// DashboardSummary is the JSON response for GET /v1/dashboard/summary.
+type DashboardSummary struct {
+	Hostname        string `json:"hostname"`
+	IP              string `json:"ip"`
+	Uptime          string `json:"uptime"`
+	BrokerStatus    string `json:"broker_status"`
+	CAKeyStatus     string `json:"ca_key_status"`
+	ActiveCerts     int    `json:"active_certs"`
+	PendingRequests int    `json:"pending_requests"`
+	TotalGranted    uint64 `json:"total_granted"`
+	TotalDenied     uint64 `json:"total_denied"`
+	AgentsActive    int    `json:"agents_active"`
+	HostsOnline     int    `json:"hosts_online"`
+	HostsEnabled    int    `json:"hosts_enabled"`
+	SignerOK        bool   `json:"signer_ok"`
+}
+
+// DashboardHost is a single host entry for GET /v1/dashboard/hosts.
+type DashboardHost struct {
+	Name           string `json:"name"`
+	Host           string `json:"host"`
+	VLAN           int    `json:"vlan"`
+	Status         string `json:"status"`
+	Role           string `json:"role"`
+	AccessEnabled  bool   `json:"access_enabled"`
+	ActiveSessions int    `json:"active_sessions"`
+}
+
+// DashboardSession is a single session entry for GET /v1/dashboard/sessions.
+type DashboardSession struct {
+	Serial    string `json:"serial"`
+	Agent     string `json:"agent"`
+	Target    string `json:"target"`
+	Role      string `json:"role"`
+	Principal string `json:"principal"`
+	CertTTL   int64  `json:"cert_ttl"`
+	MaxTTL    int64  `json:"max_ttl"`
+	IssuedAt  string `json:"issued_at"`
+	ExpiresAt string `json:"expires_at"`
+	Status    string `json:"status"`
+}
+
+// startDashboardListener starts the TCP HTTP server for the dashboard on
+// the configured DashboardAddr. It is called from ListenAndServe as a
+// goroutine.
+func (bs *BrokerServer) startDashboardListener() {
+	if bs.cfg.DashboardAddr == "" {
+		return
+	}
+
+	mux := bs.dashboardRoutes()
+
+	// Wrap with auth middleware (token check) then CORS.
+	handler := corsMiddleware(dashboardAuth(bs.cfg.DashboardToken, mux))
+
+	ln, err := net.Listen("tcp", bs.cfg.DashboardAddr)
+	if err != nil {
+		log.Printf("[dashboard] failed to listen on %s: %v", bs.cfg.DashboardAddr, err)
+		return
+	}
+	bs.dashboardListener = ln
+
+	bs.dashboardHTTP = &http.Server{
+		Handler:      handler,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+
+	log.Printf("[dashboard] listening on %s", bs.cfg.DashboardAddr)
+
+	if err := bs.dashboardHTTP.Serve(ln); err != nil && err != http.ErrServerClosed {
+		log.Printf("[dashboard] serve error: %v", err)
+	}
+}
+
+// dashboardRoutes builds the mux for the TCP dashboard listener. It includes
+// all the v1 API routes (health, certs, targets, etc.) plus dashboard-specific
+// endpoints.
+func (bs *BrokerServer) dashboardRoutes() *http.ServeMux {
+	mux := http.NewServeMux()
+
+	// --- Mirror all existing v1 API routes ---
+	mux.HandleFunc("GET /v1/health", bs.handleHealth)
+	mux.HandleFunc("GET /v1/certs", bs.handleListCerts)
+	mux.HandleFunc("GET /v1/targets", bs.handleListTargets)
+
+	// --- Dashboard-specific routes ---
+	mux.HandleFunc("GET /v1/dashboard/summary", bs.handleDashboardSummary)
+	mux.HandleFunc("GET /v1/dashboard/hosts", bs.handleDashboardHosts)
+	mux.HandleFunc("GET /v1/dashboard/sessions", bs.handleDashboardSessions)
+	mux.HandleFunc("GET /v1/dashboard/audit", bs.handleDashboardAudit)
+	mux.HandleFunc("POST /v1/dashboard/hosts/{name}/toggle", bs.handleDashboardToggleHost)
+	mux.HandleFunc("POST /v1/dashboard/sessions/{serial}/revoke", bs.handleDashboardRevokeSession)
+
+	// --- WebSocket event stream ---
+	mux.HandleFunc("GET /v1/events", bs.eventHub.HandleWebSocket(bs.cfg.DashboardToken))
+
+	// --- Host configuration API ---
+	mux.HandleFunc("GET /v1/dashboard/config/hosts", bs.handleGetHostConfigs)
+	mux.HandleFunc("GET /v1/dashboard/config/hosts/{name}", bs.handleGetHostConfig)
+	mux.HandleFunc("PUT /v1/dashboard/config/hosts/{name}", bs.handleUpdateHostConfig)
+	mux.HandleFunc("DELETE /v1/dashboard/config/hosts/{name}", bs.handleDeleteHostConfig)
+	mux.HandleFunc("GET /v1/dashboard/config/roles", bs.handleGetRoles)
+
+	// --- WebSocket terminal proxy ---
+	mux.HandleFunc("GET /v1/dashboard/terminal", bs.HandleTerminal)
+
+	// --- Activity monitoring API ---
+	mux.HandleFunc("GET /v1/dashboard/activity", bs.handleGetActivity)
+	mux.HandleFunc("GET /v1/dashboard/activity/summary", bs.handleGetActivitySummary)
+	mux.HandleFunc("GET /v1/dashboard/activity/agent/{name}", bs.handleGetAgentActivity)
+
+	// --- Service config management (CRUD) ---
+	mux.HandleFunc("GET /v1/dashboard/services", bs.handleListServices)
+	mux.HandleFunc("GET /v1/dashboard/services/{name}", bs.handleGetService)
+	mux.HandleFunc("PUT /v1/dashboard/services/{name}", bs.handleUpdateService)
+	mux.HandleFunc("DELETE /v1/dashboard/services/{name}", bs.handleDeleteService)
+
+	// --- Static file serving for the React dashboard ---
+	if bs.cfg.DashboardDir != "" {
+		fs := http.FileServer(http.Dir(bs.cfg.DashboardDir))
+		mux.Handle("/", fs)
+	}
+
+	return mux
+}
+
+// handleDashboardSummary serves GET /v1/dashboard/summary.
+func (bs *BrokerServer) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
+	signerOK := true
+	caStatus := "loaded"
+	if err := bs.signerClient.Ping(); err != nil {
+		signerOK = false
+		caStatus = "unavailable"
+	}
+
+	uptime := time.Since(bs.startTime)
+	uptimeStr := formatUptime(uptime)
+
+	// Count active agents (unique agent names with active certs).
+	certs := bs.state.ListAllCerts()
+	agentSet := make(map[string]struct{})
+	for _, c := range certs {
+		agentSet[c.AgentName] = struct{}{}
+	}
+
+	// Count hosts and enabled hosts from policy.
+	bs.policyMu.RLock()
+	targets := bs.policyCfg.Raw.Targets
+	bs.policyMu.RUnlock()
+
+	hostsTotal := len(targets)
+	hostsEnabled := 0
+	for name := range targets {
+		if bs.hostCtl.IsEnabled(name) {
+			hostsEnabled++
+		}
+	}
+
+	hostname, _ := os.Hostname()
+
+	localIP := "192.168.100.75"
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, addr := range addrs {
+			if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() && ipNet.IP.To4() != nil {
+				localIP = ipNet.IP.String()
+				break
+			}
+		}
+	}
+
+	resp := DashboardSummary{
+		Hostname:        hostname,
+		IP:              localIP,
+		Uptime:          uptimeStr,
+		BrokerStatus:    "healthy",
+		CAKeyStatus:     caStatus,
+		ActiveCerts:     len(certs),
+		PendingRequests: len(bs.state.ListPending()),
+		TotalGranted:    atomic.LoadUint64(&bs.grantCount),
+		TotalDenied:     atomic.LoadUint64(&bs.denyCount),
+		AgentsActive:    len(agentSet),
+		HostsOnline:     hostsTotal,
+		HostsEnabled:    hostsEnabled,
+		SignerOK:        signerOK,
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleDashboardHosts serves GET /v1/dashboard/hosts.
+func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Request) {
+	bs.policyMu.RLock()
+	targets := bs.policyCfg.Raw.Targets
+	bs.policyMu.RUnlock()
+
+	activeCerts := bs.state.ListAllCerts()
+
+	// Count active sessions per target.
+	sessionCounts := make(map[string]int)
+	for _, c := range activeCerts {
+		sessionCounts[c.Target]++
+	}
+
+	hosts := make([]DashboardHost, 0, len(targets))
+	for name, t := range targets {
+		hosts = append(hosts, DashboardHost{
+			Name:           name,
+			Host:           t.Host,
+			VLAN:           t.VLAN,
+			Status:         "online",
+			Role:           t.Description,
+			AccessEnabled:  bs.hostCtl.IsEnabled(name),
+			ActiveSessions: sessionCounts[name],
+		})
+	}
+
+	writeJSON(w, http.StatusOK, hosts)
+}
+
+// handleDashboardSessions serves GET /v1/dashboard/sessions.
+func (bs *BrokerServer) handleDashboardSessions(w http.ResponseWriter, r *http.Request) {
+	activeCerts := bs.state.ListAllCerts()
+
+	// Look up max TTL from policy for each target.
+	bs.policyMu.RLock()
+	rc := bs.policyCfg
+	bs.policyMu.RUnlock()
+
+	sessions := make([]DashboardSession, 0, len(activeCerts))
+	for _, c := range activeCerts {
+		remaining := time.Until(c.ExpiresAt).Seconds()
+		if remaining < 0 {
+			remaining = 0
+		}
+
+		maxTTL := rc.GlobalMaxTTL
+		if tMax, ok := rc.TargetMaxTTLs[c.Target]; ok {
+			maxTTL = tMax
+		}
+
+		status := "active"
+		if time.Now().After(c.ExpiresAt) {
+			status = "expired"
+		}
+
+		sessions = append(sessions, DashboardSession{
+			Serial:    c.Serial,
+			Agent:     c.AgentName,
+			Target:    c.Target,
+			Role:      c.Role,
+			Principal: c.Principal,
+			CertTTL:   int64(remaining),
+			MaxTTL:    int64(maxTTL.Seconds()),
+			IssuedAt:  c.IssuedAt.Format(time.RFC3339),
+			ExpiresAt: c.ExpiresAt.Format(time.RFC3339),
+			Status:    status,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+// handleDashboardAudit serves GET /v1/dashboard/audit?limit=50&type=grant.
+func (bs *BrokerServer) handleDashboardAudit(w http.ResponseWriter, r *http.Request) {
+	limitStr := r.URL.Query().Get("limit")
+	limit := 50
+	if limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	typeFilter := r.URL.Query().Get("type")
+
+	// Read the audit log file.
+	f, err := os.Open(bs.cfg.AuditLogPath)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+	defer f.Close()
+
+	// Read all lines, then take the last N (audit is append-only).
+	var allLines []string
+	scanner := bufio.NewScanner(f)
+	// Increase buffer for long lines.
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		allLines = append(allLines, line)
+	}
+
+	// Take last N lines (newest last in file).
+	start := 0
+	if len(allLines) > limit {
+		start = len(allLines) - limit
+	}
+	tail := allLines[start:]
+
+	// Parse and optionally filter.
+	var events []json.RawMessage
+	for _, line := range tail {
+		if typeFilter != "" {
+			// Quick check before full parse.
+			var evt map[string]interface{}
+			if err := json.Unmarshal([]byte(line), &evt); err != nil {
+				continue
+			}
+			if et, ok := evt["event_type"].(string); ok {
+				if !strings.Contains(et, typeFilter) {
+					continue
+				}
+			}
+		}
+		events = append(events, json.RawMessage(line))
+	}
+
+	if events == nil {
+		events = []json.RawMessage{}
+	}
+
+	writeJSON(w, http.StatusOK, events)
+}
+
+// handleDashboardToggleHost serves POST /v1/dashboard/hosts/{name}/toggle.
+func (bs *BrokerServer) handleDashboardToggleHost(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "host name is required")
+		return
+	}
+
+	// Verify the host exists in policy.
+	bs.policyMu.RLock()
+	_, exists := bs.policyCfg.Raw.Targets[name]
+	bs.policyMu.RUnlock()
+	if !exists {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("host %q not found in policy", name))
+		return
+	}
+
+	newState := bs.hostCtl.Toggle(name)
+
+	// If toggled off, revoke all active certs for this host.
+	if !newState {
+		certs := bs.state.ListAllCerts()
+		for _, c := range certs {
+			if c.Target == name {
+				bs.state.RemoveCert(c.Serial)
+				bs.policyEngine.RemoveCert(parseSerial(c.Serial))
+
+				bs.auditLog.LogEvent(audit.AuditEvent{
+					Severity:  audit.SeverityWarn,
+					EventType: audit.EventCertRevoked,
+					Agent:     c.AgentName,
+					Target:    c.Target,
+					Role:      c.Role,
+					Serial:    c.Serial,
+					Reason:    "host access disabled via dashboard",
+				})
+
+				bs.eventHub.Broadcast(Event{
+					Type: "cert_revoked",
+					Data: map[string]string{
+						"serial": c.Serial,
+						"agent":  c.AgentName,
+						"target": c.Target,
+						"reason": "host disabled",
+					},
+				})
+			}
+		}
+	}
+
+	stateLabel := "enabled"
+	if !newState {
+		stateLabel = "disabled"
+	}
+
+	bs.auditLog.LogEvent(audit.AuditEvent{
+		Severity:  audit.SeverityWarn,
+		EventType: "host_toggle",
+		Target:    name,
+		Reason:    fmt.Sprintf("Host %s toggled via dashboard from %s", name, r.RemoteAddr),
+		Details:   map[string]string{"state": stateLabel, "source_ip": r.RemoteAddr},
+	})
+
+	bs.eventHub.Broadcast(Event{
+		Type: "host_toggle",
+		Data: map[string]string{
+			"host":  name,
+			"state": stateLabel,
+		},
+	})
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"host":           name,
+		"access_enabled": newState,
+	})
+}
+
+// handleDashboardRevokeSession serves POST /v1/dashboard/sessions/{serial}/revoke.
+func (bs *BrokerServer) handleDashboardRevokeSession(w http.ResponseWriter, r *http.Request) {
+	serial := r.PathValue("serial")
+	if serial == "" {
+		writeError(w, http.StatusBadRequest, "serial is required")
+		return
+	}
+
+	cert, found := bs.state.GetCert(serial)
+	if !found {
+		writeError(w, http.StatusNotFound, "certificate not found")
+		return
+	}
+
+	bs.state.RemoveCert(serial)
+	bs.policyEngine.RemoveCert(parseSerial(serial))
+
+	bs.auditLog.LogEvent(audit.AuditEvent{
+		Severity:  audit.SeverityInfo,
+		EventType: audit.EventCertRevoked,
+		Agent:     cert.AgentName,
+		Target:    cert.Target,
+		Role:      cert.Role,
+		Serial:    serial,
+		Reason:    "revoked via dashboard",
+	})
+
+	bs.eventHub.Broadcast(Event{
+		Type: "cert_revoked",
+		Data: map[string]string{
+			"serial": serial,
+			"agent":  cert.AgentName,
+			"target": cert.Target,
+			"reason": "dashboard revocation",
+		},
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status": "revoked",
+		"serial": serial,
+	})
+}
+
+// formatUptime formats a duration into a human-readable string like "4d 7h".
+func formatUptime(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh", days, hours)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
+}
+
+// handleListServices serves GET /v1/dashboard/services
+func (bs *BrokerServer) handleListServices(w http.ResponseWriter, r *http.Request) {
+	if bs.proxyEngine == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "proxy not initialized"})
+		return
+	}
+	services := bs.proxyEngine.ListServices()
+	if services == nil {
+		services = []*ServiceConfig{}
+	}
+	writeJSON(w, http.StatusOK, services)
+}
+
+// handleGetService serves GET /v1/dashboard/services/{name}
+func (bs *BrokerServer) handleGetService(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if bs.proxyEngine == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "proxy not initialized"})
+		return
+	}
+	svc, ok := bs.proxyEngine.GetService(name)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "service not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, svc)
+}
+
+// handleUpdateService serves PUT /v1/dashboard/services/{name}
+func (bs *BrokerServer) handleUpdateService(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if bs.proxyEngine == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "proxy not initialized"})
+		return
+	}
+
+	var svc ServiceConfig
+	if err := json.NewDecoder(r.Body).Decode(&svc); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+	svc.Name = name
+
+	if err := bs.proxyEngine.AddService(&svc); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "name": name})
+}
+
+// handleDeleteService serves DELETE /v1/dashboard/services/{name}
+func (bs *BrokerServer) handleDeleteService(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if bs.proxyEngine == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "proxy not initialized"})
+		return
+	}
+
+	if err := bs.proxyEngine.RemoveService(name); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "name": name})
+}

@@ -1,0 +1,56 @@
+[Unit]
+Description=Clauth SSH Certificate Signer
+Documentation=https://github.com/sprawl/clauth
+After=network.target
+
+[Service]
+Type=simple
+User=clauth-broker
+Group=clauth-broker
+
+ExecStart=/usr/local/bin/clauth-signer --ca-key /etc/clauth/ca_key --socket /run/clauth/signer.sock
+
+# Runtime directory: shares /run/clauth with the broker.
+RuntimeDirectory=clauth
+RuntimeDirectoryMode=0755
+
+# Logging.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=clauth-signer
+
+# Restart policy.
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening — full sandbox for the signer.
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+# Only allow read access to the CA key and write access to the socket.
+ReadOnlyPaths=/etc/clauth
+ReadWritePaths=/run/clauth
+
+# Capabilities: none needed.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# System call filter.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target

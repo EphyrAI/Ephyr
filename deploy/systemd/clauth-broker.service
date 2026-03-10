@@ -1,0 +1,52 @@
+[Unit]
+Description=Clauth SSH Certificate Broker
+Documentation=https://github.com/sprawl/clauth
+After=network.target clauth-signer.service
+Wants=clauth-signer.service
+
+[Service]
+Type=simple
+User=clauth-broker
+Group=clauth-broker
+
+ExecStart=/usr/local/bin/clauth-broker --policy /etc/clauth/policy.yaml
+
+# Runtime directory: creates /run/clauth owned by clauth-broker.
+RuntimeDirectory=clauth
+RuntimeDirectoryMode=0755
+
+# Logging.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=clauth-broker
+
+# Restart policy.
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening.
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+
+# Allow writes only to specific paths.
+ReadWritePaths=/run/clauth /var/log/clauth /var/lib/clauth
+
+# Capabilities: only what's needed for Unix socket binding.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# System call filter.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target

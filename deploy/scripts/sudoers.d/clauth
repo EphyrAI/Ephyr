@@ -1,0 +1,68 @@
+# Clauth role-based sudoers rules
+# Managed by provision-target.sh — do not edit manually.
+# Install to /etc/sudoers.d/clauth with permissions 0440.
+# This file is made immutable (chattr +i) after provisioning.
+
+# ─── Explicit DENY list (all roles) ──────────────────────────────────────────
+# These commands are NEVER allowed, regardless of role.
+
+Cmnd_Alias CLAUTH_DENY_SHELLS = /bin/bash, /bin/sh, /bin/zsh, /usr/bin/zsh, \
+    /usr/bin/fish, /bin/fish
+
+Cmnd_Alias CLAUTH_DENY_EDITORS = /usr/bin/vi, /usr/bin/vim, /usr/bin/nano, \
+    /usr/bin/emacs, /bin/vi, /bin/nano
+
+Cmnd_Alias CLAUTH_DENY_INTERPRETERS = /usr/bin/python*, /usr/bin/perl, \
+    /usr/bin/ruby, /usr/bin/node, /usr/local/bin/python*, /usr/local/bin/node
+
+Cmnd_Alias CLAUTH_DENY_PKGMGR = /usr/bin/apt install *, /usr/bin/apt remove *, \
+    /usr/bin/apt purge *, /usr/bin/dpkg -i *, /usr/bin/dpkg --install *, \
+    /usr/bin/dpkg -r *, /usr/bin/dpkg --remove *, /usr/bin/dpkg -P *, \
+    /usr/bin/dpkg --purge *
+
+Cmnd_Alias CLAUTH_DENY_DANGEROUS = /usr/bin/chattr, /usr/sbin/visudo, \
+    /bin/su, /usr/bin/su, /usr/bin/passwd, /usr/sbin/usermod, \
+    /usr/sbin/userdel, /bin/chmod, /usr/bin/chmod, /bin/chown, /usr/bin/chown
+
+# Apply deny rules to all agent roles.
+agent-read  ALL = !CLAUTH_DENY_SHELLS, !CLAUTH_DENY_EDITORS, !CLAUTH_DENY_INTERPRETERS, !CLAUTH_DENY_PKGMGR, !CLAUTH_DENY_DANGEROUS
+agent-op    ALL = !CLAUTH_DENY_SHELLS, !CLAUTH_DENY_EDITORS, !CLAUTH_DENY_INTERPRETERS, !CLAUTH_DENY_PKGMGR, !CLAUTH_DENY_DANGEROUS
+agent-admin ALL = !CLAUTH_DENY_SHELLS, !CLAUTH_DENY_EDITORS, !CLAUTH_DENY_INTERPRETERS, !CLAUTH_DENY_PKGMGR, !CLAUTH_DENY_DANGEROUS
+
+# ─── agent-read: NO sudo access ──────────────────────────────────────────────
+# (no additional rules — agent-read gets no sudo at all)
+
+# ─── agent-op: read-only operations ──────────────────────────────────────────
+
+Cmnd_Alias CLAUTH_OP_SYSTEMCTL = /usr/bin/systemctl status *, \
+    /usr/bin/systemctl restart *, /usr/bin/systemctl stop *
+
+Cmnd_Alias CLAUTH_OP_DOCKER = /usr/bin/docker ps *, /usr/bin/docker ps, \
+    /usr/bin/docker logs *, /usr/bin/docker inspect *, \
+    /usr/bin/docker stats *, /usr/bin/docker stats, \
+    /usr/bin/docker compose ps *, /usr/bin/docker compose ps, \
+    /usr/bin/docker compose logs *, /usr/bin/docker compose top *
+
+Cmnd_Alias CLAUTH_OP_MONITORING = /usr/bin/journalctl *, /usr/bin/journalctl, \
+    /usr/bin/df *, /usr/bin/df, /usr/bin/free *, /usr/bin/free, \
+    /usr/sbin/ip *, /usr/bin/ss *, /usr/bin/ss, \
+    /usr/bin/cat *, /usr/bin/ls *, /usr/bin/find *
+
+agent-op ALL = NOPASSWD: CLAUTH_OP_SYSTEMCTL, CLAUTH_OP_DOCKER, CLAUTH_OP_MONITORING
+
+# ─── agent-admin: agent-op + management operations ───────────────────────────
+
+Cmnd_Alias CLAUTH_ADMIN_SYSTEMCTL = /usr/bin/systemctl start *, \
+    /usr/bin/systemctl enable *, /usr/bin/systemctl disable *
+
+Cmnd_Alias CLAUTH_ADMIN_DOCKER = /usr/bin/docker run *, \
+    /usr/bin/docker exec *, /usr/bin/docker pull *, \
+    /usr/bin/docker build *
+
+Cmnd_Alias CLAUTH_ADMIN_PKG = /usr/bin/apt list *, /usr/bin/apt list, \
+    /usr/bin/apt show *
+
+Cmnd_Alias CLAUTH_ADMIN_STORAGE = /usr/bin/mount *, /usr/bin/umount *
+
+agent-admin ALL = NOPASSWD: CLAUTH_OP_SYSTEMCTL, CLAUTH_OP_DOCKER, CLAUTH_OP_MONITORING, \
+    CLAUTH_ADMIN_SYSTEMCTL, CLAUTH_ADMIN_DOCKER, CLAUTH_ADMIN_PKG, CLAUTH_ADMIN_STORAGE

@@ -1,0 +1,50 @@
+# Clauth Policy — The Sprawl homelab
+# Loaded by the policy engine at startup; supports hot-reload (SIGHUP).
+
+global:
+  max_active_certs: 10
+  default_ttl: "5m"
+  max_ttl: "30m"
+  rate_limit:
+    requests_per_window: 10
+    window_seconds: 60
+
+agents:
+  claude:
+    uid: 1000
+    max_concurrent_certs: 3
+    description: "Claude agent on command center VM 111"
+
+roles:
+  read:
+    principal: "agent-read"
+    description: "Read-only access — inspect configs, logs, status"
+  operator:
+    principal: "agent-op"
+    description: "Operator access — restart services, deploy updates"
+  admin:
+    principal: "agent-admin"
+    description: "Full administrative access — use sparingly"
+
+targets:
+  mandrake-rack:
+    host: "192.168.30.55"
+    port: 22
+    vlan: 30
+    allowed_roles:
+      - read
+      - operator
+    max_ttl: "15m"
+    auto_approve: true
+    description: "MandrakeRack — edge services + Brocade console (VLAN 30 Icebreaker)"
+
+  docker-host:
+    host: "192.168.100.100"
+    port: 22
+    vlan: 100
+    allowed_roles:
+      - read
+      - operator
+    max_ttl: "10m"
+    auto_approve: true
+    description: "DockerHost — production Docker services (VLAN 100 Mandrake)"
