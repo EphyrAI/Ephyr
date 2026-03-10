@@ -1,0 +1,229 @@
+# Clauth Architecture Deep Dive
+
+## Overview
+
+Clauth is a three-tier SSH certificate authority designed for privileged access
+management in homelab environments. It issues short-lived OpenSSH user
+certificates to LLM agents, replacing static SSH keys with ephemeral,
+policy-governed credentials.
+
+The system is split into three processes -- Signer, Broker, and CLI -- each
+running with the minimum privileges required for its function.
+
+```
+                  +------------------+
+                  |   clauth (CLI)   |
+                  +--------+---------+
+                           |
+                   Unix socket IPC (/run/clauth/broker.sock)
+                           |
+         +-----------------+------------------+
+         |           Broker (orchestrator)     |
+         |  Policy Engine | Session Manager   |
+         |  Rate Limiter  | Host Controller   |
+         |  Audit Logger  | Event Hub         |
+         |  Cert State    | Config Manager    |
+         |  Exec Pool     | Proxy Engine      |
+         |  MCP Server    | Activity Store    |
+         +--------+-------+---------+---------+
+                   |                 |
+          Unix socket IPC     TCP :8553 (dashboard)
+      /run/clauth/signer.sock TCP :8554 (MCP)
+                   |
+         +---------+---------+
+         |   Signer (CA)     |
+         |   Ed25519 key     |
+         |   No network      |
+         +-------------------+
+```
+
+---
+
+## The Signer
+
+The signer is the most security-critical component -- sole custodian of the
+Ed25519 CA private key, running as an isolated process with zero network access.
+
+### IPC Protocol
+
+Newline-delimited JSON over `/run/clauth/signer.sock`. Each connection handles
+one request-response exchange, then closes (not JSON-RPC 2.0 -- simpler
+one-shot protocol).
+
+```json
+{"action":"sign","public_key":"ssh-ed25519 AAAA...","principals":["agent-read"],
+ "duration":"5m","key_id":"claude@docker-host/read","force_command":""}
+```
+
+Response: `{"certificate":"<base64>","serial":"a1b2c3d4e5f60718","expires_at":"2026-03-10T14:35:00Z"}`
+
+The `action` field accepts `"sign"` or `"ping"` (health check).
+
+### Peer UID Validation
+
+The signer extracts SO_PEERCRED from every connection. When `CLAUTH_BROKER_UID`
+is set (999 in production), only the broker process can connect. Unauthorized
+UIDs are rejected before any signing occurs.
+
+### CA Key and Certificate Properties
+
+| Property | Value |
+|----------|-------|
+| Algorithm | Ed25519, key permissions must be exactly 0600 |
+| Key ID format | `clauth:{agent}@{target}/{role}:{serial_hex}` |
+| Serial | Cryptographically random 8-byte uint64 |
+| Clock skew grace | 30 seconds before `now` |
+| Maximum lifetime | 24 hours (hard cap enforced in signer) |
+| Extensions | `permit-pty`, `permit-port-forwarding`, `permit-agent-forwarding` |
+| Critical options | `force-command` (when target policy defines one) |
+
+### Systemd Sandbox (score: 1.9/10)
+
+| Directive | Effect |
+|-----------|--------|
+| `ProtectSystem=strict` | Read-only filesystem except explicit paths |
+| `MemoryDenyWriteExecute=yes` | Blocks JIT, shellcode injection |
+| `RestrictAddressFamilies=AF_UNIX` | Unix sockets only -- no TCP/UDP/raw |
+| `CapabilityBoundingSet=` | All Linux capabilities dropped |
+| `SystemCallFilter=@system-service` | Allowlisted syscalls only |
+| `ReadWritePaths=/run/clauth` | Only the socket directory is writable |
+| `NoNewPrivileges=yes` | Cannot escalate via setuid/setgid |
+
+---
+
+## The Broker
+
+Central orchestrator running multiple listeners and thirteen subsystems.
+
+### Listeners
+
+| Listener | Address | Purpose |
+|----------|---------|---------|
+| Unix socket | `/run/clauth/broker.sock` (0660) | CLI/agent API, SO_PEERCRED auth |
+| TCP | `:8553` | Dashboard web UI + WebSocket events |
+| TCP | `:8554` | MCP server (JSON-RPC 2.0) for LLM agents |
+
+### Components
+
+| Component | Source | Purpose |
+|-----------|--------|---------|
+| Policy Engine | `policy/engine.go` | 8-step cert request evaluation |
+| Session Manager | `auth/session.go` | 256-bit token sessions, one per agent |
+| Rate Limiter | `broker/middleware.go` | Per-UID sliding window throttling |
+| Audit Logger | `audit/audit.go` | JSON-line structured log with severities |
+| Event Hub | `broker/websocket.go` | WebSocket broadcast (64-msg backpressure buffer) |
+| Host Controller | `broker/hostctl.go` | Runtime per-host enable/disable |
+| Cert State | `broker/state.go` | Active cert and pending request tracking |
+| Config Manager | `broker/config.go` | Persistent host config CRUD (JSON) |
+| Activity Store | `broker/activity.go` | 10,000-entry ring buffer for analytics |
+| Exec Pool | `broker/mcp_exec.go` | SSH session management (persistent + one-shot) |
+| Proxy Engine | `broker/proxy.go` | HTTP proxy with credential injection |
+| MCP Server | `broker/mcp.go` | Model Context Protocol with 8 tools |
+
+### Certificate Request Flow
+
+```
+  CLI                          Broker                           Signer
+   |-- POST /v1/session ------->|                                 |
+   |<--- {token} ---------------|                                 |
+   |-- POST /v1/request ------->| 1. extract peer UID (PEERCRED) |
+   |   {target,role,pubkey}     | 2. validate session token       |
+   |   + X-Session-Token        | 3. check UID matches session    |
+   |                            | 4. check host enabled           |
+   |                            | 5. evaluate 8-step policy       |
+   |                            |-- sign request ---------------->|
+   |                            |<-- {certificate, serial} -------|
+   |                            | 6. track in CertState + engine  |
+   |                            | 7. audit log + WS broadcast     |
+   |<--- {granted, cert, host} -|                                 |
+```
+
+### MCP Command Execution Flow
+
+Ephemeral keypairs generated in-memory (never touch disk):
+
+```
+  LLM Agent              Exec Pool                  Signer       Target
+   |-- POST /mcp -------->|                            |            |
+   |  {exec, target, cmd} | authenticate (bcrypt key)  |            |
+   |                      | ed25519.GenerateKey()       |            |
+   |                      |-- RequestSign {pubkey} ---->|            |
+   |                      |<-- {certificate} ----------|            |
+   |                      |-- ssh.Dial(cert) ----------|----------->|
+   |                      |-- session.Run(cmd) --------|----------->|
+   |                      |<-- stdout/stderr/exit -----|------------|
+   |                      | record activity + audit     |            |
+   |<-- {stdout,stderr,   |                            |            |
+   |     exit_code} ------|                            |            |
+```
+
+Persistent sessions (`session_create`) keep the SSH connection open for
+multi-command workflows. Idle sessions are cleaned up after 5 minutes.
+
+### HTTP Proxy Flow
+
+```
+  LLM Agent              Proxy Engine                     Target Service
+   |-- POST /mcp -------->|                                    |
+   |  {http_request, url} | resolve DNS (2s timeout)           |
+   |                      | evaluate CIDR allow/deny policy    |
+   |                      | match service (longest prefix)     |
+   |                      | inject credentials (bearer/basic/  |
+   |                      |   header/query) -- agent never     |
+   |                      |   sees the token ----------------->|
+   |                      |<-- response (size-capped) ---------|
+   |                      | audit + activity + WS broadcast    |
+   |<-- {status, body} ---|                                    |
+```
+
+### API Routes Summary
+
+**Unix Socket** -- 10 routes: health, session CRUD, cert request/list/revoke,
+target listing, approve/deny pending, admin host toggle.
+
+**Dashboard** (`:8553`) -- Mirrors Unix routes plus: summary, hosts, sessions,
+audit log, host toggle (revokes certs on disable), host config CRUD, role
+listing, WebSocket terminal, activity queries, service config CRUD,
+WebSocket event stream.
+
+**MCP** (`:8554`) -- Single `POST /mcp` endpoint. Eight tools: `list_targets`,
+`exec`, `session_create`, `session_close`, `list_sessions`, `list_certs`,
+`http_request`, `list_services`.
+
+---
+
+## The CLI
+
+Agent-side tool communicating via Unix socket. Handles:
+- **Session management:** UID-based auto-detection, token caching, auto-retry
+- **Keypair generation:** Ed25519 for certificate signing requests
+- **Certificate request:** Submit public key, receive signed cert
+- **SSH orchestration:** Connect to targets using received certificates
+
+Session tokens are 256-bit random, one per agent (new session invalidates old).
+
+---
+
+## Design Decisions
+
+**Why three processes?** Principle of least privilege. The signer holds the CA
+key with zero network access -- broker compromise cannot extract the key
+because the signer socket is UID-restricted via SO_PEERCRED.
+
+**Why Unix sockets?** SO_PEERCRED provides kernel-verified caller identity
+(UID/PID/GID) without passwords or shared secrets. Unforgeable from userspace.
+
+**Why no database?** Audit log is append-only JSON lines (jq/SIEM-friendly).
+Cert state is in-memory maps with 60-second cleanup. Activity uses a ring
+buffer. For a homelab scale, this avoids database operational burden.
+
+**Why ring buffer for activity?** Fixed-size (10,000 entries), O(1) insert,
+bounded memory. Oldest entries silently overwritten on wrap.
+
+**Why auto-revoke duplicates?** Agents retry on failure. Keeping stale certs
+against concurrency limits creates deadlocks. Step 6 of the pipeline
+auto-revokes the old cert for the same agent+target+role.
+
+**Why MCP over REST?** LLMs invoke MCP tools natively with typed arguments
+and JSON Schema validation. Streamable HTTP (JSON-RPC 2.0 over POST) is
+stateless and proxy-friendly.

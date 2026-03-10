@@ -1,47 +1,45 @@
-.PHONY: build clean install test fmt vet lint
+.PHONY: build test clean install install-user install-systemd
 
-GOBIN ?= /usr/local/bin
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -ldflags "-X main.version=$(VERSION)"
+BINDIR := bin
+GOFLAGS := -trimpath
 
 build:
-	@mkdir -p bin
-	go build $(LDFLAGS) -o bin/clauth-broker ./cmd/broker
-	go build $(LDFLAGS) -o bin/clauth-signer ./cmd/signer
-	go build $(LDFLAGS) -o bin/clauth ./cmd/clauth
-	@echo "Build complete: bin/clauth-broker bin/clauth-signer bin/clauth"
-
-clean:
-	rm -rf bin/
-
-install: build
-	install -m 755 bin/clauth-broker $(GOBIN)/
-	install -m 755 bin/clauth-signer $(GOBIN)/
-	install -m 755 bin/clauth $(GOBIN)/
-	@echo "Installed to $(GOBIN)/"
+	@mkdir -p $(BINDIR)
+	go build $(GOFLAGS) -o $(BINDIR)/clauth-broker ./cmd/broker
+	go build $(GOFLAGS) -o $(BINDIR)/clauth-signer ./cmd/signer
+	go build $(GOFLAGS) -o $(BINDIR)/clauth ./cmd/clauth
+	@echo "Built: $(BINDIR)/clauth-broker  $(BINDIR)/clauth-signer  $(BINDIR)/clauth"
 
 test:
-	go test -v -race ./...
+	go test ./...
 
-fmt:
-	gofmt -s -w .
+clean:
+	rm -rf $(BINDIR)
 
-vet:
-	go vet ./...
+install: build
+	install -m 0755 $(BINDIR)/clauth-broker /usr/local/bin/
+	install -m 0755 $(BINDIR)/clauth-signer /usr/local/bin/
+	install -m 0755 $(BINDIR)/clauth /usr/local/bin/
 
-lint: vet
-	@which golangci-lint >/dev/null 2>&1 && golangci-lint run ./... || echo "golangci-lint not installed, skipping"
-
-# Install systemd units (run as root).
-install-systemd:
-	install -m 644 deploy/systemd/clauth-broker.service /etc/systemd/system/
-	install -m 644 deploy/systemd/clauth-signer.service /etc/systemd/system/
-	systemctl daemon-reload
-	@echo "Systemd units installed. Enable with: systemctl enable --now clauth-signer clauth-broker"
-
-# Create the clauth-broker system user (run as root).
 install-user:
-	@id clauth-broker >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin clauth-broker
-	mkdir -p /etc/clauth /var/log/clauth /var/lib/clauth
-	chown clauth-broker:clauth-broker /var/log/clauth /var/lib/clauth
-	@echo "System user and directories created."
+	@echo "Creating clauth-broker system user and directories..."
+	groupadd -f clauth-agents
+	id -u clauth-broker &>/dev/null || useradd -r -s /usr/sbin/nologin -g clauth-agents clauth-broker
+	mkdir -p /etc/clauth /run/clauth /var/log/clauth /var/lib/clauth
+	chown clauth-broker:clauth-agents /run/clauth /var/log/clauth /var/lib/clauth
+	chmod 0750 /run/clauth /var/log/clauth /var/lib/clauth
+	chmod 0700 /etc/clauth
+	@echo "Done. Add agent users to the 'clauth-agents' group."
+
+install-systemd:
+	install -m 0644 deploy/systemd/clauth-signer.service /etc/systemd/system/
+	install -m 0644 deploy/systemd/clauth-broker.service /etc/systemd/system/
+	systemctl daemon-reload
+	@echo "Units installed. Enable with: systemctl enable --now clauth-signer clauth-broker"
+
+uninstall:
+	systemctl stop clauth-broker clauth-signer 2>/dev/null || true
+	systemctl disable clauth-broker clauth-signer 2>/dev/null || true
+	rm -f /etc/systemd/system/clauth-broker.service /etc/systemd/system/clauth-signer.service
+	rm -f /usr/local/bin/clauth-broker /usr/local/bin/clauth-signer /usr/local/bin/clauth
+	systemctl daemon-reload
