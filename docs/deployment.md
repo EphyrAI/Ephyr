@@ -1,9 +1,5 @@
 # Deployment Guide
 
-Step-by-step instructions for deploying Clauth from scratch, including
-building from source, system setup, CA key generation, target provisioning,
-MCP configuration, and operational verification.
-
 ---
 
 ## Prerequisites
@@ -86,10 +82,9 @@ mkdir -p /etc/clauth
 chown root:clauth-broker /etc/clauth
 chmod 750 /etc/clauth
 
-# Runtime directory (sockets) -- systemd creates this via RuntimeDirectory,
-# but create it manually for non-systemd setups
+# Runtime directory (sockets) -- managed by tmpfiles.d in production
 mkdir -p /run/clauth
-chown clauth-broker:clauth-broker /run/clauth
+chown clauth-broker:clauth-agents /run/clauth
 chmod 755 /run/clauth
 
 # Audit log directory
@@ -218,8 +213,6 @@ Group=clauth-broker
 ExecStart=/usr/local/bin/clauth-signer \
     --ca-key /etc/clauth/ca_key \
     --socket /run/clauth/signer.sock
-RuntimeDirectory=clauth
-RuntimeDirectoryMode=0755
 Restart=on-failure
 RestartSec=5
 Environment=CLAUTH_BROKER_UID=999
@@ -274,8 +267,6 @@ ExecStart=/usr/local/bin/clauth-broker \
     --signer-socket /run/clauth/signer.sock \
     --listen /run/clauth/broker.sock \
     --audit-log /var/log/clauth/audit.json
-RuntimeDirectory=clauth
-RuntimeDirectoryMode=0755
 Restart=on-failure
 RestartSec=5
 ExecReload=/bin/kill -HUP $MAINPID
@@ -303,6 +294,29 @@ SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target
+```
+
+### Runtime Directory (tmpfiles.d)
+
+Both services share `/run/clauth/` for their Unix sockets. Do **not** use
+systemd's `RuntimeDirectory` on either unit -- if one service restarts, systemd
+would delete the directory and destroy the other service's socket.
+
+Instead, use tmpfiles.d for persistent directory ownership:
+
+```bash
+cat > /etc/tmpfiles.d/clauth.conf << 'EOF'
+d /run/clauth 0755 clauth-broker clauth-agents -
+EOF
+
+systemd-tmpfiles --create
+```
+
+**Important:** Always restart the signer before the broker, since the broker
+connects to the signer's socket on startup:
+
+```bash
+systemctl restart clauth-signer && systemctl restart clauth-broker
 ```
 
 ### Dashboard Token Override
@@ -585,10 +599,29 @@ is read on each request).
 
 ### Step 2: Configure Network Policy
 
-The default network policy allows all RFC 1918 ranges and blocks external
-access. To customize, the policy is currently compiled into the broker
-(see DefaultNetworkPolicy in proxy.go). Future versions will support
-policy.yaml configuration.
+The default policy allows all RFC 1918 ranges and blocks external access.
+To customize, create `/var/lib/clauth/network_policy.json`:
+
+```bash
+cat > /var/lib/clauth/network_policy.json << 'EOF'
+{
+  "allow_cidrs": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+  "deny_cidrs": [],
+  "external": "restricted",
+  "external_allow": ["api.github.com", "*.github.com"]
+}
+EOF
+
+chown clauth-broker:clauth-broker /var/lib/clauth/network_policy.json
+chmod 600 /var/lib/clauth/network_policy.json
+```
+
+The broker loads this file at startup. See the Configuration Reference
+(`docs/configuration.md`) for the full `NetworkPolicy` field reference.
+Changes to `network_policy.json` require a broker restart.
+
+Services in `services.json` are loaded dynamically on each request, so
+adding or updating services does not require a restart.
 
 ### Step 3: Test via MCP
 

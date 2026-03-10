@@ -118,7 +118,7 @@ Central orchestrator running multiple listeners and thirteen subsystems.
 | Activity Store | `broker/activity.go` | 10,000-entry ring buffer for analytics |
 | Exec Pool | `broker/mcp_exec.go` | SSH session management (persistent + one-shot) |
 | Proxy Engine | `broker/proxy.go` | HTTP proxy with credential injection |
-| MCP Server | `broker/mcp.go` | Model Context Protocol with 8 tools |
+| MCP Server | `broker/mcp.go`, `broker/mcp_resources.go` | Model Context Protocol with 8 tools and 6 resources |
 
 ### Certificate Request Flow
 
@@ -188,7 +188,9 @@ WebSocket event stream.
 
 **MCP** (`:8554`) -- Single `POST /mcp` endpoint. Eight tools: `list_targets`,
 `exec`, `session_create`, `session_close`, `list_sessions`, `list_certs`,
-`http_request`, `list_services`.
+`http_request`, `list_services`. Six resources for agent self-discovery:
+`clauth://overview`, `clauth://targets`, `clauth://services`,
+`clauth://roles`, `clauth://status`, `clauth://tools`.
 
 ---
 

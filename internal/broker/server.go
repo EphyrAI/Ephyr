@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bufio"
+	"encoding/json"
 	"context"
 	"fmt"
 	"log"
@@ -397,7 +398,17 @@ func (bs *BrokerServer) startMCPListener() {
 
 	// Initialize proxy engine.
 	proxyPolicy := DefaultNetworkPolicy
-	// TODO: Load from policy.yaml when network policy is configured
+	// Load network policy overrides from services config dir.
+	npPath := "/var/lib/clauth/network_policy.json"
+	if npData, err := os.ReadFile(npPath); err == nil {
+		var np NetworkPolicy
+		if err := json.Unmarshal(npData, &np); err == nil {
+			proxyPolicy = &np
+			log.Printf("[mcp] loaded network policy from %s (external=%s, %d allow patterns)", npPath, np.External, len(np.ExternalAllow))
+		} else {
+			log.Printf("[mcp] warning: failed to parse %s: %v, using defaults", npPath, err)
+		}
+	}
 	proxyEngine := NewProxyEngine(bs, "/var/lib/clauth/services.json", proxyPolicy)
 	mcpSrv.SetProxyEngine(proxyEngine)
 	bs.proxyEngine = proxyEngine

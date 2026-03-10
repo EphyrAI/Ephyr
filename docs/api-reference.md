@@ -853,3 +853,160 @@ ws.onmessage = (event) => {
 - Send buffer: 64 events per client
 - Backpressure: events dropped silently for slow clients whose buffer is full
 - Max inbound message size: 512 bytes (client messages are read and discarded)
+
+---
+
+## MCP API
+
+Default listen address: TCP `:8554`
+
+All requests require an API key via `Authorization: Bearer {api-key}` header.
+The key is validated against bcrypt hashes in the policy file's agent
+`api_key_hash` fields.
+
+### POST /mcp
+
+Single endpoint handling all MCP JSON-RPC 2.0 methods.
+
+**Supported methods:**
+
+| Method | Description |
+|--------|-------------|
+| `initialize` | Protocol handshake -- returns server capabilities (tools, resources) |
+| `notifications/initialized` | Client acknowledgment (no response) |
+| `tools/list` | List all 8 available tools with JSON Schema parameters |
+| `tools/call` | Execute a tool by name with arguments |
+| `resources/list` | List all 6 available resources with URIs and descriptions |
+| `resources/read` | Read a specific resource by URI, returns Markdown content |
+
+**Initialize example:**
+
+```bash
+curl -s -X POST http://BROKER:8554/mcp \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-03-26",
+      "clientInfo": {"name": "test", "version": "1.0"}
+    }
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2025-03-26",
+    "serverInfo": {"name": "clauth", "version": "1.0.0"},
+    "capabilities": {
+      "tools": {"listChanged": false},
+      "resources": {"listChanged": false}
+    }
+  }
+}
+```
+
+**Resources list example:**
+
+```bash
+curl -s -X POST http://BROKER:8554/mcp \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "id": 2, "method": "resources/list"}'
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "resources": [
+      {"uri": "clauth://overview", "name": "System Overview", "description": "High-level summary of Clauth broker capabilities, available targets, services, and your agent permissions", "mimeType": "text/markdown"},
+      {"uri": "clauth://targets", "name": "SSH Targets", "description": "Available SSH targets with hosts, ports, allowed roles, TTLs, and auto-approve status", "mimeType": "text/markdown"},
+      {"uri": "clauth://services", "name": "HTTP Proxy Services", "description": "Configured web services accessible through the authenticated HTTP proxy with credential injection", "mimeType": "text/markdown"},
+      {"uri": "clauth://roles", "name": "Roles & Permissions", "description": "Available roles, their SSH principals, and what each role can do on targets", "mimeType": "text/markdown"},
+      {"uri": "clauth://status", "name": "Agent Status", "description": "Your current active certificates, sessions, and recent activity", "mimeType": "text/markdown"},
+      {"uri": "clauth://tools", "name": "Tools Reference", "description": "Quick reference for all available MCP tools with parameters and usage examples", "mimeType": "text/markdown"}
+    ]
+  }
+}
+```
+
+**Resources read example:**
+
+```bash
+curl -s -X POST http://BROKER:8554/mcp \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "resources/read",
+    "params": {"uri": "clauth://overview"}
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "contents": [
+      {
+        "uri": "clauth://overview",
+        "mimeType": "text/markdown",
+        "text": "# Clauth Agent Access Broker\n\nZero-trust infrastructure access for AI agents..."
+      }
+    ]
+  }
+}
+```
+
+**Tools call example:**
+
+```bash
+curl -s -X POST http://BROKER:8554/mcp \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": {"name": "list_targets", "arguments": {}}
+  }'
+```
+
+**Available resources:**
+
+| URI | Name | Content |
+|-----|------|---------|
+| `clauth://overview` | System Overview | Broker summary, target table, service table, tools table, quick start guide |
+| `clauth://targets` | SSH Targets | Per-target details: host, port, VLAN, roles, TTL, approval mode, usage examples |
+| `clauth://services` | HTTP Proxy Services | Per-service details: URL prefix, auth type, allowed methods/paths, usage examples |
+| `clauth://roles` | Roles & Permissions | Role-to-principal mappings, per-role capabilities, role selection guide |
+| `clauth://status` | Agent Status | Agent's active certs (count), active sessions (list), last 10 activity entries |
+| `clauth://tools` | Tools Reference | All 8 tools with parameters, return types, and usage hints |
+
+Resources return dynamically generated Markdown content reflecting the current policy
+configuration and live broker state. The `status` resource is personalized to the
+requesting agent.
+
+**Errors:**
+
+| Code | Meaning |
+|------|---------|
+| -32600 | Invalid JSON-RPC request |
+| -32601 | Unknown method |
+| -32602 | Invalid parameters (e.g., missing required field, unknown resource URI) |
+| -32603 | Internal error (signer down, SSH failure) |

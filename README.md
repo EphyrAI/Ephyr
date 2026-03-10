@@ -74,7 +74,9 @@ Auto-approve workflows let trusted agents get certificates instantly. For sensit
 
 ### MCP Server
 
-JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](https://modelcontextprotocol.io/) (2025-03-26). Eight tools give agents complete infrastructure access:
+JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](https://modelcontextprotocol.io/) (2025-03-26). Eight tools and six resources give agents complete infrastructure access with built-in self-discovery.
+
+**Tools:**
 
 | Tool | Description |
 |------|-------------|
@@ -86,6 +88,19 @@ JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](htt
 | `list_certs` | List active certificates for this agent |
 | `http_request` | Make an HTTP request through the authenticated proxy |
 | `list_services` | List services with automatic credential injection |
+
+**Resources** (agent self-discovery):
+
+| URI | Description |
+|-----|-------------|
+| `clauth://overview` | System summary, available targets, services, and agent permissions |
+| `clauth://targets` | SSH targets with hosts, ports, roles, and auto-approve status |
+| `clauth://services` | HTTP proxy services with credential injection details |
+| `clauth://roles` | Role definitions and SSH principal mappings |
+| `clauth://status` | Agent's active certificates, sessions, and recent activity |
+| `clauth://tools` | Quick reference for all MCP tools with parameters |
+
+Resources let agents understand the system without external documentation. An agent can read `clauth://overview` on first connection to discover what infrastructure is available.
 
 API key authentication with bcrypt hashing. Drop-in integration with Claude Code, Claude Desktop, or any MCP-compatible client.
 
@@ -417,7 +432,7 @@ All Unix socket endpoints above, plus:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/mcp` | JSON-RPC 2.0 (initialize, tools/list, tools/call) |
+| `POST` | `/mcp` | JSON-RPC 2.0 (initialize, tools/list, tools/call, resources/list, resources/read) |
 
 ## Project Structure
 
