@@ -1,5 +1,9 @@
 # Deployment Guide
 
+Step-by-step instructions for deploying Clauth from scratch, including
+building from source, system setup, CA key generation, target provisioning,
+MCP configuration, and operational verification.
+
 ---
 
 ## Prerequisites
@@ -82,9 +86,9 @@ mkdir -p /etc/clauth
 chown root:clauth-broker /etc/clauth
 chmod 750 /etc/clauth
 
-# Runtime directory (sockets) -- managed by tmpfiles.d in production
+# Runtime directory (sockets) -- managed by tmpfiles.d, see below
 mkdir -p /run/clauth
-chown clauth-broker:clauth-agents /run/clauth
+chown clauth-broker:clauth-broker /run/clauth
 chmod 755 /run/clauth
 
 # Audit log directory
@@ -298,11 +302,10 @@ WantedBy=multi-user.target
 
 ### Runtime Directory (tmpfiles.d)
 
-Both services share `/run/clauth/` for their Unix sockets. Do **not** use
-systemd's `RuntimeDirectory` on either unit -- if one service restarts, systemd
-would delete the directory and destroy the other service's socket.
-
-Instead, use tmpfiles.d for persistent directory ownership:
+Both services share `/run/clauth/` for their Unix sockets. Using systemd's
+`RuntimeDirectory` on either unit would cause it to delete the directory
+(and the other service's socket) on restart. Instead, use tmpfiles.d for
+persistent ownership:
 
 ```bash
 cat > /etc/tmpfiles.d/clauth.conf << 'EOF'
@@ -313,11 +316,7 @@ systemd-tmpfiles --create
 ```
 
 **Important:** Always restart the signer before the broker, since the broker
-connects to the signer's socket on startup:
-
-```bash
-systemctl restart clauth-signer && systemctl restart clauth-broker
-```
+connects to the signer's socket on startup.
 
 ### Dashboard Token Override
 
@@ -617,11 +616,9 @@ chmod 600 /var/lib/clauth/network_policy.json
 ```
 
 The broker loads this file at startup. See the Configuration Reference
-(`docs/configuration.md`) for the full `NetworkPolicy` field reference.
-Changes to `network_policy.json` require a broker restart.
-
-Services in `services.json` are loaded dynamically on each request, so
-adding or updating services does not require a restart.
+(`docs/configuration.md`) for full field documentation. No restart is
+required when adding or updating services in `services.json`, but changes
+to `network_policy.json` require a broker restart.
 
 ### Step 3: Test via MCP
 
