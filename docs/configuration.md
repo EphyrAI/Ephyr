@@ -339,7 +339,7 @@ systemctl restart sshd
 ## Service Configuration (services.json)
 
 The HTTP proxy subsystem allows MCP agents to make authenticated HTTP requests
-to internal services. Service configurations are stored in
+to internal and external services. Service configurations are stored in
 /var/lib/clauth/services.json and can be managed via the dashboard API or
 directly in the file.
 

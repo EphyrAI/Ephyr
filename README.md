@@ -53,8 +53,8 @@ Clauth runs as three isolated processes with strict privilege separation:
          |                                        |  credential injection
          v                                        v
 +------------------+               +-------------------------------+
-|  Target Host     |               |  Internal Service             |
-|  (SSH server)    |               |  (Gitea, Grafana, n8n, ...)   |
+|  Target Host     |               |  Web Services                 |
+|  (SSH server)    |               |  (GitHub, Gitea, Grafana, …)  |
 +------------------+               +-------------------------------+
 ```
 
@@ -108,9 +108,9 @@ Persistent SSH sessions reduce per-command latency from ~850ms (new cert + conne
 
 ### HTTP Proxy with Credential Injection
 
-A generic authenticated proxy for internal web services. Configure a service once with its URL prefix and credentials, and agents can make requests without ever seeing the token. The broker injects authentication headers transparently.
+A generic authenticated proxy for any web service -- internal or external. Configure a service once with its URL prefix and credentials, and agents can make requests without ever seeing the token. The broker injects authentication headers transparently.
 
-Supported auth types: Bearer token, HTTP Basic, custom header, query parameter. Network policy enforces RFC 1918 by default with configurable CIDR allow/deny lists. URL path and HTTP method restrictions available per-service.
+Works with internal services (Gitea, Grafana, Portainer) and external APIs (GitHub, cloud providers) alike. Network policy controls which destinations agents can reach: RFC 1918 private ranges are allowed by default, external access uses a configurable hostname allowlist. Supported auth types: Bearer token, HTTP Basic, custom header, query parameter. URL path and HTTP method restrictions available per-service.
 
 ### Real-time Dashboard
 
