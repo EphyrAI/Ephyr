@@ -71,7 +71,8 @@ type MCPInitializeResult struct {
 
 // MCPCapabilities advertises what the server supports.
 type MCPCapabilities struct {
-	Tools *MCPToolsCapability `json:"tools,omitempty"`
+	Tools     *MCPToolsCapability     `json:"tools,omitempty"`
+	Resources *MCPResourcesCapability `json:"resources,omitempty"`
 }
 
 // MCPToolsCapability describes tool support details.
@@ -246,6 +247,12 @@ func (s *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/call":
 		s.handleToolsCall(ctx, w, req, agent)
 
+	case "resources/list":
+		s.handleResourcesList(w, req)
+
+	case "resources/read":
+		s.handleResourcesRead(w, req, agent)
+
 	default:
 		s.writeJSONRPC(w, req.ID, nil, &jsonRPCError{
 			Code:    mcpErrMethodNotFound,
@@ -272,6 +279,9 @@ func (s *MCPServer) handleInitialize(w http.ResponseWriter, req jsonRPCRequest) 
 		ProtocolVersion: mcpProtocolVersion,
 		Capabilities: MCPCapabilities{
 			Tools: &MCPToolsCapability{
+				ListChanged: false,
+			},
+			Resources: &MCPResourcesCapability{
 				ListChanged: false,
 			},
 		},
