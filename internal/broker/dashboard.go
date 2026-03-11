@@ -204,7 +204,13 @@ func (bs *BrokerServer) dashboardRoutes() *http.ServeMux {
 	// --- Static file serving for the React dashboard ---
 	if bs.cfg.DashboardDir != "" {
 		fs := http.FileServer(http.Dir(bs.cfg.DashboardDir))
-		mux.Handle("/", fs)
+		// Wrap with no-cache headers to prevent stale dashboard
+		nocache := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			fs.ServeHTTP(w, r)
+		})
+		mux.Handle("/", nocache)
 	}
 
 	return mux
