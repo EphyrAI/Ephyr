@@ -503,6 +503,17 @@ Clauth is deliberately minimal. Three direct dependencies, all well-established:
 
 No external databases. No message queues. No container runtime. State lives in memory and on disk as JSON files.
 
+## Roadmap
+
+Planned features, roughly prioritized:
+
+- **Prometheus metrics + ntfy alerts** -- Export cert counts, request rates, error rates. Push alerts on denied requests or anomalous activity.
+- **Sub-agent tracking** -- Accept an optional context/session ID from MCP clients to distinguish parallel sub-agents (e.g. Claude Code's Agent tool). Track and display as a tree: parent agent → sub-agents → their actions. Requires a custom MCP extension since the protocol has no sub-session concept.
+- **OIDC / JWT agent auth** -- Alternative to API key auth for multi-tenant deployments.
+- **Certificate pinning to source IP** -- Bind certs to the requesting agent's IP for defense-in-depth.
+- **Target health checks** -- Periodic SSH connectivity probes with dashboard status.
+- **Audit log export** -- Ship structured logs to external SIEM (syslog, webhook, S3).
+
 ## Contributing
 
 Clauth started as a homelab project to solve a real problem: giving Claude Code safe, auditable access to infrastructure without scattering SSH keys everywhere. It turns out this is a problem a lot of people have.
