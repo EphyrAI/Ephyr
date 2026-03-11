@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sprawl/clauth/internal/audit"
+	"github.com/sprawl/clauth/internal/policy"
 )
 
 // MCPServer wraps the broker and provides MCP protocol handling via
@@ -124,6 +125,7 @@ type MCPAgent struct {
 	Roles         []string
 	MaxConcurrent int
 	AutoApprove   bool
+	Perms         *policy.ResolvedAgentPerms
 }
 
 // --- Standard MCP / JSON-RPC error codes ---
@@ -418,6 +420,15 @@ func (s *MCPServer) handleStreamingToolCall(ctx context.Context, w http.Response
 	flusher.Flush()
 }
 
+// getAgentPerms returns the resolved RBAC permissions for an agent.
+// Falls back to legacy mode (full access) if perms are nil.
+func (s *MCPServer) getAgentPerms(agent *MCPAgent) *policy.ResolvedAgentPerms {
+	if agent.Perms != nil {
+		return agent.Perms
+	}
+	return &policy.ResolvedAgentPerms{LegacyMode: true, Dashboard: policy.DashboardAdmin}
+}
+
 // handleFederatedToolCall forwards a tool call to a remote MCP server via the federator.
 func (s *MCPServer) handleFederatedToolCall(ctx context.Context, w http.ResponseWriter, req jsonRPCRequest, agent *MCPAgent, params MCPToolsCallParams) {
 	remoteName, toolName, ok := s.federator.ParseFederatedTool(params.Name)
@@ -438,6 +449,13 @@ func (s *MCPServer) handleFederatedToolCall(ctx context.Context, w http.Response
 	state.mu.RUnlock()
 	if !remoteEnabled {
 		s.writeJSONRPC(w, req.ID, errorResult("remote "+remoteName+" is disabled"), nil)
+		return
+	}
+
+	// RBAC: Check if agent has permission to access this remote and tool.
+	perms := s.getAgentPerms(agent)
+	if !perms.CanAccessRemote(remoteName, toolName) {
+		s.writeJSONRPC(w, req.ID, errorResult(fmt.Sprintf("access denied to remote %q tool %q", remoteName, toolName)), nil)
 		return
 	}
 

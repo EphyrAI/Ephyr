@@ -341,6 +341,25 @@ func (s *MCPServer) toolExec(ctx context.Context, agent *MCPAgent, args map[stri
 		return errorResult(fmt.Sprintf("unknown target: %s", target)), nil
 	}
 
+	// RBAC: Check target and role access.
+	perms := s.getAgentPerms(agent)
+	if !perms.CanAccessTarget(target) {
+		return errorResult(fmt.Sprintf("access denied to target %q", target)), nil
+	}
+	targetRoles := perms.GetTargetRoles(target)
+	if targetRoles != nil && len(targetRoles) > 0 {
+		roleAllowed := false
+		for _, r := range targetRoles {
+			if r == role {
+				roleAllowed = true
+				break
+			}
+		}
+		if !roleAllowed {
+			return errorResult(fmt.Sprintf("role %q is not permitted on target %q for this agent", role, target)), nil
+		}
+	}
+
 	// Validate: role is in agent's allowed roles.
 	roleInAgent := false
 	for _, r := range agent.Roles {
@@ -416,6 +435,25 @@ func (s *MCPServer) toolSessionCreate(ctx context.Context, agent *MCPAgent, args
 	s.broker.policyMu.RUnlock()
 	if !targetExists {
 		return errorResult(fmt.Sprintf("unknown target: %s", target)), nil
+	}
+
+	// RBAC: Check target and role access.
+	perms := s.getAgentPerms(agent)
+	if !perms.CanAccessTarget(target) {
+		return errorResult(fmt.Sprintf("access denied to target %q", target)), nil
+	}
+	targetRoles := perms.GetTargetRoles(target)
+	if targetRoles != nil && len(targetRoles) > 0 {
+		roleAllowed := false
+		for _, r := range targetRoles {
+			if r == role {
+				roleAllowed = true
+				break
+			}
+		}
+		if !roleAllowed {
+			return errorResult(fmt.Sprintf("role %q is not permitted on target %q for this agent", role, target)), nil
+		}
 	}
 
 	// Validate: role is in agent's allowed roles.
@@ -576,6 +614,16 @@ func (s *MCPServer) toolHTTPRequest(ctx context.Context, agent *MCPAgent, args m
 				if sv, ok := v.(string); ok {
 					headers[k] = sv
 				}
+			}
+		}
+	}
+
+	// RBAC: Check service access.
+	if s.proxyEngine != nil {
+		perms := s.getAgentPerms(agent)
+		if svc := s.proxyEngine.matchService(rawURL); svc != nil {
+			if !perms.CanAccessService(svc.Name, method) {
+				return errorResult(fmt.Sprintf("access denied to service %q with method %s", svc.Name, method)), nil
 			}
 		}
 	}

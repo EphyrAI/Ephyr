@@ -196,6 +196,9 @@ func (bs *BrokerServer) dashboardRoutes() *http.ServeMux {
 	mux.HandleFunc("POST /v1/dashboard/services/{name}/toggle", bs.handleToggleService)
 	mux.HandleFunc("POST /v1/dashboard/remotes/{name}/toggle", bs.handleToggleRemote)
 
+	// --- RBAC permissions ---
+	mux.HandleFunc("GET /v1/dashboard/permissions", bs.handleDashboardPermissions)
+
 	// --- Grant management ---
 	mux.HandleFunc("POST /v1/dashboard/grants/{id}/revoke", bs.handleRevokeGrant)
 	mux.HandleFunc("GET /v1/dashboard/settings/grants", bs.handleGetGrantSettings)
@@ -967,4 +970,66 @@ func (bs *BrokerServer) handleUpdateGrantSettings(w http.ResponseWriter, r *http
 		DefaultMCPTTL:     bs.grantStore.DefaultMCPTTL.String(),
 		ActiveGrants:      bs.grantStore.ActiveCount(),
 	})
+}
+
+// handleDashboardPermissions serves GET /v1/dashboard/permissions.
+// Returns resolved RBAC permissions for all configured agents.
+func (bs *BrokerServer) handleDashboardPermissions(w http.ResponseWriter, r *http.Request) {
+	bs.policyMu.RLock()
+	agentPerms := bs.policyCfg.AgentPerms
+	raw := bs.policyCfg.Raw
+	bs.policyMu.RUnlock()
+
+	type targetPerm struct {
+		Roles       []string `json:"roles"`
+		AutoApprove *bool    `json:"auto_approve,omitempty"`
+	}
+	type servicePerm struct {
+		Methods []string `json:"methods,omitempty"`
+	}
+	type remotePerm struct {
+		Tools []string `json:"tools,omitempty"`
+	}
+	type agentPermView struct {
+		LegacyMode bool                    `json:"legacy_mode"`
+		Dashboard  string                  `json:"dashboard"`
+		SSH        map[string]targetPerm   `json:"ssh"`
+		Services   map[string]servicePerm  `json:"services"`
+		Remotes    map[string]remotePerm   `json:"remotes"`
+		Inherits   []string                `json:"inherits,omitempty"`
+	}
+
+	result := make(map[string]agentPermView)
+	for name, perms := range agentPerms {
+		view := agentPermView{
+			LegacyMode: perms.LegacyMode,
+			SSH:        make(map[string]targetPerm),
+			Services:   make(map[string]servicePerm),
+			Remotes:    make(map[string]remotePerm),
+		}
+		// Dashboard level
+		switch perms.Dashboard {
+		case 1: view.Dashboard = "viewer"
+		case 2: view.Dashboard = "operator"
+		case 3: view.Dashboard = "admin"
+		default: view.Dashboard = "none"
+		}
+		for k, v := range perms.SSHAccess {
+			view.SSH[k] = targetPerm{Roles: v.Roles, AutoApprove: v.AutoApprove}
+		}
+		for k, v := range perms.ServiceAccess {
+			view.Services[k] = servicePerm{Methods: v.Methods}
+		}
+		for k, v := range perms.RemoteAccess {
+			view.Remotes[k] = remotePerm{Tools: v.Tools}
+		}
+		// Include inherits from raw policy
+		if agent, ok := raw.Agents[name]; ok {
+			view.Inherits = agent.Inherits
+		}
+		result[name] = view
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }

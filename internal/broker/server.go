@@ -395,12 +395,18 @@ func (bs *BrokerServer) startMCPListener() {
 				}
 			}
 		}
+		// Lookup resolved RBAC permissions for this agent.
+		var agentPerms *policy.ResolvedAgentPerms
+		if bs.policyCfg.AgentPerms != nil {
+			agentPerms = bs.policyCfg.AgentPerms[name]
+		}
 		auth.AddAgent(MCPAgentConfig{
 			Name:          name,
 			APIKeyHash:    agent.APIKeyHash,
 			Roles:         roles,
 			MaxConcurrent: agent.MaxConcurrentCerts,
 			AutoApprove:   true,
+			Perms:         agentPerms,
 		})
 	}
 	bs.policyMu.RUnlock()
