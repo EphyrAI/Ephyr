@@ -44,6 +44,7 @@ type ServiceConfig struct {
 	MaxResponseKB  int               `json:"max_response_kb"`  // max response size in KB (default 1024 = 1MB)
 	Timeout        int               `json:"timeout"`          // seconds, default 30
 	Description    string            `json:"description"`
+	Enabled        *bool             `json:"enabled,omitempty"` // nil or true = enabled, false = disabled
 	Headers        map[string]string `json:"headers"`          // extra headers to inject
 }
 
@@ -169,6 +170,11 @@ func (p *ProxyEngine) Do(agentName string, req *ProxyRequest) (*ProxyResult, err
 	// 4. Match against configured services.
 	svc := p.matchService(req.URL)
 
+
+	// Check if the matched service is disabled.
+	if svc != nil && svc.Enabled != nil && !*svc.Enabled {
+		return nil, fmt.Errorf("proxy: service %q is disabled", svc.Name)
+	}
 	// Check service-level method restrictions.
 	if svc != nil && len(svc.AllowedMethods) > 0 {
 		allowed := false
@@ -558,6 +564,19 @@ func (p *ProxyEngine) ListServices() []*ServiceConfig {
 }
 
 // save persists services to disk (atomic write: tmp + rename).
+
+// SaveServices persists the current service configs to disk.
+func (p *ProxyEngine) SaveServices() error {
+	return p.save()
+}
+
+// GetServiceDirect returns the actual service config pointer (not redacted) for in-place mutation.
+func (p *ProxyEngine) GetServiceDirect(name string) (*ServiceConfig, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	svc, ok := p.services[name]
+	return svc, ok
+}
 func (p *ProxyEngine) save() error {
 	p.mu.RLock()
 	data, err := json.MarshalIndent(p.services, "", "  ")

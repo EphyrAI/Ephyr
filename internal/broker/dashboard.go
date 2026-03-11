@@ -181,6 +181,10 @@ func (bs *BrokerServer) dashboardRoutes() *http.ServeMux {
 	mux.HandleFunc("DELETE /v1/dashboard/remotes/{name}", bs.handleDeleteRemote)
 	mux.HandleFunc("POST /v1/dashboard/remotes/{name}/refresh", bs.handleRefreshRemote)
 
+	// --- Toggle endpoints ---
+	mux.HandleFunc("POST /v1/dashboard/services/{name}/toggle", bs.handleToggleService)
+	mux.HandleFunc("POST /v1/dashboard/remotes/{name}/toggle", bs.handleToggleRemote)
+
 	// --- Static file serving for the React dashboard ---
 	if bs.cfg.DashboardDir != "" {
 		fs := http.FileServer(http.Dir(bs.cfg.DashboardDir))
@@ -730,4 +734,84 @@ func (bs *BrokerServer) handleRefreshRemote(w http.ResponseWriter, r *http.Reque
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "refreshing", "name": name})
+}
+
+// handleToggleService serves POST /v1/dashboard/services/{name}/toggle.
+func (bs *BrokerServer) handleToggleService(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if bs.proxyEngine == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "proxy not configured"})
+		return
+	}
+	svc, ok := bs.proxyEngine.GetServiceDirect(name)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "service not found"})
+		return
+	}
+	// Toggle: nil or true -> false, false -> true
+	newEnabled := true
+	if svc.Enabled == nil || *svc.Enabled {
+		newEnabled = false
+	}
+	svc.Enabled = &newEnabled
+	bs.proxyEngine.SaveServices()
+
+	bs.auditLog.LogEvent(audit.AuditEvent{
+		Severity:  audit.SeverityWarn,
+		EventType: "service_toggle",
+		Target:    name,
+		Details: map[string]string{
+			"enabled": fmt.Sprintf("%v", newEnabled),
+			"remote":  r.RemoteAddr,
+		},
+	})
+
+	bs.eventHub.Broadcast(Event{
+		Type: "service_toggle",
+		Data: map[string]string{
+			"name":    name,
+			"enabled": fmt.Sprintf("%v", newEnabled),
+		},
+	})
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"name": name, "enabled": newEnabled})
+}
+
+// handleToggleRemote serves POST /v1/dashboard/remotes/{name}/toggle.
+func (bs *BrokerServer) handleToggleRemote(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if bs.federator == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "federation not configured"})
+		return
+	}
+	state := bs.federator.getState(name)
+	if state == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "remote not found"})
+		return
+	}
+	state.mu.Lock()
+	state.Config.Enabled = !state.Config.Enabled
+	newEnabled := state.Config.Enabled
+	state.mu.Unlock()
+	bs.federator.save()
+
+	bs.auditLog.LogEvent(audit.AuditEvent{
+		Severity:  audit.SeverityWarn,
+		EventType: "remote_toggle",
+		Target:    name,
+		Details: map[string]string{
+			"enabled": fmt.Sprintf("%v", newEnabled),
+			"remote":  r.RemoteAddr,
+		},
+	})
+
+	bs.eventHub.Broadcast(Event{
+		Type: "remote_toggle",
+		Data: map[string]string{
+			"name":    name,
+			"enabled": fmt.Sprintf("%v", newEnabled),
+		},
+	})
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"name": name, "enabled": newEnabled})
 }

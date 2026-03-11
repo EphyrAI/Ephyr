@@ -1266,7 +1266,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
   return (
     <div>
       {/* Row 1: Access metrics */}
-      <div className="stats-row" style={{ marginBottom: '12px' }}>
+      <div className="stats-row" style={{ marginBottom: '12px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="stat-card green">
           <div className="stat-label">Access Granted</div>
           <div className="stat-value green">{summary.total_granted || 0}</div>
@@ -1285,7 +1285,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
       </div>
 
       {/* Row 2: Active resources */}
-      <div className="stats-row" style={{ marginBottom: '16px' }}>
+      <div className="stats-row" style={{ marginBottom: '16px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="stat-card green">
           <div className="stat-label">Active Agents</div>
           <div className="stat-value green">{summary.agents_active || 0}</div>
@@ -1304,7 +1304,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
       </div>
 
       {/* 3 management panels: Hosts | Services | MCP Servers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
         {/* Hosts panel */}
         <div className="panel">
           <div className="panel-header">
