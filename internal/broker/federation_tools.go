@@ -18,10 +18,16 @@ func (f *MCPFederator) FederatedToolDefinitions() []MCPToolDefinition {
 	var tools []MCPToolDefinition
 	for _, state := range f.remotes {
 		state.mu.RLock()
+		enabled := state.Config.Enabled
 		prefix := f.prefix(state)
 		offline := state.Status != RemoteStatusConnected
 		cached := state.Tools
 		state.mu.RUnlock()
+
+		// Skip disabled remotes entirely -- do not expose their tools.
+		if !enabled {
+			continue
+		}
 
 		for _, tool := range cached {
 			fedTool := MCPToolDefinition{

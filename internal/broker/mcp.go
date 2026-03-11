@@ -432,6 +432,15 @@ func (s *MCPServer) handleFederatedToolCall(ctx context.Context, w http.Response
 		return
 	}
 
+	// Block calls to disabled remotes.
+	state.mu.RLock()
+	remoteEnabled := state.Config.Enabled
+	state.mu.RUnlock()
+	if !remoteEnabled {
+		s.writeJSONRPC(w, req.ID, errorResult("remote "+remoteName+" is disabled"), nil)
+		return
+	}
+
 	// Check/issue MCP access grant (unless passthrough mode).
 	if s.broker.grantStore != nil {
 		grantMode := s.broker.grantStore.Mode

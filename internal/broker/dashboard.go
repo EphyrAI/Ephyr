@@ -372,8 +372,7 @@ func (bs *BrokerServer) handleDashboardSessions(w http.ResponseWriter, r *http.R
 			status := "active"
 			if g.Status == "revoked" {
 				status = "revoked"
-			}
-			if time.Now().After(g.ExpiresAt) {
+			} else if time.Now().After(g.ExpiresAt) {
 				status = "expired"
 			}
 
@@ -434,7 +433,7 @@ func (bs *BrokerServer) handleDashboardAudit(w http.ResponseWriter, r *http.Requ
 	}
 	defer f.Close()
 
-	// Read all lines, then take the last N (audit is append-only).
+	// Read all lines (audit is append-only).
 	var allLines []string
 	scanner := bufio.NewScanner(f)
 	// Increase buffer for long lines.
@@ -447,18 +446,13 @@ func (bs *BrokerServer) handleDashboardAudit(w http.ResponseWriter, r *http.Requ
 		allLines = append(allLines, line)
 	}
 
-	// Take last N lines (newest last in file).
-	start := 0
-	if len(allLines) > limit {
-		start = len(allLines) - limit
-	}
-	tail := allLines[start:]
-
-	// Parse and optionally filter.
+	// Filter by type first, then apply limit (fixes: limit before filter
+	// returned empty results for rare event types).
 	var events []json.RawMessage
-	for _, line := range tail {
+	// Walk backwards from newest to collect up to limit matching entries.
+	for i := len(allLines) - 1; i >= 0 && len(events) < limit; i-- {
+		line := allLines[i]
 		if typeFilter != "" {
-			// Quick check before full parse.
 			var evt map[string]interface{}
 			if err := json.Unmarshal([]byte(line), &evt); err != nil {
 				continue
@@ -470,6 +464,10 @@ func (bs *BrokerServer) handleDashboardAudit(w http.ResponseWriter, r *http.Requ
 			}
 		}
 		events = append(events, json.RawMessage(line))
+	}
+	// Reverse to restore chronological order (oldest first).
+	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+		events[i], events[j] = events[j], events[i]
 	}
 
 	if events == nil {

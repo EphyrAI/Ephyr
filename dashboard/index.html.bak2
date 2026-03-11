@@ -1,0 +1,3452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLAUTH // SSH Certificate Broker</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@xterm/xterm@5.5.0/css/xterm.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0e17;
+    --bg-card: #0d111a;
+    --bg-card-hover: #111827;
+    --border: #141a27;
+    --border-bright: #243044;
+    --text: #c9d1d9;
+    --text-dim: #6b7b8d;
+    --text-bright: #e6edf3;
+    --green: #00ff9d;
+    --cyan: #00d4ff;
+    --amber: #ffb700;
+    --red: #ff003c;
+    --purple: #a855f7;
+    --green-dim: rgba(0,255,157,0.1);
+    --cyan-dim: rgba(0,212,255,0.1);
+    --amber-dim: rgba(255,183,0,0.1);
+    --red-dim: rgba(255,0,60,0.1);
+    --purple-dim: rgba(168,85,247,0.1);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 10000;
+  }
+
+  /* Anti-print */
+  @media print { body { display: none !important; } }
+  @media print { .sensitive-revealed { visibility: hidden; } }
+
+  /* Privacy mode */
+  .privacy-mode .sensitive-revealed,
+  .privacy-mode .terminal-xterm-container { filter: blur(8px) !important; }
+  .document-blurred .sensitive-revealed,
+  .document-blurred .terminal-xterm-container { filter: blur(8px) !important; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+  /* Layout */
+  .app-layout { display: flex; height: 100vh; overflow: hidden; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 220px; min-width: 220px;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    z-index: 100;
+  }
+  .sidebar-brand { padding: 20px 16px; border-bottom: 1px solid var(--border); }
+  .sidebar-brand h1 {
+    font-family: 'Orbitron', sans-serif; font-size: 20px; font-weight: 800;
+    color: var(--green); letter-spacing: 3px;
+    text-shadow: 0 0 20px rgba(0,255,157,0.4), 0 0 40px rgba(0,255,157,0.2);
+    animation: headerGlow 3s ease-in-out infinite;
+  }
+  @keyframes headerGlow {
+    0%, 100% { text-shadow: 0 0 20px rgba(0,255,157,0.4), 0 0 40px rgba(0,255,157,0.2); }
+    50% { text-shadow: 0 0 30px rgba(0,255,157,0.6), 0 0 60px rgba(0,255,157,0.3), 0 0 80px rgba(0,255,157,0.1); }
+  }
+  .sidebar-brand .subtitle {
+    font-size: 8px; color: var(--text-dim); letter-spacing: 1.5px;
+    text-transform: uppercase; margin-top: 4px;
+  }
+  .sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+  .nav-group-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    padding: 12px 20px 4px;
+    opacity: 0.6;
+  }
+  .nav-group-label:first-child { padding-top: 4px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; cursor: pointer; color: var(--text-dim);
+    font-size: 11px; font-weight: 500; letter-spacing: 1px;
+    text-transform: uppercase; transition: all 0.2s;
+    border-left: 2px solid transparent; user-select: none;
+  }
+  .nav-item:hover { color: var(--text); background: rgba(255,255,255,0.02); }
+  .nav-item.active { color: var(--green); background: var(--green-dim); border-left-color: var(--green); }
+  .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+  /* Sidebar system stats */
+  .sidebar-stats { padding: 12px 16px; border-top: 1px solid var(--border); }
+  .sidebar-stats-title {
+    font-size: 9px; color: var(--text-dim); letter-spacing: 1px;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  .sys-stat-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px; font-size: 10px;
+  }
+  .sys-stat-label { color: var(--text-dim); width: 32px; }
+  .sys-stat-bar {
+    flex: 1; height: 4px; background: rgba(255,255,255,0.05);
+    border-radius: 2px; overflow: hidden;
+  }
+  .sys-stat-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .sys-stat-fill.ok { background: var(--green); }
+  .sys-stat-fill.warn { background: var(--amber); }
+  .sys-stat-fill.crit { background: var(--red); }
+  .sys-stat-val { color: var(--text-dim); width: 32px; text-align: right; font-size: 9px; }
+
+  .sidebar-footer {
+    padding: 12px 16px; border-top: 1px solid var(--border);
+    font-size: 10px; color: var(--text-dim);
+  }
+  .sidebar-footer .broker-info { margin-bottom: 4px; }
+  .sidebar-footer .broker-ip { color: var(--cyan); }
+
+  /* Main content */
+  .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+  /* Top bar */
+  .topbar {
+    height: 48px; min-height: 48px; display: flex;
+    align-items: center; justify-content: space-between;
+    padding: 0 20px; background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-title {
+    font-family: 'Orbitron', sans-serif; font-size: 13px;
+    font-weight: 600; color: var(--text-bright);
+    letter-spacing: 2px; text-transform: uppercase;
+  }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  .conn-status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px; letter-spacing: 1px;
+    text-transform: uppercase; font-weight: 600;
+  }
+  .conn-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .conn-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .conn-dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .conn-dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+  .privacy-toggle {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px; color: var(--text-dim); cursor: pointer;
+    padding: 4px 8px; border: 1px solid var(--border);
+    border-radius: 3px; background: none; transition: all 0.2s;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .privacy-toggle:hover { border-color: var(--purple); color: var(--purple); }
+  .privacy-toggle.active { border-color: var(--purple); color: var(--purple); background: var(--purple-dim); }
+
+  .logout-btn {
+    background: none; border: 1px solid var(--border);
+    color: var(--text-dim); padding: 4px 10px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    cursor: pointer; border-radius: 3px; transition: all 0.2s;
+  }
+  .logout-btn:hover { border-color: var(--red); color: var(--red); }
+
+  /* Content area */
+  .content { flex: 1; overflow-y: auto; padding: 20px; }
+
+  /* Stat cards */
+  .stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 16px; position: relative; overflow: hidden;
+  }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .stat-card.green::before { background: var(--green); }
+  .stat-card.cyan::before { background: var(--cyan); }
+  .stat-card.amber::before { background: var(--amber); }
+  .stat-card.red::before { background: var(--red); }
+  .stat-card.purple::before { background: var(--purple); }
+  .stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .stat-value { font-family: 'Orbitron', sans-serif; font-size: 28px; font-weight: 700; }
+  .stat-value.green { color: var(--green); }
+  .stat-value.cyan { color: var(--cyan); }
+  .stat-value.amber { color: var(--amber); }
+  .stat-value.red { color: var(--red); }
+  .stat-value.purple { color: var(--purple); }
+  .stat-sub { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
+  /* Panel layout */
+  .panels-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .panel {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-family: 'Orbitron', sans-serif; font-size: 11px;
+    font-weight: 600; color: var(--text-bright);
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+  .panel-count { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); font-weight: 400; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 8px; max-height: 400px; }
+
+  /* Session items */
+  .session-item {
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 4px; margin-bottom: 6px;
+    background: rgba(0,0,0,0.2); transition: border-color 0.2s;
+  }
+  .session-item:hover { border-color: var(--border-bright); }
+  .session-item.expired { opacity: 0.4; }
+  .session-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .session-route { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .session-agent { color: var(--green); font-weight: 600; }
+  .session-arrow { color: var(--text-dim); }
+  .session-target { color: var(--cyan); font-weight: 600; }
+  .session-cmd {
+    font-size: 10px; color: var(--text-dim); margin-bottom: 6px;
+    padding: 3px 6px; background: rgba(0,0,0,0.3);
+    border-radius: 2px; font-style: italic;
+  }
+  .session-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+  /* TTL Bar */
+  .ttl-bar-container { flex: 1; display: flex; align-items: center; gap: 8px; }
+  .ttl-bar { flex: 1; height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; position: relative; }
+  .ttl-bar-fill { height: 100%; border-radius: 2px; transition: width 1s linear; }
+  .ttl-bar-fill.high { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .ttl-bar-fill.mid { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
+  .ttl-bar-fill.low { background: var(--red); box-shadow: 0 0 4px var(--red); }
+  .ttl-text { font-size: 10px; font-weight: 600; min-width: 50px; text-align: right; }
+  .ttl-text.high { color: var(--green); }
+  .ttl-text.mid { color: var(--amber); }
+  .ttl-text.low { color: var(--red); }
+
+  /* Badges */
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 3px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
+    text-transform: uppercase; line-height: 1.4;
+  }
+  .badge-admin { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
+  .badge-operator { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
+  .badge-readonly { background: var(--cyan-dim); color: var(--cyan); border: 1px solid rgba(0,212,255,0.3); }
+  .badge-deploy { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+  .badge-default { background: rgba(255,255,255,0.05); color: var(--text-dim); border: 1px solid var(--border); }
+  .badge-grant { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
+  .badge-deny { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
+  .badge-expire { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
+  .badge-revoke { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
+  .badge-alert { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+  .badge-info { background: rgba(255,255,255,0.03); color: var(--text-dim); border: 1px solid var(--border); }
+  .badge-connect { background: var(--cyan-dim); color: var(--cyan); border: 1px solid rgba(0,212,255,0.3); }
+  .badge-active { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
+  .badge-revoked { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
+  .badge-expired { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
+
+  /* Buttons */
+  .btn {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    font-weight: 600; padding: 4px 10px; border-radius: 3px;
+    cursor: pointer; border: 1px solid; text-transform: uppercase;
+    letter-spacing: 0.5px; transition: all 0.2s; white-space: nowrap;
+  }
+  .btn-revoke { background: var(--red-dim); border-color: rgba(255,0,60,0.3); color: var(--red); }
+  .btn-revoke:hover { background: rgba(255,0,60,0.2); border-color: var(--red); box-shadow: 0 0 8px rgba(255,0,60,0.3); }
+  .btn-green { background: var(--green-dim); border-color: rgba(0,255,157,0.3); color: var(--green); }
+  .btn-green:hover { background: rgba(0,255,157,0.2); border-color: var(--green); box-shadow: 0 0 8px rgba(0,255,157,0.3); }
+  .btn-cyan { background: var(--cyan-dim); border-color: rgba(0,212,255,0.3); color: var(--cyan); }
+  .btn-cyan:hover { background: rgba(0,212,255,0.2); border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,212,255,0.3); }
+  .btn-amber { background: var(--amber-dim); border-color: rgba(255,183,0,0.3); color: var(--amber); }
+  .btn-amber:hover { background: rgba(255,183,0,0.2); border-color: var(--amber); box-shadow: 0 0 8px rgba(255,183,0,0.3); }
+  .btn-purple { background: var(--purple-dim); border-color: rgba(168,85,247,0.3); color: var(--purple); }
+  .btn-purple:hover { background: rgba(168,85,247,0.2); border-color: var(--purple); box-shadow: 0 0 8px rgba(168,85,247,0.3); }
+
+  /* Toggle switch */
+  .toggle-switch { position: relative; width: 40px; height: 20px; cursor: pointer; flex-shrink: 0; }
+  .toggle-switch input { display: none; }
+  .toggle-track {
+    position: absolute; inset: 0;
+    background: rgba(255,0,60,0.2); border: 1px solid rgba(255,0,60,0.4);
+    border-radius: 10px; transition: all 0.3s;
+  }
+  .toggle-switch input:checked + .toggle-track { background: rgba(0,255,157,0.2); border-color: rgba(0,255,157,0.4); }
+  .toggle-thumb {
+    position: absolute; width: 14px; height: 14px; top: 3px; left: 3px;
+    background: var(--red); border-radius: 50%;
+    transition: all 0.3s; box-shadow: 0 0 4px var(--red);
+  }
+  .toggle-switch input:checked ~ .toggle-thumb { left: 23px; background: var(--green); box-shadow: 0 0 4px var(--green); }
+
+  /* Host items */
+  .host-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: 4px; margin-bottom: 4px;
+    background: rgba(0,0,0,0.2); transition: border-color 0.2s;
+  }
+  .host-item:hover { border-color: var(--border-bright); }
+  .host-item.item-active {
+    border-left: 2px solid var(--green);
+    background: linear-gradient(90deg, rgba(0,255,157,0.04) 0%, transparent 60%);
+  }
+  .host-item.item-active-cyan {
+    border-left: 2px solid var(--cyan);
+    background: linear-gradient(90deg, rgba(0,212,255,0.04) 0%, transparent 60%);
+  }
+  .host-item.item-active-purple {
+    border-left: 2px solid var(--purple);
+    background: linear-gradient(90deg, rgba(168,85,247,0.04) 0%, transparent 60%);
+  }
+  .host-item.item-disabled {
+    opacity: 0.5;
+  }
+  .host-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .host-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s ease-in-out infinite; }
+  .status-dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .status-dot.unknown { background: var(--text-dim); }
+  .status-dot.idle { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: pulse 3s ease-in-out infinite; }
+  .host-name { font-weight: 600; color: var(--text-bright); font-size: 12px; }
+  .host-meta { font-size: 10px; color: var(--text-dim); }
+
+  /* Event terminal */
+  .event-terminal { background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .terminal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 16px; background: rgba(0,0,0,0.3);
+    border-bottom: 1px solid var(--border);
+  }
+  .terminal-title {
+    font-family: 'Orbitron', sans-serif; font-size: 11px;
+    font-weight: 600; color: var(--text-bright);
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+  .terminal-status { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--purple); letter-spacing: 1px; }
+  .terminal-body { padding: 8px 12px; max-height: 220px; overflow-y: auto; font-size: 11px; }
+  .event-line { padding: 3px 0; display: flex; gap: 8px; align-items: flex-start; line-height: 1.4; }
+  .event-time { color: var(--text-dim); min-width: 70px; flex-shrink: 0; }
+  .event-type { min-width: 60px; flex-shrink: 0; }
+  .event-detail { color: var(--text); word-break: break-word; }
+  .event-detail .agent-name { color: var(--green); }
+  .event-detail .target-name { color: var(--cyan); }
+  .event-detail .role-name { color: var(--amber); }
+
+  /* Host cards grid */
+  .hosts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+  .host-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 16px; transition: border-color 0.2s;
+  }
+  .host-card:hover { border-color: var(--border-bright); }
+  .host-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .host-card-name { display: flex; align-items: center; gap: 8px; }
+  .host-card-name h3 {
+    font-family: 'Orbitron', sans-serif; font-size: 13px;
+    font-weight: 600; color: var(--text-bright); letter-spacing: 1px;
+  }
+  .host-card-desc { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+  .host-card-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 10px; color: var(--text-dim); margin-bottom: 12px; }
+  .host-card-meta span { display: flex; align-items: center; gap: 4px; }
+  .host-card-sessions { border-top: 1px solid var(--border); padding-top: 10px; font-size: 11px; }
+  .host-card-sessions .sessions-label {
+    color: var(--text-dim); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+  }
+  .host-card-actions { display: flex; gap: 8px; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+
+  /* Agent cards */
+  .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+  .agent-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+  .agent-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .agent-card-name {
+    font-family: 'Orbitron', sans-serif; font-size: 14px;
+    font-weight: 600; color: var(--green); letter-spacing: 1px;
+  }
+  .agent-card-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 10px; color: var(--text-dim); margin-bottom: 10px; }
+  .agent-card-targets { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+  .agent-target-tag {
+    font-size: 9px; padding: 2px 6px; border-radius: 2px;
+    border: 1px solid rgba(0,212,255,0.3); color: var(--cyan);
+    background: var(--cyan-dim);
+  }
+  .agent-card-sessions { border-top: 1px solid var(--border); padding-top: 10px; }
+  .agent-session-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0; font-size: 11px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+
+  /* Sessions table */
+  .sessions-table { width: 100%; border-collapse: collapse; }
+  .sessions-table th {
+    text-align: left; padding: 10px 12px; font-size: 10px;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px;
+    border-bottom: 1px solid var(--border); font-weight: 600;
+    position: sticky; top: 0; background: var(--bg-card); z-index: 1;
+  }
+  .sessions-table td {
+    padding: 10px 12px; font-size: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.03); vertical-align: middle;
+  }
+  .sessions-table tr.inactive { opacity: 0.4; }
+  .sessions-table tr:hover { background: rgba(255,255,255,0.02); }
+
+  /* Audit log */
+  .audit-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter-btn {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    font-weight: 600; padding: 5px 12px; border-radius: 3px;
+    cursor: pointer; border: 1px solid var(--border);
+    background: rgba(0,0,0,0.2); color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.2s;
+  }
+  .filter-btn:hover { border-color: var(--border-bright); color: var(--text); }
+  .filter-btn.active { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+  .audit-table { width: 100%; border-collapse: collapse; }
+  .audit-table th {
+    text-align: left; padding: 10px 12px; font-size: 10px;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px;
+    border-bottom: 1px solid var(--border); font-weight: 600;
+    position: sticky; top: 0; background: var(--bg); z-index: 1;
+  }
+  .audit-table td {
+    padding: 8px 12px; font-size: 11px;
+    border-bottom: 1px solid rgba(255,255,255,0.03); vertical-align: middle;
+  }
+  .audit-table tr:hover { background: rgba(255,255,255,0.02); }
+
+  /* Token modal */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+    display: flex; align-items: center; justify-content: center; z-index: 9999;
+  }
+  .modal-box {
+    background: var(--bg-card); border: 1px solid var(--border-bright);
+    border-radius: 8px; padding: 32px; width: 380px;
+    box-shadow: 0 0 40px rgba(0,255,157,0.1);
+  }
+  .modal-box h2 {
+    font-family: 'Orbitron', sans-serif; font-size: 16px;
+    font-weight: 700; color: var(--green); letter-spacing: 2px;
+    margin-bottom: 8px; text-align: center;
+  }
+  .modal-box .modal-sub { font-size: 11px; color: var(--text-dim); text-align: center; margin-bottom: 20px; }
+  .modal-box input[type="text"],
+  .modal-box input[type="password"] {
+    width: 100%; padding: 10px 12px; background: rgba(0,0,0,0.4);
+    border: 1px solid var(--border-bright); border-radius: 4px;
+    color: var(--text-bright); font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; outline: none; margin-bottom: 16px; transition: border-color 0.2s;
+  }
+  .modal-box input:focus { border-color: var(--green); }
+  .modal-box .connect-btn {
+    width: 100%; padding: 10px; background: var(--green-dim);
+    border: 1px solid rgba(0,255,157,0.4); border-radius: 4px;
+    color: var(--green); font-family: 'Orbitron', sans-serif;
+    font-size: 12px; font-weight: 700; letter-spacing: 2px;
+    cursor: pointer; text-transform: uppercase; transition: all 0.2s;
+  }
+  .modal-box .connect-btn:hover { background: rgba(0,255,157,0.2); box-shadow: 0 0 12px rgba(0,255,157,0.3); }
+  .modal-error { color: var(--red); font-size: 11px; text-align: center; margin-bottom: 12px; }
+
+  /* Slide-out config panel */
+  .slideout-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 5000; opacity: 0; transition: opacity 0.3s;
+  }
+  .slideout-overlay.open { opacity: 1; }
+  .slideout-panel {
+    position: fixed; top: 0; right: -480px; bottom: 0;
+    width: 480px; background: var(--bg-card);
+    border-left: 1px solid var(--border-bright);
+    z-index: 5001; transition: right 0.3s ease;
+    display: flex; flex-direction: column;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+  }
+  .slideout-panel.open { right: 0; }
+  .slideout-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+  }
+  .slideout-header h3 {
+    font-family: 'Orbitron', sans-serif; font-size: 14px;
+    font-weight: 600; color: var(--text-bright); letter-spacing: 1px;
+  }
+  .slideout-close {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    width: 28px; height: 28px; border-radius: 3px; cursor: pointer;
+    font-size: 14px; display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+  }
+  .slideout-close:hover { border-color: var(--red); color: var(--red); }
+  .slideout-body { flex: 1; overflow-y: auto; padding: 20px; }
+  .slideout-footer {
+    padding: 16px 20px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; justify-content: flex-end;
+  }
+
+  /* Form fields */
+  .form-group { margin-bottom: 16px; }
+  .form-label {
+    display: block; font-size: 10px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;
+  }
+  .form-input {
+    width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-bright); font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; outline: none; transition: border-color 0.2s;
+  }
+  .form-input:focus { border-color: var(--cyan); }
+  .form-input::placeholder { color: var(--text-dim); }
+  .form-select {
+    width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-bright); font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; outline: none; cursor: pointer;
+  }
+  .form-textarea {
+    width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-bright); font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; outline: none; resize: vertical; min-height: 80px;
+    transition: border-color 0.2s;
+  }
+  .form-textarea:focus { border-color: var(--cyan); }
+  .form-row { display: flex; gap: 12px; }
+  .form-row .form-group { flex: 1; }
+  .form-checkbox {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-size: 12px; color: var(--text);
+  }
+  .form-checkbox input[type="checkbox"] {
+    width: 16px; height: 16px; accent-color: var(--green); cursor: pointer;
+  }
+  .form-section-title {
+    font-size: 11px; font-weight: 600; color: var(--cyan);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin: 20px 0 12px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Sensitive field */
+  .sensitive-field { margin-bottom: 8px; }
+  .sensitive-label { display: block; font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .sensitive-masked {
+    display: inline-block; padding: 6px 10px; background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border); border-radius: 3px;
+    color: var(--text-dim); cursor: pointer; font-size: 12px;
+    transition: all 0.2s; width: 100%;
+  }
+  .sensitive-masked:hover { border-color: var(--cyan); color: var(--cyan); }
+  .sensitive-revealed {
+    display: inline-block; padding: 6px 10px; background: rgba(0,212,255,0.05);
+    border: 1px solid rgba(0,212,255,0.3); border-radius: 3px;
+    color: var(--cyan); cursor: pointer; font-size: 12px;
+    user-select: none; -webkit-user-select: none;
+    transition: filter 0.3s; width: 100%;
+  }
+
+  /* Terminal panel */
+  .terminal-panel { display: flex; flex-direction: column; height: 100%; }
+  .terminal-tabs {
+    display: flex; gap: 2px; padding: 0 8px; background: rgba(0,0,0,0.3);
+    border-bottom: 1px solid var(--border); min-height: 36px; align-items: flex-end;
+  }
+  .terminal-tab {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px; font-size: 11px; cursor: pointer;
+    color: var(--text-dim); background: rgba(0,0,0,0.2);
+    border: 1px solid var(--border); border-bottom: none;
+    border-radius: 4px 4px 0 0; transition: all 0.2s;
+  }
+  .terminal-tab.active { color: var(--green); background: var(--bg-card); border-color: var(--border-bright); }
+  .terminal-tab .tab-close {
+    font-size: 10px; opacity: 0.5; cursor: pointer;
+    width: 14px; height: 14px; display: flex;
+    align-items: center; justify-content: center;
+    border-radius: 2px;
+  }
+  .terminal-tab .tab-close:hover { opacity: 1; background: rgba(255,0,60,0.2); color: var(--red); }
+  .terminal-tab-add {
+    padding: 6px 10px; font-size: 14px; cursor: pointer;
+    color: var(--text-dim); border: none; background: none;
+    transition: color 0.2s; font-family: 'JetBrains Mono', monospace;
+  }
+  .terminal-tab-add:hover { color: var(--green); }
+
+  .terminal-connect-form {
+    padding: 20px; max-width: 500px;
+  }
+  .terminal-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 12px; background: rgba(0,0,0,0.3);
+    border-bottom: 1px solid var(--border); font-size: 10px;
+  }
+  .terminal-toolbar-left { display: flex; align-items: center; gap: 12px; }
+  .terminal-toolbar-right { display: flex; align-items: center; gap: 8px; }
+  .terminal-xterm-container {
+    flex: 1; padding: 4px; background: #000;
+    transition: filter 0.3s;
+  }
+  .terminal-xterm-container.fullscreen {
+    position: fixed; inset: 0; z-index: 9000;
+    padding: 8px;
+  }
+
+  /* Settings */
+  .settings-section {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 20px; margin-bottom: 16px;
+  }
+  .settings-section-title {
+    font-family: 'Orbitron', sans-serif; font-size: 12px;
+    font-weight: 600; color: var(--text-bright); letter-spacing: 1px;
+    text-transform: uppercase; margin-bottom: 16px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .settings-label { font-size: 12px; color: var(--text); }
+  .settings-value { font-size: 12px; color: var(--cyan); }
+
+  /* Access toggle button */
+  .access-btn {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    font-weight: 600; padding: 4px 10px; border-radius: 3px;
+    cursor: pointer; border: 1px solid; text-transform: uppercase;
+    letter-spacing: 0.5px; transition: all 0.2s; white-space: nowrap;
+  }
+  .access-btn.on { background: var(--green-dim); border-color: rgba(0,255,157,0.3); color: var(--green); }
+  .access-btn.on:hover { background: rgba(255,0,60,0.1); border-color: rgba(255,0,60,0.3); color: var(--red); }
+  .access-btn.off { background: var(--red-dim); border-color: rgba(255,0,60,0.3); color: var(--red); }
+  .access-btn.off:hover { background: rgba(0,255,157,0.1); border-color: rgba(0,255,157,0.3); color: var(--green); }
+
+  .panel-full { grid-column: 1 / -1; }
+  .empty-state { text-align: center; padding: 30px; color: var(--text-dim); font-size: 12px; }
+
+  /* Loading spinner */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading { display: flex; align-items: center; justify-content: center; padding: 40px; color: var(--text-dim); gap: 10px; }
+  .loading::before {
+    content: ''; width: 16px; height: 16px;
+    border: 2px solid var(--border); border-top-color: var(--green);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+
+  /* Agent status animations */
+  @keyframes activePulse {
+    0%, 100% { box-shadow: 0 0 6px var(--green); }
+    50% { box-shadow: 0 0 12px var(--green), 0 0 20px rgba(0,255,157,0.3); }
+  }
+  .status-dot.active-anim { animation: activePulse 1.5s ease-in-out infinite; }
+
+  /* VLAN colors */
+  .vlan-10 { color: #94a3b8; }
+  .vlan-20 { color: #00ff9d; }
+  .vlan-30 { color: #ff6b35; }
+  .vlan-40 { color: #ffb700; }
+  .vlan-50 { color: #00d4ff; }
+  .vlan-60 { color: #a855f7; }
+  .vlan-70 { color: #ff003c; }
+  .vlan-99 { color: #475569; }
+  .vlan-100 { color: #00d4ff; }
+
+  /* Canvas secret */
+  .canvas-secret-container { display: inline-block; }
+
+  /* Activity feed */
+  .activity-feed { display: flex; flex-direction: column; gap: 4px; }
+  .activity-entry {
+    display: grid; grid-template-columns: 80px 90px auto 120px 70px 60px;
+    align-items: center; gap: 8px; padding: 8px 12px;
+    border: 1px solid var(--border); border-radius: 4px;
+    background: rgba(0,0,0,0.2); transition: border-color 0.2s;
+    font-size: 11px; cursor: pointer;
+  }
+  .activity-entry:hover { border-color: var(--border-bright); }
+  .activity-entry.error-entry { border-left: 2px solid var(--red); background: rgba(255,0,60,0.03); }
+  .activity-entry .act-time { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
+  .activity-entry .act-agent { color: var(--green); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .activity-entry .act-details { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .activity-entry .act-target { color: var(--cyan); font-size: 10px; white-space: nowrap; }
+  .activity-entry .act-duration { color: var(--text-dim); font-size: 10px; text-align: right; }
+  .activity-entry .act-status { text-align: center; }
+  .activity-expanded {
+    padding: 10px 12px 10px 92px; font-size: 11px; color: var(--text-dim);
+    background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 4px 4px; margin-top: -5px;
+    word-break: break-word; white-space: pre-wrap; line-height: 1.6;
+  }
+  .activity-filters {
+    display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
+  }
+  .activity-filters select, .activity-filters input[type="text"] {
+    padding: 5px 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+    border-radius: 3px; color: var(--text-bright); font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; outline: none;
+  }
+  .activity-filters select:focus, .activity-filters input[type="text"]:focus { border-color: var(--cyan); }
+  .activity-filters label { font-size: 10px; color: var(--text-dim); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+
+  /* Action type badges */
+  .badge-exec { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
+  .badge-http-proxy { background: var(--cyan-dim); color: var(--cyan); border: 1px solid rgba(0,212,255,0.3); }
+  .badge-session-open { background: rgba(0,212,255,0.08); color: #5ce0ff; border: 1px solid rgba(92,224,255,0.3); }
+  .badge-session-close { background: rgba(255,255,255,0.03); color: var(--text-dim); border: 1px solid var(--border); }
+  .badge-cert-issued { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
+  .badge-cert-denied { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
+  .badge-mcp-call { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+  .badge-success { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
+  .badge-error { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
+
+  /* Agent activity stats */
+  .agent-activity-stats {
+    display: flex; gap: 16px; font-size: 10px; color: var(--text-dim);
+    margin-bottom: 10px; flex-wrap: wrap;
+  }
+  .agent-activity-stats .stat-item { display: flex; align-items: center; gap: 4px; }
+  .agent-activity-stats .stat-val { font-weight: 600; }
+  .agent-mini-timeline {
+    display: flex; gap: 3px; align-items: center; margin-bottom: 10px;
+    padding: 6px 0;
+  }
+  .timeline-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    transition: transform 0.2s; cursor: pointer; position: relative;
+  }
+  .timeline-dot:hover { transform: scale(1.5); }
+  .timeline-dot.dot-exec { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .timeline-dot.dot-http_proxy { background: var(--cyan); box-shadow: 0 0 4px var(--cyan); }
+  .timeline-dot.dot-session_open { background: #5ce0ff; box-shadow: 0 0 4px #5ce0ff; }
+  .timeline-dot.dot-session_close { background: var(--text-dim); }
+  .timeline-dot.dot-cert_issued { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .timeline-dot.dot-cert_denied { background: var(--red); box-shadow: 0 0 4px var(--red); }
+  .timeline-dot.dot-mcp_call { background: var(--purple); box-shadow: 0 0 4px var(--purple); }
+  .timeline-dot.dot-error { background: var(--red); box-shadow: 0 0 4px var(--red); }
+
+  /* Services grid */
+  .services-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+  .service-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 16px; transition: border-color 0.2s;
+  }
+  .service-card:hover { border-color: var(--border-bright); }
+  .service-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .service-card-name {
+    font-family: 'Orbitron', sans-serif; font-size: 13px;
+    font-weight: 600; color: var(--text-bright); letter-spacing: 1px;
+  }
+  .service-card-url { font-size: 11px; color: var(--cyan); margin-bottom: 8px; word-break: break-all; }
+  .service-card-desc { font-size: 11px; color: var(--text-dim); margin-bottom: 10px; }
+  .service-card-actions { border-top: 1px solid var(--border); padding-top: 10px; display: flex; gap: 8px; }
+
+  /* Auth type badges */
+  .badge-auth-bearer { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
+  .badge-auth-basic { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
+  .badge-auth-header { background: var(--cyan-dim); color: var(--cyan); border: 1px solid rgba(0,212,255,0.3); }
+  .badge-auth-query { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+  .badge-auth-none { background: rgba(255,255,255,0.03); color: var(--text-dim); border: 1px solid var(--border); }
+
+  /* Remote status badges */
+  .badge-status-connected { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
+  .badge-status-disconnected { background: rgba(255,255,255,0.03); color: var(--text-dim); border: 1px solid var(--border); }
+  .badge-status-error { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
+  .badge-status-initializing { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
+
+  /* Remote card extras */
+  .remote-card-stats { display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); margin-bottom: 10px; }
+  .remote-card-stats span { display: flex; align-items: center; gap: 4px; }
+  .remote-card-stats .stat-count { color: var(--text-bright); font-weight: 500; }
+  .remote-card-error { font-size: 10px; color: var(--red); margin-bottom: 10px; padding: 6px 8px; background: var(--red-dim); border-radius: 3px; word-break: break-all; }
+  .remote-card-refresh { font-size: 10px; color: var(--text-dim); margin-bottom: 10px; }
+
+  /* Overview activity section */
+  .overview-activity-section {
+    margin-top: 16px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  }
+  .overview-activity-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  .overview-activity-body { padding: 8px; }
+  .overview-activity-stats {
+    display: flex; gap: 16px; padding: 0 16px 12px; font-size: 11px; color: var(--text-dim);
+  }
+  .overview-activity-stats span { display: flex; align-items: center; gap: 4px; }
+  .overview-compact-entry {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .overview-compact-entry:last-child { border-bottom: none; }
+
+  /* Responsive breakpoints */
+  @media (max-width: 1400px) {
+    .stats-row { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 1100px) {
+    .sidebar { width: 180px; }
+    .main-area { margin-left: 180px; }
+    .panels-row { grid-template-columns: 1fr; }
+    .hosts-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 900px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .sidebar { display: none; }
+    .main-area { margin-left: 0; }
+  }
+  @media (max-width: 600px) {
+    .stats-row { grid-template-columns: 1fr; }
+    .services-grid { grid-template-columns: 1fr; }
+    .content { padding: 12px; }
+    .slideout-panel { width: 100%; right: -100%; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://unpkg.com/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// API HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function getBaseUrl() { return window.location.origin; }
+function getWsUrl() {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}`;
+}
+
+async function api(method, path, body, token) {
+  const url = `${getBaseUrl()}${path}`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  if (res.status === 401) { localStorage.removeItem('clauth_token'); throw new Error('UNAUTHORIZED'); }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TIME HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function parseTTL(expiresAt, now) {
+  if (!expiresAt) return 0;
+  return Math.max(0, Math.floor((new Date(expiresAt).getTime() - now) / 1000));
+}
+
+function formatTTL(seconds) {
+  if (seconds <= 0) return 'EXPIRED';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function ttlClass(remaining, maxTTL) {
+  if (maxTTL <= 0) return 'mid';
+  const pct = remaining / maxTTL;
+  if (pct > 0.5) return 'high';
+  if (pct > 0.2) return 'mid';
+  return 'low';
+}
+
+function ttlPct(remaining, maxTTL) {
+  if (maxTTL <= 0) return 0;
+  return Math.min(100, Math.max(0, (remaining / maxTTL) * 100));
+}
+
+function computeMaxTTL(issuedAt, expiresAt) {
+  if (!issuedAt || !expiresAt) return 3600;
+  return Math.max(1, Math.floor((new Date(expiresAt).getTime() - new Date(issuedAt).getTime()) / 1000));
+}
+
+function relativeTime(ts) {
+  if (!ts) return '';
+  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (diff < 0) return 'just now';
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function getVlanClass(vlan) {
+  const v = parseInt(vlan);
+  if ([10,20,30,40,50,60,70,99,100].includes(v)) return `vlan-${v}`;
+  return '';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SHARED COMPONENTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function RoleBadge({ role }) {
+  if (!role) return null;
+  const r = role.toLowerCase();
+  let cls = 'badge-default';
+  if (r === 'admin') cls = 'badge-admin';
+  else if (r === 'operator') cls = 'badge-operator';
+  else if (r === 'readonly' || r === 'read-only' || r === 'read') cls = 'badge-readonly';
+  else if (r === 'deploy') cls = 'badge-deploy';
+  return <span className={`badge ${cls}`}>{role}</span>;
+}
+
+function EventTypeBadge({ type }) {
+  if (!type) return null;
+  const t = type.toLowerCase();
+  let cls = 'badge-info';
+  if (t.includes('grant') || t === 'cert_issued') cls = 'badge-grant';
+  else if (t.includes('deny') || t.includes('denied')) cls = 'badge-deny';
+  else if (t.includes('expire')) cls = 'badge-expire';
+  else if (t.includes('revoke') || t.includes('revoked')) cls = 'badge-revoke';
+  else if (t.includes('alert')) cls = 'badge-alert';
+  else if (t.includes('connect')) cls = 'badge-connect';
+  return <span className={`badge ${cls}`}>{type}</span>;
+}
+
+function StatusBadge({ status }) {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  let cls = 'badge-default';
+  if (s === 'active') cls = 'badge-active';
+  else if (s === 'revoked') cls = 'badge-revoked';
+  else if (s === 'expired') cls = 'badge-expired';
+  return <span className={`badge ${cls}`}>{status}</span>;
+}
+
+function StatusDot({ status, animated }) {
+  const s = (status || '').toLowerCase();
+  let cls = 'unknown';
+  if (s === 'online' || s === 'active' || s === 'healthy') cls = 'online';
+  else if (s === 'offline' || s === 'down' || s === 'error') cls = 'offline';
+  else if (s === 'idle') cls = 'idle';
+  const extra = animated ? ' active-anim' : '';
+  return <span className={`status-dot ${cls}${extra}`} />;
+}
+
+function TTLBar({ remaining, maxTTL }) {
+  const cls = ttlClass(remaining, maxTTL);
+  const pct = ttlPct(remaining, maxTTL);
+  return (
+    <div className="ttl-bar-container">
+      <div className="ttl-bar">
+        <div className={`ttl-bar-fill ${cls}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className={`ttl-text ${cls}`}>{formatTTL(remaining)}</span>
+    </div>
+  );
+}
+
+function ToggleSwitch({ checked, onChange }) {
+  return (
+    <label className="toggle-switch" onClick={(e) => e.stopPropagation()}>
+      <input type="checkbox" checked={checked} onChange={onChange} />
+      <div className="toggle-track" />
+      <div className="toggle-thumb" />
+    </label>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ANTI-SCREEN-CAPTURE COMPONENTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function SensitiveField({ value, label }) {
+  const [revealed, setRevealed] = useState(false);
+  const timerRef = useRef(null);
+
+  const reveal = () => {
+    setRevealed(true);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setRevealed(false), 5000);
+  };
+
+  useEffect(() => { return () => clearTimeout(timerRef.current); }, []);
+
+  if (!value) return (
+    <div className="sensitive-field">
+      {label && <span className="sensitive-label">{label}</span>}
+      <span className="sensitive-masked" style={{ color: 'var(--text-dim)', cursor: 'default' }}>not set</span>
+    </div>
+  );
+
+  return (
+    <div className="sensitive-field">
+      {label && <span className="sensitive-label">{label}</span>}
+      {revealed ? (
+        <span className="sensitive-revealed" onClick={() => setRevealed(false)}>{value}</span>
+      ) : (
+        <span className="sensitive-masked" onClick={reveal}>
+          {'\u2022'.repeat(Math.min(value.length, 20))} [click to reveal]
+        </span>
+      )}
+    </div>
+  );
+}
+
+function CanvasSecret({ value, width = 300, height = 20 }) {
+  const canvasRef = useRef(null);
+  const [show, setShow] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (show && canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      ctx.clearRect(0, 0, width, height);
+      ctx.font = '13px "JetBrains Mono"';
+      ctx.fillStyle = '#00ff9d';
+      ctx.fillText(value, 4, 15);
+    }
+  }, [show, value, width, height]);
+
+  useEffect(() => { return () => clearTimeout(timerRef.current); }, []);
+
+  const handleShow = () => {
+    setShow(true);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setShow(false), 5000);
+  };
+
+  return (
+    <span className="canvas-secret-container">
+      {show ? (
+        <canvas ref={canvasRef} width={width} height={height}
+          style={{ cursor: 'pointer', verticalAlign: 'middle' }}
+          onClick={() => setShow(false)} />
+      ) : (
+        <span onClick={handleShow}
+          style={{ cursor: 'pointer', color: '#475569', fontSize: '12px' }}>
+          {'\u2022'.repeat(16)} [click to reveal]
+        </span>
+      )}
+    </span>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ACTION TYPE BADGE (for activity)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function ActionTypeBadge({ type }) {
+  if (!type) return null;
+  const t = type.toLowerCase().replace(/[^a-z_]/g, '');
+  const map = {
+    exec: 'badge-exec',
+    http_proxy: 'badge-http-proxy',
+    session_open: 'badge-session-open',
+    session_close: 'badge-session-close',
+    cert_issued: 'badge-cert-issued',
+    cert_denied: 'badge-cert-denied',
+    mcp_call: 'badge-mcp-call',
+  };
+  const cls = map[t] || 'badge-default';
+  return <span className={`badge ${cls}`}>{type}</span>;
+}
+
+function ActivityStatusBadge({ status }) {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  const cls = s === 'error' ? 'badge-error' : 'badge-success';
+  return <span className={`badge ${cls}`} style={{ fontSize: '9px', padding: '1px 6px' }}>{status}</span>;
+}
+
+function AuthTypeBadge({ authType }) {
+  if (!authType) return null;
+  const t = authType.toLowerCase();
+  const map = { bearer: 'badge-auth-bearer', basic: 'badge-auth-basic', header: 'badge-auth-header', query: 'badge-auth-query', none: 'badge-auth-none' };
+  const cls = map[t] || 'badge-auth-none';
+  return <span className={`badge ${cls}`}>{authType}</span>;
+}
+
+function RemoteStatusBadge({ status }) {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  const map = { connected: 'badge-status-connected', disconnected: 'badge-status-disconnected', error: 'badge-status-error', initializing: 'badge-status-initializing' };
+  const cls = map[s] || 'badge-status-disconnected';
+  return <span className={`badge ${cls}`}>{status}</span>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIDEBAR SYSTEM STATS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function SidebarStats({ summary }) {
+  const cpu = summary.cpu_percent || 0;
+  const mem = summary.mem_percent || 0;
+  const disk = summary.disk_percent || 0;
+
+  const barClass = (v) => v > 85 ? 'crit' : v > 60 ? 'warn' : 'ok';
+
+  return (
+    <div className="sidebar-stats">
+      <div className="sidebar-stats-title">Command VM</div>
+      {[
+        { label: 'CPU', val: cpu },
+        { label: 'MEM', val: mem },
+        { label: 'DISK', val: disk },
+      ].map(s => (
+        <div key={s.label} className="sys-stat-row">
+          <span className="sys-stat-label">{s.label}</span>
+          <div className="sys-stat-bar">
+            <div className={`sys-stat-fill ${barClass(s.val)}`} style={{ width: `${s.val}%` }} />
+          </div>
+          <span className="sys-stat-val">{Math.round(s.val)}%</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT TERMINAL
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function EventTerminal({ events }) {
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [events.length]);
+
+  return (
+    <div className="event-terminal">
+      <div className="terminal-header">
+        <span className="terminal-title">Broker Event Stream</span>
+        <div className="terminal-status">
+          <span className="status-dot online" style={{ width: '6px', height: '6px' }} />
+          STREAMING
+        </div>
+      </div>
+      <div className="terminal-body" ref={bodyRef}>
+        {events.length === 0 ? (
+          <div className="empty-state" style={{ padding: '16px' }}>Waiting for events...</div>
+        ) : events.map((e, i) => {
+          const type = e.type || e.event_type || 'info';
+          const data = e.data || e;
+          return (
+            <div key={i} className="event-line">
+              <span className="event-time">{relativeTime(e.timestamp)}</span>
+              <span className="event-type"><EventTypeBadge type={type} /></span>
+              <span className="event-detail">
+                {data.agent && <span className="agent-name">{data.agent}</span>}
+                {data.agent && data.target && ' \u2192 '}
+                {data.target && <span className="target-name">{data.target}</span>}
+                {data.role && <> as <span className="role-name">{data.role}</span></>}
+                {data.reason && <> &mdash; {data.reason}</>}
+                {data.message && <> {data.message}</>}
+                {!data.agent && !data.target && !data.reason && !data.message && (
+                  <span>{JSON.stringify(data).substring(0, 120)}</span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1. OVERVIEW VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onRevoke, token }) {
+  const activeSessions = (sessions || []).filter(s => s.status === 'active');
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [actSummary, setActSummary] = useState({});
+  const [remotes, setRemotes] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/remotes', null, token);
+        setRemotes((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+      } catch {}
+    })();
+  }, [token]);
+  const [services, setServices] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/services', null, token);
+        setServices((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+      } catch {}
+    })();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const fetchOvActivity = async () => {
+      try {
+        const [entries, sumData] = await Promise.all([
+          api('GET', '/v1/dashboard/activity?limit=5', null, token),
+          api('GET', '/v1/dashboard/activity/summary', null, token),
+        ]);
+        setRecentActivity(entries || []);
+        setActSummary(sumData || {});
+      } catch {}
+    };
+    fetchOvActivity();
+    const iv = setInterval(fetchOvActivity, 5000);
+    return () => clearInterval(iv);
+  }, [token]);
+
+  const handleToggleService = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/services/${encodeURIComponent(name)}/toggle`, null, token);
+      setServices(prev => prev.map(s => s.name === name ? { ...s, enabled: result.enabled } : s));
+    } catch {}
+  };
+
+  const handleToggleRemote = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/toggle`, null, token);
+      setRemotes(prev => prev.map(r => r.name === name ? { ...r, enabled: result.enabled } : r));
+    } catch {}
+  };
+
+  return (
+    <div>
+      {/* Row 1: Access metrics */}
+      <div className="stats-row" style={{ marginBottom: '12px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div className="stat-card green">
+          <div className="stat-label">Access Granted</div>
+          <div className="stat-value green">{summary.total_granted || 0}</div>
+          <div className="stat-sub">total certificates</div>
+        </div>
+        <div className="stat-card amber">
+          <div className="stat-label">Pending</div>
+          <div className="stat-value amber">{summary.pending_requests || 0}</div>
+          <div className="stat-sub">awaiting approval</div>
+        </div>
+        <div className="stat-card red">
+          <div className="stat-label">Denied</div>
+          <div className="stat-value red">{summary.total_denied || 0}</div>
+          <div className="stat-sub">of {(summary.total_granted || 0) + (summary.total_denied || 0)} total</div>
+        </div>
+      </div>
+
+      {/* Row 2: Active resources */}
+      <div className="stats-row" style={{ marginBottom: '16px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div className="stat-card green">
+          <div className="stat-label">Active Agents</div>
+          <div className="stat-value green">{summary.agents_active || 0}</div>
+          <div className="stat-sub">connected</div>
+        </div>
+        <div className="stat-card cyan">
+          <div className="stat-label">Active Sessions</div>
+          <div className="stat-value cyan">{summary.active_certs || 0}</div>
+          <div className="stat-sub">certificates</div>
+        </div>
+        <div className="stat-card amber">
+          <div className="stat-label">Hosts Online</div>
+          <div className="stat-value amber">{summary.hosts_online || 0}</div>
+          <div className="stat-sub">of {summary.hosts_enabled || 0} enabled</div>
+        </div>
+      </div>
+
+      {/* 3 management panels: Hosts | Services | MCP Servers */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
+        {/* Hosts panel */}
+        <div className="panel">
+          <div className="panel-header">
+            <span>Hosts</span>
+            <span className="panel-count" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--amber)' }}>{(hosts || []).filter(h => h.access_enabled).length}<span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>/{(hosts || []).length}</span></span>
+          </div>
+          <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
+            {(hosts || []).length === 0 ? (
+              <div className="empty-state">No hosts configured</div>
+            ) : (hosts || []).map(h => (
+              <div key={h.name} className={`host-item${h.active_sessions > 0 ? ' item-active' : ''}${!h.access_enabled ? ' item-disabled' : ''}`}>
+                <div className="host-left">
+                  <StatusDot status={h.status || (h.access_enabled ? 'online' : 'offline')} />
+                  <div>
+                    <div className="host-name">{h.name}</div>
+                    <div className="host-meta">
+                      <span className={getVlanClass(h.vlan)}>V{h.vlan}</span>
+                      {' \u00b7 '}
+                      <span style={{ color: 'var(--cyan)' }}>{h.host}</span>
+                    </div>
+                  </div>
+                </div>
+                <ToggleSwitch checked={h.access_enabled} onChange={() => onToggleHost(h.name)} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Services panel */}
+        <div className="panel">
+          <div className="panel-header">
+            <span>Services</span>
+            <span className="panel-count" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--cyan)' }}>{services.filter(s => s.enabled !== false).length}<span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>/{services.length}</span></span>
+          </div>
+          <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
+            {services.length === 0 ? (
+              <div className="empty-state">No services configured</div>
+            ) : services.map(s => (
+              <div key={s.name} className={`host-item${s.enabled === false ? ' item-disabled' : ' item-active-cyan'}`}>
+                <div className="host-left">
+                  <StatusDot status="online" />
+                  <div>
+                    <div className="host-name">{s.name}</div>
+                    <div className="host-meta">
+                      <span style={{ color: 'var(--cyan)', fontSize: '10px' }}>{s.url_prefix || '-'}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AuthTypeBadge authType={s.auth_type || 'none'} />
+                  <ToggleSwitch checked={s.enabled !== false} onChange={() => handleToggleService(s.name)} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* MCP Servers panel */}
+        <div className="panel">
+          <div className="panel-header">
+            <span>MCP Servers</span>
+            <span className="panel-count" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--purple)' }}>{remotes.filter(r => r.status === 'connected').length}<span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>/{remotes.length}</span></span>
+          </div>
+          <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
+            {remotes.length === 0 ? (
+              <div className="empty-state">No MCP servers configured</div>
+            ) : remotes.map(r => (
+              <div key={r.name} className={`host-item${r.status === 'connected' ? ' item-active-purple' : r.enabled === false ? ' item-disabled' : ''}`}>
+                <div className="host-left">
+                  <StatusDot status={r.status === 'connected' ? 'online' : r.status === 'error' ? 'error' : 'offline'} />
+                  <div>
+                    <div className="host-name">{r.name}</div>
+                    <div className="host-meta">
+                      <span style={{ color: 'var(--text-dim)', fontSize: '10px' }}>{r.tool_count || 0} tools &bull; {r.resource_count || 0} resources</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <RemoteStatusBadge status={r.status} />
+                  <ToggleSwitch checked={r.enabled !== false} onChange={() => handleToggleRemote(r.name)} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Active Sessions panel - grouped by agent+target */}
+      <div className="panel" style={{ marginBottom: '16px' }}>
+        <div className="panel-header">
+          <span>Active Sessions</span>
+          <span className="panel-count">{activeSessions.length}</span>
+        </div>
+        <div className="panel-body" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+          {(() => {
+            if (activeSessions.length === 0 && recentActivity.filter(a => a.action_type === 'http_proxy' || a.action_type === 'mcp_call').length === 0) {
+              return <div className="empty-state">No active sessions</div>;
+            }
+            // Group active sessions by agent+target
+            const groups = {};
+            activeSessions.forEach(s => {
+              const key = `${s.agent}\u2192${s.target}`;
+              if (!groups[key]) groups[key] = { agent: s.agent, target: s.target, certs: [] };
+              groups[key].certs.push(s);
+            });
+            // Sort groups by earliest-expiring cert first
+            const sortedGroups = Object.values(groups).sort((a, b) => {
+              const aMin = Math.min(...a.certs.map(c => parseTTL(c.expires_at, now)));
+              const bMin = Math.min(...b.certs.map(c => parseTTL(c.expires_at, now)));
+              return aMin - bMin;
+            });
+            // Recent proxy & MCP activity
+            const proxyMcpActivity = (recentActivity || []).filter(a => a.action_type === 'http_proxy' || a.action_type === 'mcp_call').slice(0, 5);
+            return (
+              <>
+                {sortedGroups.map(group => (
+                  <div key={`${group.agent}-${group.target}`} style={{ marginBottom: '8px', border: '1px solid var(--border)', borderRadius: '4px', background: 'rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', borderBottom: '1px solid var(--border)', background: 'rgba(0,0,0,0.15)' }}>
+                      <span style={{ color: 'var(--green)', fontWeight: 600, fontSize: '12px' }}>{group.agent}</span>
+                      <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
+                      <span style={{ color: 'var(--cyan)', fontWeight: 600, fontSize: '12px' }}>{group.target}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-dim)' }}>{group.certs.length} cert{group.certs.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    {group.certs.map(s => {
+                      const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
+                      const remaining = parseTTL(s.expires_at, now);
+                      return (
+                        <div key={s.serial} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <RoleBadge role={s.role} />
+                          <div style={{ flex: 1 }}>
+                            <TTLBar remaining={remaining} maxTTL={maxTTL} />
+                          </div>
+                          <button className="btn btn-revoke" onClick={() => onRevoke(s.serial)} style={{ fontSize: '9px', padding: '2px 8px' }}>REVOKE</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+                {proxyMcpActivity.length > 0 && (
+                  <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
+                    <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px', fontWeight: 600 }}>Recent Proxy &amp; MCP</div>
+                    {proxyMcpActivity.map((a, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', fontSize: '11px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <span style={{ color: 'var(--green)', fontWeight: 600, minWidth: '50px' }}>{a.agent || '-'}</span>
+                        <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
+                        <span style={{ color: 'var(--cyan)' }}>{a.target || a.service || '-'}</span>
+                        <ActionTypeBadge type={a.action_type} />
+                        <span style={{ color: 'var(--text-dim)', fontSize: '10px', marginLeft: 'auto' }}>{relativeTime(a.timestamp)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* Live Event Feed (consolidated) - merges recentActivity + WebSocket events */}
+      <div className="overview-activity-section">
+        <div className="overview-activity-header">
+          <span className="panel-header" style={{ border: 'none', padding: 0 }}>
+            <span>Live Event Feed</span>
+          </span>
+          <div className="overview-activity-stats">
+            <span>Rate: <span style={{ color: 'var(--green)', fontWeight: 600 }}>{actSummary.actions_per_minute || 0}/min</span></span>
+            <span>Total: <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{actSummary.total_actions || 0}</span></span>
+            <span>Errors: <span style={{ color: 'var(--red)', fontWeight: 600 }}>{actSummary.error_count || 0}</span></span>
+          </div>
+        </div>
+        <div className="overview-activity-body">
+          {(() => {
+            // Normalize recentActivity entries
+            const activityNorm = (recentActivity || []).map(e => ({
+              timestamp: e.timestamp,
+              action_type: e.action_type || e.type || 'unknown',
+              agent: e.agent || '-',
+              target: e.target || e.service || '-',
+              details: e.details || e.command || e.url || '',
+              status: e.status === 'error' || e.error ? 'error' : (e.status || 'success'),
+              _source: 'activity',
+            }));
+            // Normalize WebSocket events
+            const wsNorm = (events || []).map(e => {
+              const data = e.data || {};
+              return {
+                timestamp: e.timestamp,
+                action_type: e.type || e.event_type || 'info',
+                agent: data.agent || e.agent || '-',
+                target: data.target || e.target || '-',
+                details: data.reason || data.role || data.message || '',
+                status: (e.type || '').includes('denied') ? 'error' : 'success',
+                _source: 'ws',
+              };
+            });
+            // Merge and deduplicate (by timestamp+action_type+agent, prefer activity source)
+            const seen = new Set();
+            const all = [];
+            activityNorm.forEach(e => {
+              const key = `${e.timestamp}|${e.action_type}|${e.agent}`;
+              seen.add(key);
+              all.push(e);
+            });
+            wsNorm.forEach(e => {
+              const key = `${e.timestamp}|${e.action_type}|${e.agent}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                all.push(e);
+              }
+            });
+            // Sort descending by timestamp, take top 8
+            all.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+            const merged = all.slice(0, 8);
+            if (merged.length === 0) {
+              return <div className="empty-state" style={{ padding: '16px' }}>No recent activity</div>;
+            }
+            return merged.map((e, i) => (
+              <div key={i} className="overview-compact-entry">
+                <span style={{ color: 'var(--text-dim)', fontSize: '10px', minWidth: '60px' }}>{relativeTime(e.timestamp)}</span>
+                <ActionTypeBadge type={e.action_type} />
+                <span style={{ color: 'var(--green)', fontWeight: 600 }}>{e.agent}</span>
+                <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
+                <span style={{ color: 'var(--cyan)' }}>{e.target}</span>
+                <span style={{ color: 'var(--text-dim)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {e.details}
+                </span>
+                <ActivityStatusBadge status={e.status} />
+              </div>
+            ));
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2. HOSTS VIEW (with config slide-out)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
+  const [config, setConfig] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (open && host) {
+      setLoading(true);
+      setError('');
+      api('GET', `/v1/dashboard/config/hosts/${encodeURIComponent(host.name)}`, null, token)
+        .then(data => { setConfig({...data, user: data.ssh_user || "", password: data.ssh_password || "", auth_type: data.auth_type || "password", ssh_key: data.ssh_key_path || ""}); setLoading(false); })
+        .catch(err => {
+          setConfig({
+            name: host.name, host: host.host || '', port: host.port || 22,
+            vlan: host.vlan || '', os: host.os || '', description: host.description || '',
+            user: '', auth_type: 'key', password: '', ssh_key: '',
+            allowed_roles: host.allowed_roles || [],
+            default_ttl: host.default_ttl || '5m', max_ttl: host.max_ttl || '15m',
+            auto_approve: host.auto_approve || false,
+          });
+          setLoading(false);
+        });
+    }
+  }, [open, host, token]);
+
+  const handleFieldChange = (field, value) => {
+    setConfig(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleRoleToggle = (role) => {
+    setConfig(prev => {
+      const roles = prev.allowed_roles || [];
+      if (roles.includes(role)) return { ...prev, allowed_roles: roles.filter(r => r !== role) };
+      return { ...prev, allowed_roles: [...roles, role] };
+    });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const payload = {...config, ssh_user: config.user, ssh_password: config.password !== "***" ? config.password : undefined}; await api('PUT', `/v1/dashboard/config/hosts/${encodeURIComponent(host.name)}`, payload, token);
+      if (onSave) onSave();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    }
+    setSaving(false);
+  };
+
+  if (!open) return null;
+
+  return (
+    <>
+      <div className={`slideout-overlay ${open ? 'open' : ''}`} onClick={onClose} />
+      <div className={`slideout-panel ${open ? 'open' : ''}`}>
+        <div className="slideout-header">
+          <h3>Configure: {host?.name}</h3>
+          <button className="slideout-close" onClick={onClose}>&times;</button>
+        </div>
+        <div className="slideout-body">
+          {loading ? (
+            <div className="loading">Loading config...</div>
+          ) : config ? (
+            <>
+              {error && <div className="modal-error" style={{ marginBottom: '16px' }}>{error}</div>}
+
+              <div className="form-section-title">Host Details</div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Name</label>
+                  <input className="form-input" value={config.name || ''} readOnly style={{ opacity: 0.5 }} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">VLAN</label>
+                  <input className="form-input" value={config.vlan || ''} onChange={e => handleFieldChange('vlan', e.target.value)} />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">IP / Hostname</label>
+                  <input className="form-input" value={config.host || ''} onChange={e => handleFieldChange('host', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Port</label>
+                  <input className="form-input" type="number" value={config.port || 22} onChange={e => handleFieldChange('port', parseInt(e.target.value) || 22)} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">OS</label>
+                <input className="form-input" value={config.os || ''} onChange={e => handleFieldChange('os', e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <input className="form-input" value={config.description || ''} onChange={e => handleFieldChange('description', e.target.value)} />
+              </div>
+
+              <div className="form-section-title">SSH Credentials</div>
+              <div className="form-group">
+                <label className="form-label">Username</label>
+                <input className="form-input" value={config.user || ''} onChange={e => handleFieldChange('user', e.target.value)} placeholder="e.g. agent-op" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Auth Type</label>
+                <select className="form-select" value={config.auth_type || 'key'} onChange={e => handleFieldChange('auth_type', e.target.value)}>
+                  <option value="key">SSH Key</option>
+                  <option value="password">Password</option>
+                  <option value="certificate">Certificate</option>
+                </select>
+              </div>
+              {config.auth_type === 'password' && (
+                <div className="form-group"><label className="form-label">Password</label><input className="form-input" type="password" value={config.password === "***" ? "" : (config.password || "")} onChange={e => handleFieldChange("password", e.target.value)} placeholder={config.password === "***" ? "set - enter new to change" : "Enter password"} /></div>
+              )}
+              {config.auth_type === 'key' && (
+                <div className="form-group"><label className="form-label">SSH Key Path</label><input className="form-input" value={config.ssh_key || ""} onChange={e => handleFieldChange("ssh_key", e.target.value)} placeholder="/path/to/key" /></div>
+              )}
+
+              <div className="form-section-title">Roles</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                {(roles || ['read', 'operator', 'admin']).map(r => (
+                  <label key={r} className="form-checkbox">
+                    <input type="checkbox" checked={(config.allowed_roles || []).includes(r)} onChange={() => handleRoleToggle(r)} />
+                    {r}
+                  </label>
+                ))}
+              </div>
+
+              <div className="form-section-title">TTL Settings</div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Default TTL</label>
+                  <input className="form-input" value={config.default_ttl || ''} onChange={e => handleFieldChange('default_ttl', e.target.value)} placeholder="5m" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Max TTL</label>
+                  <input className="form-input" value={config.max_ttl || ''} onChange={e => handleFieldChange('max_ttl', e.target.value)} placeholder="15m" />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginTop: '8px' }}>
+                <label className="form-checkbox">
+                  <input type="checkbox" checked={config.auto_approve || false} onChange={e => handleFieldChange('auto_approve', e.target.checked)} />
+                  Auto-approve requests
+                </label>
+              </div>
+            </>
+          ) : null}
+        </div>
+        <div className="slideout-footer">
+          <button className="btn btn-amber" onClick={onClose}>CANCEL</button>
+          <button className="btn btn-green" onClick={handleSave} disabled={saving}>
+            {saving ? 'SAVING...' : 'SAVE'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
+  const [configHost, setConfigHost] = useState(null);
+  const [roles, setRoles] = useState(['read', 'operator', 'admin']);
+
+  useEffect(() => {
+    api('GET', '/v1/dashboard/config/roles', null, token)
+      .then(data => { if (Array.isArray(data)) setRoles(data.map(r => typeof r === 'string' ? r : r.name)); })
+      .catch(() => {});
+  }, [token]);
+
+  return (
+    <>
+      <div className="hosts-grid">
+        {(hosts || []).length === 0 ? (
+          <div className="empty-state" style={{ gridColumn: '1 / -1' }}>No hosts configured</div>
+        ) : (hosts || []).map(h => {
+          const hostSessions = (sessions || []).filter(s => s.target === h.name && s.status === 'active');
+          return (
+            <div key={h.name} className={`host-card${h.active_sessions > 0 ? ' item-active' : ''}`}>
+              <div className="host-card-top">
+                <div className="host-card-name">
+                  <StatusDot status={h.status || (h.access_enabled ? 'online' : 'offline')} />
+                  <h3>{h.name}</h3>
+                </div>
+                <button className={`access-btn ${h.access_enabled ? 'on' : 'off'}`} onClick={() => onToggleHost(h.name)}>
+                  {h.access_enabled ? 'ACCESS ON' : 'ACCESS OFF'}
+                </button>
+              </div>
+              {h.description && <div className="host-card-desc">{h.description}</div>}
+              <div className="host-card-meta">
+                <span><span className={getVlanClass(h.vlan)}>VLAN {h.vlan}</span></span>
+                <span><span style={{ color: 'var(--cyan)' }}>{h.host}:{h.port || 22}</span></span>
+                {h.os && <span>{h.os}</span>}
+                {h.allowed_roles && <span>{h.allowed_roles.map(r => <RoleBadge key={r} role={r} />)}</span>}
+                {h.auto_approve && <span style={{ color: 'var(--green)' }}>AUTO-APPROVE</span>}
+              </div>
+              <div className="host-card-sessions">
+                <div className="sessions-label">{hostSessions.length} Active Session{hostSessions.length !== 1 ? 's' : ''}</div>
+                {hostSessions.map(s => {
+                  const remaining = parseTTL(s.expires_at, now);
+                  return (
+                    <div key={s.serial} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '11px' }}>
+                      <span><span style={{ color: 'var(--green)' }}>{s.agent}</span> <span style={{ color: 'var(--text-dim)' }}>as</span> <RoleBadge role={s.role} /></span>
+                      <span className={`ttl-text ${ttlClass(remaining, computeMaxTTL(s.issued_at, s.expires_at))}`}>{formatTTL(remaining)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="host-card-actions">
+                <button className="btn btn-cyan" onClick={() => setConfigHost(h)}>CONFIGURE</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <HostConfigPanel
+        host={configHost}
+        open={!!configHost}
+        onClose={() => setConfigHost(null)}
+        onSave={onRefresh}
+        token={token}
+        roles={roles}
+      />
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3. AGENTS VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function AgentsView({ sessions, summary, now, token, onViewActivity }) {
+  const [agentActivity, setAgentActivity] = useState({});
+
+  const agents = useMemo(() => {
+    const map = {};
+    (sessions || []).forEach(s => {
+      if (!map[s.agent]) {
+        map[s.agent] = { name: s.agent, sessions: [], targets: new Set(), type: s.agent_type || 'agent' };
+      }
+      map[s.agent].sessions.push(s);
+      if (s.target) map[s.agent].targets.add(s.target);
+    });
+    const list = Object.values(map).map(a => ({
+      ...a,
+      targets: [...a.targets],
+      activeSessions: a.sessions.filter(s => s.status === 'active'),
+    }));
+
+    const statusPriority = (a) => {
+      if (a.activeSessions.length > 0) return 0;
+      if (a.sessions.some(s => s.status === 'expired')) return 2;
+      return 3;
+    };
+    list.sort((a, b) => statusPriority(a) - statusPriority(b));
+    return list;
+  }, [sessions]);
+
+  // Fetch per-agent activity data
+  useEffect(() => {
+    if (!token) return;
+    const fetchAgentData = async () => {
+      const results = {};
+      for (const a of agents) {
+        try {
+          const data = await api('GET', `/v1/dashboard/activity/agent/${encodeURIComponent(a.name)}`, null, token);
+          results[a.name] = data || {};
+        } catch {
+          results[a.name] = {};
+        }
+      }
+      setAgentActivity(results);
+    };
+    fetchAgentData();
+    const iv = setInterval(fetchAgentData, 5000);
+    return () => clearInterval(iv);
+  }, [token, agents.length]);
+
+  return (
+    <div className="agents-grid">
+      {agents.length === 0 ? (
+        <div className="empty-state">No agents with sessions</div>
+      ) : agents.map(a => {
+        const hasActive = a.activeSessions.length > 0;
+        const agentStatus = hasActive ? 'active' : 'offline';
+        const act = agentActivity[a.name] || {};
+        const recentActions = act.recent_actions || [];
+        const errorRate = act.total_actions > 0 ? ((act.error_count || 0) / act.total_actions * 100).toFixed(1) : '0.0';
+        return (
+          <div key={a.name} className="agent-card">
+            <div className="agent-card-header">
+              <StatusDot status={agentStatus} animated={hasActive} />
+              <span className="agent-card-name">{a.name}</span>
+              <span className={`badge ${hasActive ? 'badge-active' : 'badge-default'}`}>{a.type}</span>
+            </div>
+
+            <div className="agent-activity-stats">
+              <div className="stat-item">
+                <span>Actions:</span>
+                <span className="stat-val" style={{ color: 'var(--green)' }}>{act.total_actions || 0}</span>
+              </div>
+              <div className="stat-item">
+                <span>Last active:</span>
+                <span className="stat-val" style={{ color: 'var(--cyan)' }}>{act.last_active ? relativeTime(act.last_active) : 'never'}</span>
+              </div>
+              <div className="stat-item">
+                <span>Last target:</span>
+                <span className="stat-val" style={{ color: 'var(--cyan)' }}>{act.last_target || '-'}</span>
+              </div>
+              <div className="stat-item">
+                <span>Error rate:</span>
+                <span className="stat-val" style={{ color: parseFloat(errorRate) > 10 ? 'var(--red)' : 'var(--text-dim)' }}>{errorRate}%</span>
+              </div>
+            </div>
+
+            {recentActions.length > 0 && (
+              <div className="agent-mini-timeline" title="Last 10 actions">
+                {recentActions.slice(0, 10).map((ra, i) => {
+                  const dotType = ra.status === 'error' ? 'error' : (ra.action_type || ra.type || 'exec');
+                  return <span key={i} className={`timeline-dot dot-${dotType}`}
+                    title={`${ra.action_type || ra.type || '?'} ${ra.target || ''} ${relativeTime(ra.timestamp)}`} />;
+                })}
+                <span style={{ fontSize: '9px', color: 'var(--text-dim)', marginLeft: '6px' }}>recent</span>
+              </div>
+            )}
+
+            <div className="agent-card-meta">
+              <span>{a.activeSessions.length} active / {a.sessions.length} total sessions</span>
+            </div>
+            {a.targets.length > 0 && (
+              <div className="agent-card-targets">
+                {a.targets.map(t => <span key={t} className="agent-target-tag">{t}</span>)}
+              </div>
+            )}
+            <div className="agent-card-sessions">
+              {a.sessions.map(s => {
+                const remaining = parseTTL(s.expires_at, now);
+                const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
+                const isActive = s.status === 'active';
+                return (
+                  <div key={s.serial} className="agent-session-item" style={{ opacity: isActive ? 1 : 0.4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ color: 'var(--cyan)' }}>{s.target}</span>
+                      <RoleBadge role={s.role} />
+                      <StatusBadge status={s.status} />
+                    </div>
+                    {isActive ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '150px' }}>
+                        <TTLBar remaining={remaining} maxTTL={maxTTL} />
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--text-dim)', fontSize: '10px' }}>{relativeTime(s.expires_at || s.issued_at)}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '10px' }}>
+              <button className="btn btn-purple" onClick={() => onViewActivity && onViewActivity(a.name)}>
+                VIEW ACTIVITY
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 4. SESSIONS VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function SessionsView({ sessions, now, onRevoke }) {
+  const [statusFilter, setStatusFilter] = useState('ALL');
+
+  // Filter sessions by status
+  const filtered = useMemo(() => {
+    const list = (sessions || []).filter(s => {
+      if (statusFilter === 'ACTIVE') return s.status === 'active';
+      if (statusFilter === 'EXPIRED') return s.status !== 'active';
+      return true;
+    });
+    // Sort: active sessions by expires_at ascending (expiring soonest first), then expired at bottom
+    list.sort((a, b) => {
+      const aActive = a.status === 'active' ? 0 : 1;
+      const bActive = b.status === 'active' ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      if (aActive === 0) {
+        // Both active: sort by expires_at ascending (expiring first)
+        return new Date(a.expires_at || 0).getTime() - new Date(b.expires_at || 0).getTime();
+      }
+      // Both expired: sort by expires_at descending (most recently expired first)
+      return new Date(b.expires_at || 0).getTime() - new Date(a.expires_at || 0).getTime();
+    });
+    return list;
+  }, [sessions, statusFilter, now]);
+
+  const activeCount = (sessions || []).filter(s => s.status === 'active').length;
+  const expiredCount = (sessions || []).length - activeCount;
+
+  return (
+    <div className="panel" style={{ background: 'transparent', border: 'none' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {[
+          { key: 'ALL', label: `ALL (${(sessions || []).length})` },
+          { key: 'ACTIVE', label: `ACTIVE (${activeCount})` },
+          { key: 'EXPIRED', label: `EXPIRED (${expiredCount})` },
+        ].map(f => (
+          <button key={f.key} className={`filter-btn ${statusFilter === f.key ? 'active' : ''}`}
+            onClick={() => setStatusFilter(f.key)}>
+            {f.label}
+          </button>
+        ))}
+        <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginLeft: 'auto' }}>
+          Sorted: expiring soonest first
+        </span>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="sessions-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Agent</th>
+              <th>Target</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Command</th>
+              <th>TTL</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan="8" className="empty-state">No sessions</td></tr>
+            ) : filtered.map(s => {
+              const isActive = s.status === 'active';
+              const remaining = parseTTL(s.expires_at, now);
+              const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
+              return (
+                <tr key={s.serial} className={!isActive ? 'inactive' : ''}>
+                  <td><StatusDot status={isActive ? 'active' : 'offline'} /></td>
+                  <td style={{ color: 'var(--green)', fontWeight: 600 }}>{s.agent}</td>
+                  <td style={{ color: 'var(--cyan)', fontWeight: 600 }}>{s.target}</td>
+                  <td><RoleBadge role={s.role} /></td>
+                  <td><StatusBadge status={s.status} /></td>
+                  <td style={{ color: 'var(--text-dim)', fontSize: '11px', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.command || '-'}
+                  </td>
+                  <td style={{ minWidth: '180px' }}>
+                    {isActive ? (
+                      <TTLBar remaining={remaining} maxTTL={maxTTL} />
+                    ) : (
+                      <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{relativeTime(s.expires_at)}</span>
+                    )}
+                  </td>
+                  <td>
+                    {isActive && (
+                      <button className="btn btn-revoke" onClick={() => onRevoke(s.serial)}>REVOKE</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5. AUDIT LOG VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function AuditView({ token, events }) {
+  const [filter, setFilter] = useState('ALL');
+  const [audit, setAudit] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchAudit = useCallback(async () => {
+    try {
+      const typeParam = filter !== 'ALL' ? `&type=${filter.toLowerCase()}` : '';
+      const data = await api('GET', `/v1/dashboard/audit?limit=200${typeParam}`, null, token);
+      setAudit(data || []);
+    } catch {}
+    setLoading(false);
+  }, [token, filter]);
+
+  useEffect(() => { setLoading(true); fetchAudit(); }, [fetchAudit]);
+
+  // Auto-refresh from WS events
+  useEffect(() => { fetchAudit(); }, [events.length]);
+
+  const filters = ['ALL', 'GRANT', 'DENY', 'EXPIRE', 'REVOKE', 'ALERT'];
+
+  return (
+    <div>
+      <div className="audit-filters">
+        {filters.map(f => (
+          <button key={f} className={`filter-btn ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>
+            {f}
+          </button>
+        ))}
+      </div>
+      {loading ? (
+        <div className="loading">Loading audit log...</div>
+      ) : (
+        <table className="audit-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Agent</th>
+              <th>Target</th>
+              <th>Role</th>
+              <th>TTL</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {audit.length === 0 ? (
+              <tr><td colSpan="7" className="empty-state">No audit entries</td></tr>
+            ) : audit.map((e, i) => (
+              <tr key={i}>
+                <td style={{ color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{relativeTime(e.timestamp)}</td>
+                <td><EventTypeBadge type={e.event_type} /></td>
+                <td style={{ color: 'var(--green)' }}>{e.agent || '-'}</td>
+                <td style={{ color: 'var(--cyan)' }}>{e.target || '-'}</td>
+                <td><RoleBadge role={e.role} /></td>
+                <td style={{ color: 'var(--text-dim)' }}>{e.duration || '-'}</td>
+                <td style={{ color: 'var(--text-dim)', fontSize: '11px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {e.reason || e.serial || '-'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5b. ACTIVITY VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function ActivityView({ token, initialAgent }) {
+  const [entries, setEntries] = useState([]);
+  const [actSummary, setActSummary] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(null);
+  const [filterAgent, setFilterAgent] = useState(initialAgent || '');
+  const [filterType, setFilterType] = useState('');
+  const [filterTarget, setFilterTarget] = useState('');
+  const [errorsOnly, setErrorsOnly] = useState(false);
+  const [agents, setAgents] = useState([]);
+  const refreshRef = useRef(null);
+
+  const fetchActivity = useCallback(async () => {
+    try {
+      let qp = '?limit=100';
+      if (filterAgent) qp += `&agent=${encodeURIComponent(filterAgent)}`;
+      if (filterType) qp += `&type=${encodeURIComponent(filterType)}`;
+      if (filterTarget) qp += `&target=${encodeURIComponent(filterTarget)}`;
+      if (errorsOnly) qp += '&only_errors=true';
+      const data = await api('GET', `/v1/dashboard/activity${qp}`, null, token);
+      setEntries(data || []);
+      // Extract unique agents from entries
+      const seen = new Set();
+      (data || []).forEach(e => { if (e.agent) seen.add(e.agent); });
+      setAgents(prev => {
+        const merged = new Set([...prev, ...seen]);
+        return [...merged].sort();
+      });
+    } catch {}
+  }, [token, filterAgent, filterType, filterTarget, errorsOnly]);
+
+  const fetchSummary = useCallback(async () => {
+    try {
+      const data = await api('GET', '/v1/dashboard/activity/summary', null, token);
+      setActSummary(data || {});
+    } catch {}
+  }, [token]);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([fetchActivity(), fetchSummary()]).then(() => setLoading(false));
+  }, [fetchActivity, fetchSummary]);
+
+  // Auto-refresh every 2s
+  useEffect(() => {
+    refreshRef.current = setInterval(() => {
+      fetchActivity();
+      fetchSummary();
+    }, 2000);
+    return () => clearInterval(refreshRef.current);
+  }, [fetchActivity, fetchSummary]);
+
+  // Update filter if initialAgent changes (from agent click)
+  useEffect(() => {
+    if (initialAgent) setFilterAgent(initialAgent);
+  }, [initialAgent]);
+
+  const actionTypes = ['exec', 'http_proxy', 'session_open', 'session_close', 'cert_issued', 'cert_denied', 'mcp_call'];
+
+  return (
+    <div>
+      <div className="stats-row">
+        <div className="stat-card green">
+          <div className="stat-label">Total Actions</div>
+          <div className="stat-value green">{actSummary.total_actions || 0}</div>
+          <div className="stat-sub">all time</div>
+        </div>
+        <div className="stat-card cyan">
+          <div className="stat-label">SSH Exec</div>
+          <div className="stat-value cyan">{actSummary.ssh_exec_count || 0}</div>
+          <div className="stat-sub">commands</div>
+        </div>
+        <div className="stat-card purple">
+          <div className="stat-label">HTTP Proxy</div>
+          <div className="stat-value purple">{actSummary.http_proxy_count || 0}</div>
+          <div className="stat-sub">requests</div>
+        </div>
+        <div className="stat-card red">
+          <div className="stat-label">Errors</div>
+          <div className="stat-value red">{actSummary.error_count || 0}</div>
+          <div className="stat-sub">failures</div>
+        </div>
+        <div className="stat-card amber">
+          <div className="stat-label">Active Agents</div>
+          <div className="stat-value amber">{actSummary.active_agents || 0}</div>
+          <div className="stat-sub">connected</div>
+        </div>
+      </div>
+
+      <div className="activity-filters">
+        <select value={filterAgent} onChange={e => setFilterAgent(e.target.value)}>
+          <option value="">All Agents</option>
+          {agents.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)}>
+          <option value="">All Types</option>
+          {actionTypes.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <input type="text" placeholder="Filter target/service..." value={filterTarget}
+          onChange={e => setFilterTarget(e.target.value)} style={{ minWidth: '160px' }} />
+        <label>
+          <input type="checkbox" checked={errorsOnly} onChange={e => setErrorsOnly(e.target.checked)}
+            style={{ width: '14px', height: '14px', accentColor: 'var(--red)', cursor: 'pointer', marginRight: '4px' }} />
+          Errors only
+        </label>
+        <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginLeft: 'auto' }}>
+          Auto-refresh: 2s &bull; Showing {entries.length} entries
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="loading">Loading activity...</div>
+      ) : (
+        <div className="activity-feed">
+          {entries.length === 0 ? (
+            <div className="empty-state">No activity entries found</div>
+          ) : entries.map((e, i) => {
+            const isError = e.status === 'error' || !!e.error;
+            const isExpanded = expanded === i;
+            return (
+              <React.Fragment key={i}>
+                <div className={`activity-entry ${isError ? 'error-entry' : ''}`}
+                  onClick={() => setExpanded(isExpanded ? null : i)}>
+                  <span className="act-time">{relativeTime(e.timestamp)}</span>
+                  <span><ActionTypeBadge type={e.action_type || e.type} /></span>
+                  <span className="act-details">
+                    <span className="act-agent">{e.agent || '-'}</span>
+                    {' '}
+                    {e.details || e.command || e.url || e.message || '-'}
+                  </span>
+                  <span className="act-target">{e.target || e.service || '-'}</span>
+                  <span className="act-duration">{e.duration || '-'}</span>
+                  <span className="act-status">
+                    <ActivityStatusBadge status={isError ? 'error' : (e.status || 'success')} />
+                  </span>
+                </div>
+                {isExpanded && (
+                  <div className="activity-expanded">
+                    {e.command && <div><span style={{ color: 'var(--cyan)' }}>Command:</span> {e.command}</div>}
+                    {e.url && <div><span style={{ color: 'var(--cyan)' }}>URL:</span> {e.url}</div>}
+                    {e.headers && <div><span style={{ color: 'var(--cyan)' }}>Headers:</span> {typeof e.headers === 'string' ? e.headers : JSON.stringify(e.headers, null, 2)}</div>}
+                    {e.response && <div><span style={{ color: 'var(--cyan)' }}>Response:</span> {typeof e.response === 'string' ? e.response.substring(0, 500) : JSON.stringify(e.response).substring(0, 500)}</div>}
+                    {e.error && <div><span style={{ color: 'var(--red)' }}>Error:</span> {e.error}</div>}
+                    {e.agent && <div><span style={{ color: 'var(--cyan)' }}>Agent:</span> {e.agent}</div>}
+                    {e.target && <div><span style={{ color: 'var(--cyan)' }}>Target:</span> {e.target}</div>}
+                    {e.service && <div><span style={{ color: 'var(--cyan)' }}>Service:</span> {e.service}</div>}
+                    {e.duration && <div><span style={{ color: 'var(--cyan)' }}>Duration:</span> {e.duration}</div>}
+                    {e.timestamp && <div><span style={{ color: 'var(--cyan)' }}>Timestamp:</span> {new Date(e.timestamp).toISOString()}</div>}
+                    {e.serial && <div><span style={{ color: 'var(--cyan)' }}>Serial:</span> {e.serial}</div>}
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5c. SERVICES VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function ServiceConfigPanel({ service, open, onClose, onSave, onDelete, token }) {
+  const [config, setConfig] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const isNew = !service;
+
+  useEffect(() => {
+    if (open) {
+      if (service) {
+        setConfig({ ...service, credential: service.credential_set ? '***' : '' });
+      } else {
+        setConfig({
+          name: '', url_prefix: '', auth_type: 'none', credential: '',
+          username: '', token_header: '', token_prefix: '',
+          description: '', timeout: 30, max_response_kb: 1024,
+          allowed_methods: 'GET,POST',
+        });
+      }
+      setError('');
+    }
+  }, [open, service]);
+
+  const handleFieldChange = (field, value) => {
+    setConfig(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const payload = { ...config };
+      if (payload.credential === '***') delete payload.credential;
+      if (payload.allowed_methods && typeof payload.allowed_methods === 'string') {
+        payload.allowed_methods = payload.allowed_methods.split(',').map(m => m.trim()).filter(Boolean);
+      }
+      payload.timeout = parseInt(payload.timeout) || 30;
+      payload.max_response_kb = parseInt(payload.max_response_kb) || 1024;
+      const name = isNew ? encodeURIComponent(payload.name) : encodeURIComponent(service.name);
+      await api('PUT', `/v1/dashboard/services/${name}`, payload, token);
+      if (onSave) onSave();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async () => {
+    if (!service) return;
+    if (!confirm(`Delete service "${service.name}"?`)) return;
+    try {
+      await api('DELETE', `/v1/dashboard/services/${encodeURIComponent(service.name)}`, null, token);
+      if (onDelete) onDelete();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (!open || !config) return null;
+
+  return (
+    <>
+      <div className={`slideout-overlay ${open ? 'open' : ''}`} onClick={onClose} />
+      <div className={`slideout-panel ${open ? 'open' : ''}`}>
+        <div className="slideout-header">
+          <h3>{isNew ? 'Add Service' : `Configure: ${service.name}`}</h3>
+          <button className="slideout-close" onClick={onClose}>&times;</button>
+        </div>
+        <div className="slideout-body">
+          {error && <div className="modal-error" style={{ marginBottom: '16px' }}>{error}</div>}
+
+          <div className="form-section-title">Service Details</div>
+          <div className="form-group">
+            <label className="form-label">Name</label>
+            <input className="form-input" value={config.name || ''} readOnly={!isNew}
+              style={isNew ? {} : { opacity: 0.5 }}
+              onChange={e => handleFieldChange('name', e.target.value)}
+              placeholder="e.g. grafana" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">URL Prefix</label>
+            <input className="form-input" value={config.url_prefix || ''}
+              onChange={e => handleFieldChange('url_prefix', e.target.value)}
+              placeholder="e.g. http://192.168.100.100:3030" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Description</label>
+            <input className="form-input" value={config.description || ''}
+              onChange={e => handleFieldChange('description', e.target.value)}
+              placeholder="Monitoring dashboard" />
+          </div>
+
+          <div className="form-section-title">Authentication</div>
+          <div className="form-group">
+            <label className="form-label">Auth Type</label>
+            <select className="form-select" value={config.auth_type || 'none'}
+              onChange={e => handleFieldChange('auth_type', e.target.value)}>
+              <option value="none">None</option>
+              <option value="bearer">Bearer Token</option>
+              <option value="basic">Basic Auth</option>
+              <option value="header">Custom Header</option>
+              <option value="query">Query Parameter</option>
+            </select>
+          </div>
+          {config.auth_type !== 'none' && (
+            <div className="form-group">
+              <label className="form-label">Credential</label>
+              <input className="form-input" type="password"
+                value={config.credential === '***' ? '' : (config.credential || '')}
+                onChange={e => handleFieldChange('credential', e.target.value)}
+                placeholder={config.credential === '***' ? 'set - enter new to change' : 'Enter credential'} />
+            </div>
+          )}
+          {config.auth_type === 'basic' && (
+            <div className="form-group">
+              <label className="form-label">Username</label>
+              <input className="form-input" value={config.username || ''}
+                onChange={e => handleFieldChange('username', e.target.value)}
+                placeholder="admin" />
+            </div>
+          )}
+          {config.auth_type === 'header' && (
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Token Header</label>
+                <input className="form-input" value={config.token_header || ''}
+                  onChange={e => handleFieldChange('token_header', e.target.value)}
+                  placeholder="X-API-Key" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Token Prefix</label>
+                <input className="form-input" value={config.token_prefix || ''}
+                  onChange={e => handleFieldChange('token_prefix', e.target.value)}
+                  placeholder="e.g. Token" />
+              </div>
+            </div>
+          )}
+
+          <div className="form-section-title">Limits</div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Timeout (seconds)</label>
+              <input className="form-input" type="number" value={config.timeout || 30}
+                onChange={e => handleFieldChange('timeout', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Max Response KB</label>
+              <input className="form-input" type="number" value={config.max_response_kb || 1024}
+                onChange={e => handleFieldChange('max_response_kb', e.target.value)} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Allowed Methods (comma-separated)</label>
+            <input className="form-input"
+              value={Array.isArray(config.allowed_methods) ? config.allowed_methods.join(', ') : (config.allowed_methods || '')}
+              onChange={e => handleFieldChange('allowed_methods', e.target.value)}
+              placeholder="GET, POST, PUT, DELETE" />
+          </div>
+        </div>
+        <div className="slideout-footer">
+          {!isNew && (
+            <button className="btn btn-revoke" onClick={handleDelete} style={{ marginRight: 'auto' }}>DELETE</button>
+          )}
+          <button className="btn btn-amber" onClick={onClose}>CANCEL</button>
+          <button className="btn btn-green" onClick={handleSave} disabled={saving}>
+            {saving ? 'SAVING...' : 'SAVE'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ServicesView({ token }) {
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [configService, setConfigService] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+
+  const fetchServices = useCallback(async () => {
+    try {
+      const data = await api('GET', '/v1/dashboard/services', null, token);
+      setServices((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+    } catch {}
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { fetchServices(); }, [fetchServices]);
+
+  const handleRefresh = () => { fetchServices(); };
+
+  const handleToggleServiceDirect = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/services/${encodeURIComponent(name)}/toggle`, null, token);
+      setServices(prev => prev.map(s => s.name === name ? { ...s, enabled: result.enabled } : s));
+    } catch {}
+  };
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{services.length} service{services.length !== 1 ? 's' : ''} configured</span>
+        <button className="btn btn-green" onClick={() => setShowAdd(true)}>+ ADD SERVICE</button>
+      </div>
+
+      {loading ? (
+        <div className="loading">Loading services...</div>
+      ) : (
+        <div className="services-grid">
+          {services.length === 0 ? (
+            <div className="empty-state" style={{ gridColumn: '1 / -1' }}>No services configured</div>
+          ) : services.map(s => (
+            <div key={s.name} className={`service-card${s.enabled === false ? ' item-disabled' : ''}`}>
+              <div className="service-card-header">
+                <span className="service-card-name">{s.name}</span>
+                <AuthTypeBadge authType={s.auth_type || 'none'} />
+              </div>
+              <div className="service-card-url">{s.url_prefix || '-'}</div>
+              {s.description && <div className="service-card-desc">{s.description}</div>}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '10px', color: 'var(--text-dim)', marginBottom: '10px' }}>
+                {s.timeout && <span>Timeout: {s.timeout}s</span>}
+                {s.max_response_kb && <span>Max: {s.max_response_kb}KB</span>}
+                {s.allowed_methods && <span>Methods: {Array.isArray(s.allowed_methods) ? s.allowed_methods.join(', ') : s.allowed_methods}</span>}
+              </div>
+              <div className="service-card-actions">
+                <button className="btn btn-cyan" onClick={() => setConfigService(s)}>CONFIGURE</button>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{s.enabled !== false ? 'ON' : 'OFF'}</span>
+                  <ToggleSwitch checked={s.enabled !== false} onChange={() => handleToggleServiceDirect(s.name)} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ServiceConfigPanel
+        service={showAdd ? null : configService}
+        open={showAdd || !!configService}
+        onClose={() => { setConfigService(null); setShowAdd(false); }}
+        onSave={handleRefresh}
+        onDelete={handleRefresh}
+        token={token}
+      />
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5b. REMOTES VIEW (MCP Federation)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function RemoteConfigPanel({ remote, open, onClose, onSave, onDelete, token }) {
+  const [config, setConfig] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const isNew = !remote;
+
+  useEffect(() => {
+    if (open) {
+      if (remote) {
+        setConfig({ ...remote, credential: remote.credential_set ? '***' : '' });
+      } else {
+        setConfig({
+          name: '', url: '', auth_type: 'none', credential: '',
+          description: '', enabled: true, timeout: 30,
+          refresh_seconds: 300, tool_prefix: '',
+        });
+      }
+      setError('');
+    }
+  }, [open, remote]);
+
+  const handleFieldChange = (field, value) => {
+    setConfig(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const payload = { ...config };
+      if (payload.credential === '***') delete payload.credential;
+      payload.timeout = parseInt(payload.timeout) || 30;
+      payload.refresh_seconds = parseInt(payload.refresh_seconds) || 300;
+      payload.enabled = payload.enabled !== false;
+      const name = isNew ? encodeURIComponent(payload.name) : encodeURIComponent(remote.name);
+      await api('PUT', `/v1/dashboard/remotes/${name}`, payload, token);
+      if (onSave) onSave();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async () => {
+    if (!remote) return;
+    if (!confirm(`Remove remote MCP server "${remote.name}"? This will stop all federation with this server.`)) return;
+    try {
+      await api('DELETE', `/v1/dashboard/remotes/${encodeURIComponent(remote.name)}`, null, token);
+      if (onDelete) onDelete();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (!open || !config) return null;
+
+  return (
+    <>
+      <div className={`slideout-overlay ${open ? 'open' : ''}`} onClick={onClose} />
+      <div className={`slideout-panel ${open ? 'open' : ''}`}>
+        <div className="slideout-header">
+          <h3>{isNew ? 'Add Remote MCP Server' : `Configure: ${remote.name}`}</h3>
+          <button className="slideout-close" onClick={onClose}>&times;</button>
+        </div>
+        <div className="slideout-body">
+          {error && <div className="modal-error" style={{ marginBottom: '16px' }}>{error}</div>}
+
+          <div className="form-section-title">Remote Server</div>
+          <div className="form-group">
+            <label className="form-label">Name</label>
+            <input className="form-input" value={config.name || ''} readOnly={!isNew}
+              style={isNew ? {} : { opacity: 0.5 }}
+              onChange={e => handleFieldChange('name', e.target.value)}
+              placeholder="e.g. weather-api" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">MCP Endpoint URL</label>
+            <input className="form-input" value={config.url || ''}
+              onChange={e => handleFieldChange('url', e.target.value)}
+              placeholder="e.g. https://api.example.com/mcp" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Description</label>
+            <input className="form-input" value={config.description || ''}
+              onChange={e => handleFieldChange('description', e.target.value)}
+              placeholder="Weather forecasting MCP server" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Tool Prefix (optional, defaults to name)</label>
+            <input className="form-input" value={config.tool_prefix || ''}
+              onChange={e => handleFieldChange('tool_prefix', e.target.value)}
+              placeholder="e.g. wx (tools appear as wx.get_forecast)" />
+          </div>
+          <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input type="checkbox" checked={config.enabled !== false}
+              onChange={e => handleFieldChange('enabled', e.target.checked)}
+              style={{ accentColor: 'var(--green)' }} />
+            <label className="form-label" style={{ marginBottom: 0 }}>Enabled</label>
+          </div>
+
+          <div className="form-section-title">Authentication</div>
+          <div className="form-group">
+            <label className="form-label">Auth Type</label>
+            <select className="form-select" value={config.auth_type || 'none'}
+              onChange={e => handleFieldChange('auth_type', e.target.value)}>
+              <option value="none">None</option>
+              <option value="bearer">Bearer Token</option>
+              <option value="basic">Basic Auth</option>
+              <option value="header">Custom Header</option>
+            </select>
+          </div>
+          {config.auth_type !== 'none' && (
+            <div className="form-group">
+              <label className="form-label">Credential</label>
+              <input className="form-input" type="password"
+                value={config.credential === '***' ? '' : (config.credential || '')}
+                onChange={e => handleFieldChange('credential', e.target.value)}
+                placeholder={config.credential === '***' ? 'set - enter new to change' : 'API key or token'} />
+            </div>
+          )}
+
+          <div className="form-section-title">Tuning</div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Timeout (seconds)</label>
+              <input className="form-input" type="number" value={config.timeout || 30}
+                onChange={e => handleFieldChange('timeout', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Refresh Interval (seconds)</label>
+              <input className="form-input" type="number" value={config.refresh_seconds || 300}
+                onChange={e => handleFieldChange('refresh_seconds', e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <div className="slideout-footer">
+          {!isNew && (
+            <button className="btn btn-revoke" onClick={handleDelete} style={{ marginRight: 'auto' }}>REMOVE</button>
+          )}
+          <button className="btn btn-amber" onClick={onClose}>CANCEL</button>
+          <button className="btn btn-green" onClick={handleSave} disabled={saving}>
+            {saving ? 'SAVING...' : 'SAVE'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function MCPServersView({ token }) {
+  const [remotes, setRemotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [configRemote, setConfigRemote] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+
+  const fetchRemotes = useCallback(async () => {
+    try {
+      const data = await api('GET', '/v1/dashboard/remotes', null, token);
+      setRemotes((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+    } catch {}
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { fetchRemotes(); }, [fetchRemotes]);
+  // Auto-refresh every 10s to pick up status changes
+  useEffect(() => {
+    const iv = setInterval(fetchRemotes, 10000);
+    return () => clearInterval(iv);
+  }, [fetchRemotes]);
+
+  const handleRefresh = () => { fetchRemotes(); };
+
+  const handleToggleRemoteDirect = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/toggle`, null, token);
+      setRemotes(prev => prev.map(r => r.name === name ? { ...r, enabled: result.enabled, status: result.enabled ? r.status : 'disconnected' } : r));
+    } catch {}
+  };
+
+  const handleForceRefresh = async (name) => {
+    try {
+      await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/refresh`, null, token);
+      // Refetch after a short delay to show updated status
+      setTimeout(fetchRemotes, 1500);
+    } catch {}
+  };
+
+  const fmtTime = (ts) => {
+    if (!ts) return 'never';
+    const d = new Date(ts);
+    const now = new Date();
+    const diffMs = now - d;
+    if (diffMs < 60000) return `${Math.floor(diffMs / 1000)}s ago`;
+    if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`;
+    if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`;
+    return d.toLocaleDateString();
+  };
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+          {remotes.length} MCP server{remotes.length !== 1 ? 's' : ''} configured
+          {remotes.filter(r => r.status === 'connected').length > 0 &&
+            ` \u2022 ${remotes.filter(r => r.status === 'connected').length} connected`}
+        </span>
+        <button className="btn btn-green" onClick={() => setShowAdd(true)}>+ ADD MCP SERVER</button>
+      </div>
+
+      {loading ? (
+        <div className="loading">Loading remotes...</div>
+      ) : (
+        <div className="services-grid">
+          {remotes.length === 0 ? (
+            <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
+              No MCP servers configured. Add one to federate tools from external servers.
+            </div>
+          ) : remotes.map(r => (
+            <div key={r.name} className={`service-card${r.enabled === false ? ' item-disabled' : ''}`} style={{ borderColor: r.status === 'error' ? 'rgba(255,0,60,0.3)' : r.status === 'connected' ? 'rgba(168,85,247,0.3)' : undefined }}>
+              <div className="service-card-header">
+                <span className="service-card-name">{r.name}</span>
+                <RemoteStatusBadge status={r.status} />
+              </div>
+              <div className="service-card-url">{r.url || '-'}</div>
+              {r.description && <div className="service-card-desc">{r.description}</div>}
+              <div className="remote-card-stats">
+                <span>Tools: <span className="stat-count">{r.tool_count || 0}</span></span>
+                <span>Resources: <span className="stat-count">{r.resource_count || 0}</span></span>
+              </div>
+              <div className="remote-card-refresh">Last refresh: {fmtTime(r.last_refresh)}</div>
+              {r.last_error && <div className="remote-card-error">{r.last_error}</div>}
+              <div className="service-card-actions">
+                <button className="btn btn-cyan" onClick={() => setConfigRemote(r)}>CONFIGURE</button>
+                <button className="btn btn-amber" onClick={() => handleForceRefresh(r.name)}>REFRESH</button>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{r.enabled !== false ? 'ON' : 'OFF'}</span>
+                  <ToggleSwitch checked={r.enabled !== false} onChange={() => handleToggleRemoteDirect(r.name)} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <RemoteConfigPanel
+        remote={showAdd ? null : configRemote}
+        open={showAdd || !!configRemote}
+        onClose={() => { setConfigRemote(null); setShowAdd(false); }}
+        onSave={handleRefresh}
+        onDelete={handleRefresh}
+        token={token}
+      />
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 6. TERMINAL VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function TerminalTab({ tab, isActive, onSelect, onClose }) {
+  return (
+    <div className={`terminal-tab ${isActive ? 'active' : ''}`} onClick={() => onSelect(tab.id)}>
+      <span>{tab.label || `Terminal ${tab.id}`}</span>
+      <span className="tab-close" onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}>&times;</span>
+    </div>
+  );
+}
+
+function TerminalInstance({ tab, token, onStatusChange }) {
+  const termContainerRef = useRef(null);
+  const termRef = useRef(null);
+  const fitAddonRef = useRef(null);
+  const wsRef = useRef(null);
+
+  useEffect(() => {
+    if (!termContainerRef.current || termRef.current) return;
+
+    const term = new window.Terminal({
+      fontFamily: '"JetBrains Mono", monospace',
+      fontSize: 13,
+      theme: {
+        background: '#0a0e17',
+        foreground: '#c9d1d9',
+        cursor: '#00ff9d',
+        cursorAccent: '#0a0e17',
+        selectionBackground: 'rgba(0,255,157,0.2)',
+        black: '#0a0e17',
+        red: '#ff003c',
+        green: '#00ff9d',
+        yellow: '#ffb700',
+        blue: '#00d4ff',
+        magenta: '#a855f7',
+        cyan: '#00d4ff',
+        white: '#c9d1d9',
+      },
+      cursorBlink: true,
+      allowTransparency: true,
+      scrollback: 5000,
+    });
+
+    const fitAddon = new window.FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(termContainerRef.current);
+    fitAddon.fit();
+    termRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    term.writeln('\x1b[32m[CLAUTH Terminal]\x1b[0m Ready to connect.');
+    term.writeln('');
+
+    const resizeObserver = new ResizeObserver(() => {
+      try { fitAddon.fit(); } catch {}
+    });
+    resizeObserver.observe(termContainerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      if (wsRef.current) wsRef.current.close();
+      term.dispose();
+      termRef.current = null;
+    };
+  }, []);
+
+  const connect = useCallback((connConfig) => {
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    const term = termRef.current;
+    if (!term) return;
+
+    term.clear();
+    term.writeln(`\x1b[33m[Connecting to ${connConfig.host}...]\x1b[0m`);
+    onStatusChange(tab.id, 'connecting');
+
+    const wsUrl = `${getWsUrl()}/v1/dashboard/terminal?token=${encodeURIComponent(token)}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      const dims = fitAddonRef.current ? { cols: term.cols, rows: term.rows } : { cols: 120, rows: 30 };
+      ws.send(JSON.stringify({
+        host: connConfig.host, port: connConfig.port || 22,
+        user: connConfig.user, auth_type: connConfig.auth_type || 'certificate',
+        password: connConfig.password || '', cols: dims.cols, rows: dims.rows,
+      }));
+      onStatusChange(tab.id, 'connected');
+      term.writeln(`\x1b[32m[Connected]\x1b[0m`);
+    };
+
+    ws.onmessage = (e) => {
+      if (typeof e.data === 'string') {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.error) {
+            term.writeln(`\x1b[31m[Error: ${msg.error}]\x1b[0m`);
+            onStatusChange(tab.id, 'error');
+            return;
+          }
+        } catch {}
+      }
+      term.write(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
+    };
+
+    ws.onclose = () => {
+      term.writeln('\r\n\x1b[33m[Disconnected]\x1b[0m');
+      onStatusChange(tab.id, 'disconnected');
+      wsRef.current = null;
+    };
+
+    ws.onerror = () => {
+      term.writeln('\r\n\x1b[31m[Connection error]\x1b[0m');
+      onStatusChange(tab.id, 'error');
+    };
+
+    term.onData(data => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
+    term.onResize(({ cols, rows }) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    });
+  }, [tab.id, token, onStatusChange]);
+
+  const disconnect = useCallback(() => {
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+  }, []);
+
+  // Expose connect/disconnect
+  useEffect(() => {
+    tab._connect = connect;
+    tab._disconnect = disconnect;
+    tab._fitAddon = fitAddonRef;
+  });
+
+  return <div ref={termContainerRef} className="terminal-xterm-container" style={{ height: '100%' }} />;
+}
+
+function TerminalView({ hosts, token }) {
+  const [tabs, setTabs] = useState([]);
+  const [activeTabId, setActiveTabId] = useState(null);
+  const [tabStatuses, setTabStatuses] = useState({});
+  const [showForm, setShowForm] = useState(null);
+  const [formData, setFormData] = useState({ host: '', port: 22, user: '', auth_type: 'certificate', password: '' });
+  const nextIdRef = useRef(1);
+
+  const addTab = () => {
+    if (tabs.length >= 5) return;
+    const id = nextIdRef.current++;
+    const tab = { id, label: `Term ${id}` };
+    setTabs(prev => [...prev, tab]);
+    setActiveTabId(id);
+    setShowForm(id);
+    setTabStatuses(prev => ({ ...prev, [id]: 'new' }));
+  };
+
+  const closeTab = (id) => {
+    const tab = tabs.find(t => t.id === id);
+    if (tab && tab._disconnect) tab._disconnect();
+    setTabs(prev => prev.filter(t => t.id !== id));
+    setTabStatuses(prev => { const n = { ...prev }; delete n[id]; return n; });
+    if (activeTabId === id) {
+      const remaining = tabs.filter(t => t.id !== id);
+      setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
+    }
+  };
+
+  const handleStatusChange = useCallback((tabId, status) => {
+    setTabStatuses(prev => ({ ...prev, [tabId]: status }));
+  }, []);
+
+  const handleConnect = (tabId) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab && tab._connect) {
+      tab._connect(formData);
+      setShowForm(null);
+      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, label: formData.host.split('.')[0] || `Term ${tabId}` } : t));
+    }
+  };
+
+  const handleDisconnect = (tabId) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab && tab._disconnect) tab._disconnect();
+  };
+
+  const handleFullscreen = (tabId) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab && tab._fitAddon && tab._fitAddon.current) {
+      setTimeout(() => { try { tab._fitAddon.current.fit(); } catch {} }, 100);
+    }
+  };
+
+  useEffect(() => {
+    if (tabs.length === 0) addTab();
+  }, []);
+
+  const selectedHost = hosts.find(h => h.host === formData.host || h.name === formData.host);
+
+  return (
+    <div className="terminal-panel">
+      <div className="terminal-tabs">
+        {tabs.map(tab => (
+          <TerminalTab key={tab.id} tab={tab} isActive={activeTabId === tab.id}
+            onSelect={setActiveTabId} onClose={closeTab} />
+        ))}
+        {tabs.length < 5 && <button className="terminal-tab-add" onClick={addTab}>+</button>}
+      </div>
+
+      {tabs.map(tab => (
+        <div key={tab.id} style={{ display: activeTabId === tab.id ? 'flex' : 'none', flexDirection: 'column', flex: 1 }}>
+          {showForm === tab.id ? (
+            <div className="terminal-connect-form">
+              <div className="form-section-title">Connect to Host</div>
+              <div className="form-group">
+                <label className="form-label">Target Host</label>
+                <select className="form-select" value={formData.host}
+                  onChange={e => {
+                    const h = hosts.find(x => x.name === e.target.value);
+                    setFormData(prev => ({
+                      ...prev, host: h ? h.host : e.target.value,
+                      port: h ? (h.port || 22) : prev.port,
+                      user: h ? (h.user || '') : prev.user,
+                    }));
+                  }}>
+                  <option value="">Select a host...</option>
+                  {(hosts || []).map(h => (
+                    <option key={h.name} value={h.name}>{h.name} ({h.host})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Username</label>
+                  <input className="form-input" value={formData.user} onChange={e => setFormData(prev => ({ ...prev, user: e.target.value }))} placeholder="agent-op" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Port</label>
+                  <input className="form-input" type="number" value={formData.port} onChange={e => setFormData(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Auth Type</label>
+                <select className="form-select" value={formData.auth_type} onChange={e => setFormData(prev => ({ ...prev, auth_type: e.target.value }))}>
+                  <option value="certificate">Certificate (Clauth)</option>
+                  <option value="password">Password</option>
+                  <option value="key">SSH Key</option>
+                </select>
+              </div>
+              {formData.auth_type === 'password' && (
+                <div className="form-group">
+                  <label className="form-label">Password</label>
+                  <input className="form-input" type="password" value={formData.password} onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))} />
+                </div>
+              )}
+              <div style={{ marginTop: '16px' }}>
+                <button className="btn btn-green" onClick={() => handleConnect(tab.id)} disabled={!formData.host}>CONNECT</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="terminal-toolbar">
+                <div className="terminal-toolbar-left">
+                  <span style={{ color: tabStatuses[tab.id] === 'connected' ? 'var(--green)' : 'var(--text-dim)' }}>
+                    {tabStatuses[tab.id] || 'idle'}
+                  </span>
+                </div>
+                <div className="terminal-toolbar-right">
+                  <button className="btn btn-revoke" onClick={() => handleDisconnect(tab.id)} style={{ fontSize: '9px', padding: '2px 8px' }}>DISCONNECT</button>
+                  <button className="btn btn-cyan" onClick={() => setShowForm(tab.id)} style={{ fontSize: '9px', padding: '2px 8px' }}>NEW CONN</button>
+                </div>
+              </div>
+              <TerminalInstance tab={tab} token={token} onStatusChange={handleStatusChange} />
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7. SETTINGS VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function SettingsView({ summary, token, wsStatus }) {
+  return (
+    <div>
+      <div className="settings-section">
+        <div className="settings-section-title">Dashboard Authentication</div>
+        <div className="settings-row">
+          <span className="settings-label">API Token</span>
+          <CanvasSecret value={token} width={350} height={20} />
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">System Information</div>
+        <div className="settings-row">
+          <span className="settings-label">Broker Status</span>
+          <span className="settings-value">{summary.broker_status || 'unknown'}</span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">Hostname</span>
+          <span className="settings-value">{summary.hostname || '-'}</span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">IP Address</span>
+          <span className="settings-value">{summary.ip || '-'}</span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">Uptime</span>
+          <span className="settings-value">{summary.uptime || '-'}</span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">CA Key Status</span>
+          <span className="settings-value" style={{ color: summary.ca_key_status === 'loaded' ? 'var(--green)' : 'var(--red)' }}>
+            {summary.ca_key_status || 'unknown'}
+          </span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">Signer Socket</span>
+          <span className="settings-value" style={{ color: summary.signer_ok ? 'var(--green)' : 'var(--red)' }}>
+            {summary.signer_ok ? 'Connected' : 'Disconnected'}
+          </span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">Version</span>
+          <span className="settings-value">{summary.version || '-'}</span>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">Connection Status</div>
+        <div className="settings-row">
+          <span className="settings-label">WebSocket</span>
+          <span style={{ color: wsStatus === 'CONNECTED' ? 'var(--green)' : wsStatus === 'RECONNECTING' ? 'var(--amber)' : 'var(--red)' }}>
+            {wsStatus}
+          </span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-label">REST API</span>
+          <span style={{ color: 'var(--green)' }}>POLLING (5s)</span>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">Policy Overview</div>
+        <div style={{ padding: '12px', background: 'rgba(0,0,0,0.3)', borderRadius: '4px', fontSize: '11px', color: 'var(--text-dim)', lineHeight: '1.6' }}>
+          <div>Total Hosts Configured: <span style={{ color: 'var(--cyan)' }}>{summary.hosts_total || summary.hosts_enabled || '-'}</span></div>
+          <div>Hosts Enabled: <span style={{ color: 'var(--green)' }}>{summary.hosts_enabled || '-'}</span></div>
+          <div>Total Certs Issued: <span style={{ color: 'var(--green)' }}>{summary.total_granted || '-'}</span></div>
+          <div>Total Denied: <span style={{ color: 'var(--red)' }}>{summary.total_denied || '-'}</span></div>
+          <div>Active Certs: <span style={{ color: 'var(--cyan)' }}>{summary.active_certs || '-'}</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TOKEN MODAL
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function TokenModal({ onSubmit, error }) {
+  const [val, setVal] = useState('');
+  const inputRef = useRef(null);
+  useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, []);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (val.trim()) onSubmit(val.trim());
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box">
+        <h2>CLAUTH</h2>
+        <div className="modal-sub">THE SPRAWL &mdash; PRIVILEGED ACCESS BROKER</div>
+        {error && <div className="modal-error">{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <input ref={inputRef} type="password" placeholder="Enter API Token"
+            value={val} onChange={e => setVal(e.target.value)}
+            autoComplete="off" spellCheck="false" />
+          <button type="submit" className="connect-btn">CONNECT</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN APP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function App() {
+  const [token, setToken] = useState(() => localStorage.getItem('clauth_token') || '');
+  const [tokenError, setTokenError] = useState('');
+  const [view, setView] = useState('overview');
+  const [now, setNow] = useState(Date.now());
+  const [privacyMode, setPrivacyMode] = useState(false);
+
+  const [summary, setSummary] = useState({});
+  const [hosts, setHosts] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const [wsStatus, setWsStatus] = useState('DISCONNECTED');
+  const [activityAgent, setActivityAgent] = useState('');
+  const wsRef = useRef(null);
+  const wsRetriesRef = useRef(0);
+  const wsTimerRef = useRef(null);
+  const tickRef = useRef(null);
+  const pollRef = useRef(null);
+
+  // Privacy mode class
+  useEffect(() => {
+    if (privacyMode) document.body.classList.add('privacy-mode');
+    else document.body.classList.remove('privacy-mode');
+  }, [privacyMode]);
+
+  // Document visibility detection for anti-screen-capture
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) document.body.classList.add('document-blurred');
+      else document.body.classList.remove('document-blurred');
+    };
+    const handleBlur = () => document.body.classList.add('document-blurred');
+    const handleFocus = () => document.body.classList.remove('document-blurred');
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  // Clock tick every second
+  useEffect(() => {
+    tickRef.current = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tickRef.current);
+  }, []);
+
+  // Fetch all data
+  const fetchAll = useCallback(async () => {
+    if (!token) return;
+    try {
+      const [sum, h, s] = await Promise.all([
+        api('GET', '/v1/dashboard/summary', null, token),
+        api('GET', '/v1/dashboard/hosts', null, token),
+        api('GET', '/v1/dashboard/sessions', null, token),
+      ]);
+      setSummary(sum || {});
+      setHosts((h || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+      setSessions(s || []);
+      setLoading(false);
+    } catch (err) {
+      if (err.message === 'UNAUTHORIZED') { setToken(''); setTokenError('Invalid or expired token'); }
+      setLoading(false);
+    }
+  }, [token]);
+
+  // Fetch live data (summary + sessions + hosts)
+  const fetchLive = useCallback(async () => {
+    if (!token) return;
+    try {
+      const [sum, h, s] = await Promise.all([
+        api('GET', '/v1/dashboard/summary', null, token),
+        api('GET', '/v1/dashboard/hosts', null, token),
+        api('GET', '/v1/dashboard/sessions', null, token),
+      ]);
+      setSummary(sum || {});
+      setHosts((h || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+      setSessions(s || []);
+    } catch (err) {
+      if (err.message === 'UNAUTHORIZED') { setToken(''); setTokenError('Invalid or expired token'); }
+    }
+  }, [token]);
+
+  // Initial fetch
+  useEffect(() => { if (token) { setLoading(true); fetchAll(); } }, [token, fetchAll]);
+
+  // Periodic refresh every 5s
+  useEffect(() => {
+    if (!token) return;
+    pollRef.current = setInterval(fetchLive, 5000);
+    return () => clearInterval(pollRef.current);
+  }, [token, fetchLive]);
+
+  // WebSocket connection
+  const connectWs = useCallback(() => {
+    if (!token) return;
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+
+    const url = `${getWsUrl()}/v1/events?token=${encodeURIComponent(token)}`;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => { setWsStatus('CONNECTED'); wsRetriesRef.current = 0; };
+
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        setEvents(prev => [msg, ...prev].slice(0, 200));
+        const t = (msg.type || '').toLowerCase();
+        if (t.includes('grant') || t.includes('deny') || t.includes('revoke') || t.includes('expire') || t.includes('issued') || t.includes('toggle')) {
+          fetchLive();
+        }
+      } catch {}
+    };
+
+    ws.onclose = () => {
+      wsRef.current = null;
+      setWsStatus('RECONNECTING');
+      const delay = Math.min(30000, 1000 * Math.pow(2, wsRetriesRef.current));
+      wsRetriesRef.current++;
+      wsTimerRef.current = setTimeout(connectWs, delay);
+    };
+
+    ws.onerror = () => { ws.close(); };
+  }, [token, fetchLive]);
+
+  useEffect(() => {
+    if (token) connectWs();
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+      if (wsTimerRef.current) clearTimeout(wsTimerRef.current);
+    };
+  }, [token, connectWs]);
+
+  // Token submit
+  const handleTokenSubmit = (t) => {
+    setTokenError('');
+    localStorage.setItem('clauth_token', t);
+    setToken(t);
+  };
+
+  // Logout
+  const handleLogout = () => {
+    localStorage.removeItem('clauth_token');
+    if (wsRef.current) wsRef.current.close();
+    setToken(''); setSummary({}); setHosts([]);
+    setSessions([]); setEvents([]); setWsStatus('DISCONNECTED');
+  };
+
+  // Toggle host
+  const handleToggleHost = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/hosts/${encodeURIComponent(name)}/toggle`, null, token);
+      setHosts(prev => prev.map(h => h.name === name ? { ...h, access_enabled: result.access_enabled } : h));
+    } catch (err) {
+      if (err.message === 'UNAUTHORIZED') { setToken(''); setTokenError('Invalid or expired token'); }
+    }
+  };
+
+  // Revoke session
+  const handleRevoke = async (serial) => {
+    try {
+      await api('POST', `/v1/dashboard/sessions/${encodeURIComponent(serial)}/revoke`, null, token);
+      setSessions(prev => prev.map(s => s.serial === serial ? { ...s, status: 'revoked' } : s));
+      fetchLive();
+    } catch (err) {
+      if (err.message === 'UNAUTHORIZED') { setToken(''); setTokenError('Invalid or expired token'); }
+    }
+  };
+
+  // No token - show modal
+  if (!token) return <TokenModal onSubmit={handleTokenSubmit} error={tokenError} />;
+
+  const navItems = [
+    { id: 'overview', label: 'Overview', icon: '\u25c8', group: 'OVERVIEW' },
+    { id: 'hosts', label: 'Hosts', icon: '\u2b21', group: 'INFRASTRUCTURE' },
+    { id: 'services', label: 'Services', icon: '\u2394', group: 'INFRASTRUCTURE' },
+    { id: 'mcp-servers', label: 'MCP Servers', icon: '\u2b95', group: 'INFRASTRUCTURE' },
+    { id: 'agents', label: 'Agents', icon: '\u25ce', group: 'MONITOR' },
+    { id: 'activity', label: 'Activity', icon: '\u2261', group: 'MONITOR' },
+    { id: 'sessions', label: 'Sessions', icon: '\u27d0', group: 'MONITOR' },
+    { id: 'audit', label: 'Audit Log', icon: '\u25a4', group: 'MONITOR' },
+    { id: 'terminal', label: 'Terminal', icon: '\u2318', group: 'TOOLS' },
+    { id: 'settings', label: 'Settings', icon: '\u2699', group: 'TOOLS' },
+  ];
+
+  const viewTitles = {
+    overview: 'System Overview',
+    hosts: 'Host Management',
+    agents: 'Agent Registry',
+    activity: 'Activity Monitor',
+    sessions: 'Session Control',
+    audit: 'Audit Log',
+    terminal: 'Terminal Access',
+    services: 'Service Configuration',
+    'mcp-servers': 'MCP Servers',
+    settings: 'Settings',
+  };
+
+  const wsColors = { CONNECTED: 'green', RECONNECTING: 'amber', DISCONNECTED: 'red' };
+
+  return (
+    <div className="app-layout">
+      <div className="sidebar">
+        <div className="sidebar-brand">
+          <h1>CLAUTH</h1>
+          <div className="subtitle">THE SPRAWL &mdash; PRIVILEGED ACCESS BROKER</div>
+        </div>
+        <div className="sidebar-nav">
+          {(() => {
+            let lastGroup = '';
+            return navItems.map(n => {
+              const showGroup = n.group !== lastGroup;
+              lastGroup = n.group;
+              return (
+                <React.Fragment key={n.id}>
+                  {showGroup && <div className="nav-group-label">{n.group}</div>}
+                  <div className={`nav-item ${view === n.id ? 'active' : ''}`} onClick={() => { if (n.id !== 'activity') setActivityAgent(''); setView(n.id); }}>
+                    <span className="nav-icon">{n.icon}</span>
+                    {n.label}
+                  </div>
+                </React.Fragment>
+              );
+            });
+          })()}
+        </div>
+        <SidebarStats summary={summary} />
+        <div className="sidebar-footer">
+          <div className="broker-info">
+            {summary.hostname && <div>{summary.hostname}</div>}
+            {summary.ip && <div className="broker-ip">{summary.ip}</div>}
+            {summary.uptime && <div>Up: {summary.uptime}</div>}
+          </div>
+          <div>Broker: {summary.broker_status || 'unknown'}</div>
+          <div>CA: {summary.ca_key_status || 'unknown'}</div>
+          <div>Signer: {summary.signer_ok ? 'OK' : 'N/A'}</div>
+        </div>
+      </div>
+
+      <div className="main-area">
+        <div className="topbar">
+          <div className="topbar-title">{viewTitles[view]}</div>
+          <div className="topbar-right">
+            <button className={`privacy-toggle ${privacyMode ? 'active' : ''}`} onClick={() => setPrivacyMode(!privacyMode)}>
+              {privacyMode ? '\u25c9' : '\u25cb'} PRIVACY
+            </button>
+            <div className="conn-status">
+              <span className={`conn-dot ${wsColors[wsStatus]}`} />
+              <span style={{ color: wsStatus === 'CONNECTED' ? 'var(--green)' : wsStatus === 'RECONNECTING' ? 'var(--amber)' : 'var(--red)' }}>
+                {wsStatus}
+              </span>
+            </div>
+            <button className="logout-btn" onClick={handleLogout}>DISCONNECT</button>
+          </div>
+        </div>
+        <div className="content" style={view === 'terminal' ? { padding: 0, display: 'flex', flexDirection: 'column' } : {}}>
+          {loading ? (
+            <div className="loading">Connecting to broker...</div>
+          ) : (
+            <>
+              {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onToggleHost={handleToggleHost} onRevoke={handleRevoke} token={token} />}
+              {view === 'hosts' && <HostsView hosts={hosts} sessions={sessions} now={now} onToggleHost={handleToggleHost} token={token} onRefresh={fetchAll} />}
+              {view === 'agents' && <AgentsView sessions={sessions} summary={summary} now={now} token={token} onViewActivity={(agentName) => { setActivityAgent(agentName); setView('activity'); }} />}
+              {view === 'activity' && <ActivityView token={token} initialAgent={activityAgent} />}
+              {view === 'sessions' && <SessionsView sessions={sessions} now={now} onRevoke={handleRevoke} />}
+              {view === 'audit' && <AuditView token={token} events={events} />}
+              {view === 'terminal' && <TerminalView hosts={hosts} token={token} />}
+              {view === 'services' && <ServicesView token={token} />}
+              {view === 'mcp-servers' && <MCPServersView token={token} />}
+              {view === 'settings' && <SettingsView summary={summary} token={token} wsStatus={wsStatus} />}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MOUNT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
