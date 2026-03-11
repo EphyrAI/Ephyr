@@ -4,3 +4,8 @@ bin/
 *.out
 /broker
 *.bak
+*.bak2
+/etc/
+policy.yaml
+*.env
+credentials*
