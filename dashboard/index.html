@@ -935,6 +935,15 @@ function getVlanClass(vlan) {
   return '';
 }
 
+
+function formatDuration(ms) {
+  if (ms == null || ms === '') return '-';
+  const n = Number(ms);
+  if (isNaN(n)) return '-';
+  if (n < 1000) return n + 'ms';
+  if (n < 60000) return (n / 1000).toFixed(1) + 's';
+  return (n / 60000).toFixed(1) + 'm';
+}
 // ═══════════════════════════════════════════════════════════════════════════════
 // SHARED COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1475,7 +1484,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                         <span style={{ color: 'var(--green)', fontWeight: 600, minWidth: '50px' }}>{a.agent || '-'}</span>
                         <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
                         <span style={{ color: 'var(--cyan)' }}>{a.target || a.service || '-'}</span>
-                        <ActionTypeBadge type={a.action_type} />
+                        <ActionTypeBadge type={a.type || a.action_type} />
                         <span style={{ color: 'var(--text-dim)', fontSize: '10px', marginLeft: 'auto' }}>{relativeTime(a.timestamp)}</span>
                       </div>
                     ))}
@@ -1507,8 +1516,8 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
               action_type: e.action_type || e.type || 'unknown',
               agent: e.agent || '-',
               target: e.target || e.service || '-',
-              details: e.details || e.command || e.url || '',
-              status: e.status === 'error' || e.error ? 'error' : (e.status || 'success'),
+              details: typeof e.details === 'object' && e.details !== null ? JSON.stringify(e.details) : (e.details || e.command || e.url || ''),
+              status: e.status === 'error' || e.success === false || e.error ? 'error' : (e.status || 'success'),
               _source: 'activity',
             }));
             // Normalize WebSocket events
@@ -1856,8 +1865,8 @@ function AgentsView({ sessions, summary, now, token, onViewActivity }) {
         const hasActive = a.activeSessions.length > 0;
         const agentStatus = hasActive ? 'active' : 'offline';
         const act = agentActivity[a.name] || {};
-        const recentActions = act.recent_actions || [];
-        const errorRate = act.total_actions > 0 ? ((act.total_errors || 0) / act.total_actions * 100).toFixed(1) : '0.0';
+        const recentActions = act.entries || [];
+        const errorRate = (act.stats || {}).total_actions > 0 ? (((act.stats || {}).total_errors || 0) / (act.stats || {}).total_actions * 100).toFixed(1) : '0.0';
         return (
           <div key={a.name} className="agent-card">
             <div className="agent-card-header">
@@ -1869,15 +1878,15 @@ function AgentsView({ sessions, summary, now, token, onViewActivity }) {
             <div className="agent-activity-stats">
               <div className="stat-item">
                 <span>Actions:</span>
-                <span className="stat-val" style={{ color: 'var(--green)' }}>{act.total_actions || 0}</span>
+                <span className="stat-val" style={{ color: 'var(--green)' }}>{(act.stats || {}).total_actions || 0}</span>
               </div>
               <div className="stat-item">
                 <span>Last active:</span>
-                <span className="stat-val" style={{ color: 'var(--cyan)' }}>{act.last_active ? relativeTime(act.last_active) : 'never'}</span>
+                <span className="stat-val" style={{ color: 'var(--cyan)' }}>{(act.stats || {}).last_active ? relativeTime((act.stats || {}).last_active) : 'never'}</span>
               </div>
               <div className="stat-item">
                 <span>Last target:</span>
-                <span className="stat-val" style={{ color: 'var(--cyan)' }}>{act.last_target || '-'}</span>
+                <span className="stat-val" style={{ color: 'var(--cyan)' }}>{(act.stats || {}).last_target || '-'}</span>
               </div>
               <div className="stat-item">
                 <span>Error rate:</span>
@@ -2089,7 +2098,7 @@ function AuditView({ token, events }) {
   // Auto-refresh from WS events
   useEffect(() => { fetchAudit(); }, [events.length]);
 
-  const filters = ['ALL', 'GRANT', 'DENY', 'EXPIRE', 'REVOKE', 'ALERT'];
+  const filters = ['ALL', 'cert', 'mcp', 'http', 'toggle', 'session', 'policy'];
 
   return (
     <div>
@@ -2125,7 +2134,7 @@ function AuditView({ token, events }) {
                 <td style={{ color: 'var(--green)' }}>{e.agent || '-'}</td>
                 <td style={{ color: 'var(--cyan)' }}>{e.target || '-'}</td>
                 <td><RoleBadge role={e.role} /></td>
-                <td style={{ color: 'var(--text-dim)' }}>{e.duration || '-'}</td>
+                <td style={{ color: 'var(--text-dim)' }}>{formatDuration(e.duration_ms)}</td>
                 <td style={{ color: 'var(--text-dim)', fontSize: '11px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {e.reason || e.serial || '-'}
                 </td>
@@ -2259,7 +2268,7 @@ function ActivityView({ token, initialAgent }) {
           {entries.length === 0 ? (
             <div className="empty-state">No activity entries found</div>
           ) : entries.map((e, i) => {
-            const isError = e.status === 'error' || !!e.error;
+            const isError = e.status === 'error' || e.success === false || !!e.error;
             const isExpanded = expanded === i;
             return (
               <React.Fragment key={i}>
@@ -2270,12 +2279,12 @@ function ActivityView({ token, initialAgent }) {
                   <span className="act-details">
                     <span className="act-agent">{e.agent || '-'}</span>
                     {' '}
-                    {e.details || e.command || e.url || e.message || '-'}
+                    {typeof e.details === 'object' && e.details !== null ? JSON.stringify(e.details) : (e.details || e.command || e.url || e.message || '-')}
                   </span>
                   <span className="act-target">{e.target || e.service || '-'}</span>
-                  <span className="act-duration">{e.duration || '-'}</span>
+                  <span className="act-duration">{formatDuration(e.duration_ms)}</span>
                   <span className="act-status">
-                    <ActivityStatusBadge status={isError ? 'error' : (e.status || 'success')} />
+                    <ActivityStatusBadge status={isError ? 'error' : (e.success === false ? 'error' : (e.status || 'success'))} />
                   </span>
                 </div>
                 {isExpanded && (
@@ -2288,7 +2297,7 @@ function ActivityView({ token, initialAgent }) {
                     {e.agent && <div><span style={{ color: 'var(--cyan)' }}>Agent:</span> {e.agent}</div>}
                     {e.target && <div><span style={{ color: 'var(--cyan)' }}>Target:</span> {e.target}</div>}
                     {e.service && <div><span style={{ color: 'var(--cyan)' }}>Service:</span> {e.service}</div>}
-                    {e.duration && <div><span style={{ color: 'var(--cyan)' }}>Duration:</span> {e.duration}</div>}
+                    {e.duration_ms != null && <div><span style={{ color: 'var(--cyan)' }}>Duration:</span> {formatDuration(e.duration_ms)}</div>}
                     {e.timestamp && <div><span style={{ color: 'var(--cyan)' }}>Timestamp:</span> {new Date(e.timestamp).toISOString()}</div>}
                     {e.serial && <div><span style={{ color: 'var(--cyan)' }}>Serial:</span> {e.serial}</div>}
                   </div>
