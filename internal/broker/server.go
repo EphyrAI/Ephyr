@@ -273,6 +273,8 @@ func (bs *BrokerServer) routes() *http.ServeMux {
 	mux.HandleFunc("GET /v1/certs", bs.handleListCerts)
 	mux.HandleFunc("DELETE /v1/certs/{serial}", bs.handleRevokeCert)
 	mux.HandleFunc("GET /v1/targets", bs.handleListTargets)
+	mux.HandleFunc("GET /v1/services", bs.handleListServicesAPI)
+	mux.HandleFunc("GET /v1/remotes", bs.handleListRemotesAPI)
 	mux.HandleFunc("POST /v1/approve/{request_id}", bs.handleApprove)
 	mux.HandleFunc("POST /v1/deny/{request_id}", bs.handleDeny)
 	mux.HandleFunc("POST /v1/admin/hosts/{name}/toggle", bs.handleAdminToggleHost)

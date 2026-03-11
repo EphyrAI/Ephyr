@@ -894,3 +894,92 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
+
+
+// handleListServicesAPI serves GET /v1/services.
+// Returns proxy service configs (credentials redacted) for agent discovery.
+func (bs *BrokerServer) handleListServicesAPI(w http.ResponseWriter, r *http.Request) {
+	uid, hasUID := ContextUID(r)
+	if hasUID {
+		token := r.Header.Get("Authorization")
+		if token == "" {
+			token = r.Header.Get("X-Session-Token")
+		}
+		if token == "" {
+			writeError(w, http.StatusUnauthorized, "missing session token")
+			return
+		}
+		if len(token) > 7 && token[:7] == "Bearer " {
+			token = token[7:]
+		}
+		_, sessUID, valid := bs.sessions.ValidateSession(token)
+		if !valid || sessUID != uid {
+			writeError(w, http.StatusUnauthorized, "invalid or expired session token")
+			return
+		}
+	}
+
+	if bs.proxyEngine == nil {
+		writeJSON(w, http.StatusOK, []struct{}{})
+		return
+	}
+	services := bs.proxyEngine.ListServices()
+	if services == nil {
+		services = []*ServiceConfig{}
+	}
+	// Redact credentials for agent-facing endpoint.
+	type safeService struct {
+		Name           string   `json:"name"`
+		URLPrefix      string   `json:"url_prefix"`
+		AuthType       string   `json:"auth_type"`
+		Description    string   `json:"description"`
+		Enabled        *bool    `json:"enabled,omitempty"`
+		AllowedMethods []string `json:"allowed_methods,omitempty"`
+	}
+	safe := make([]safeService, len(services))
+	for i, s := range services {
+		safe[i] = safeService{
+			Name:           s.Name,
+			URLPrefix:      s.URLPrefix,
+			AuthType:       s.AuthType,
+			Description:    s.Description,
+			Enabled:        s.Enabled,
+			AllowedMethods: s.AllowedMethods,
+		}
+	}
+	writeJSON(w, http.StatusOK, safe)
+}
+
+// handleListRemotesAPI serves GET /v1/remotes.
+// Returns federated MCP server states for agent discovery.
+func (bs *BrokerServer) handleListRemotesAPI(w http.ResponseWriter, r *http.Request) {
+	uid, hasUID := ContextUID(r)
+	if hasUID {
+		token := r.Header.Get("Authorization")
+		if token == "" {
+			token = r.Header.Get("X-Session-Token")
+		}
+		if token == "" {
+			writeError(w, http.StatusUnauthorized, "missing session token")
+			return
+		}
+		if len(token) > 7 && token[:7] == "Bearer " {
+			token = token[7:]
+		}
+		_, sessUID, valid := bs.sessions.ValidateSession(token)
+		if !valid || sessUID != uid {
+			writeError(w, http.StatusUnauthorized, "invalid or expired session token")
+			return
+		}
+	}
+
+	if bs.federator == nil {
+		writeJSON(w, http.StatusOK, []struct{}{})
+		return
+	}
+	states := bs.federator.ListRemoteStates()
+	if states == nil {
+		states = []RemoteStateInfo{}
+	}
+	writeJSON(w, http.StatusOK, states)
+}

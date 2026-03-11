@@ -24,7 +24,9 @@ Usage:
   clauth ssh -t HOST -r ROLE         Request cert + open SSH session
   clauth exec -t HOST -r ROLE -- CMD Request cert + run remote command
   clauth status                      List active certificates
-  clauth targets                     List available targets
+  clauth targets                     List available SSH targets
+  clauth services                    List HTTP proxy services
+  clauth remotes                     List federated MCP servers
   clauth whoami                      Show agent identity
 
 Global:
@@ -53,6 +55,10 @@ func main() {
 		cmdStatus(os.Args[2:])
 	case "targets":
 		cmdTargets(os.Args[2:])
+	case "services":
+		cmdServices(os.Args[2:])
+	case "remotes":
+		cmdRemotes(os.Args[2:])
 	case "whoami":
 		cmdWhoami(os.Args[2:])
 	case "help", "--help", "-h":
