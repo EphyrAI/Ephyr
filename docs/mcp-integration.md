@@ -69,9 +69,9 @@ injection, and audit logging transparently.
 ┌─────────────────────┐
 │   Target Hosts      │
 │                     │
-│   MandrakeRack      │
-│   DockerHost        │
-│   HugoBlog          │
+│   target-1          │
+│   target-2          │
+│   target-3          │
 └─────────────────────┘
 ```
 
@@ -122,9 +122,9 @@ agents:
       - operator
       - admin
     targets:
-      - mandrake-rack
-      - dockerhost
-      - hugoblog
+      - app-server
+      - web-server
+      - blog-server
     auto_approve: true
 
 mcp:
@@ -149,9 +149,9 @@ Add the MCP server to your AI agent's configuration. For Claude Code, edit
   "mcpServers": {
     "clauth": {
       "type": "url",
-      "url": "http://192.168.100.75:8554/mcp",
+      "url": "http://BROKER_HOST:8554/mcp",
       "headers": {
-        "Authorization": "Bearer sprawl-mcp-test-key-2026"
+        "Authorization": "Bearer YOUR_API_KEY"
       }
     }
   }
@@ -163,9 +163,9 @@ Add the MCP server to your AI agent's configuration. For Claude Code, edit
 The agent should be able to initialize and list tools:
 
 ```bash
-curl -X POST http://192.168.100.75:8554/mcp \
+curl -X POST http://BROKER_HOST:8554/mcp \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer sprawl-mcp-test-key-2026" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
@@ -276,7 +276,7 @@ JSON Schema for input parameters. See "Available Tools" below for details.
   "params": {
     "name": "exec",
     "arguments": {
-      "target": "dockerhost",
+      "target": "web-server",
       "role": "read",
       "command": "uptime"
     }
@@ -400,7 +400,7 @@ details and allowed roles.
   "content": [
     {
       "type": "text",
-      "text": "[{\"name\": \"dockerhost\", \"host\": \"192.168.100.100\", \"port\": 22, \"roles\": [\"read\", \"operator\", \"admin\"], \"ttl\": 300, \"auto_approve\": true}, {\"name\": \"mandrake-rack\", \"host\": \"192.168.30.55\", \"port\": 22, \"roles\": [\"read\", \"operator\"], \"ttl\": 300, \"auto_approve\": true}, {\"name\": \"hugoblog\", \"host\": \"192.168.100.63\", \"port\": 22, \"roles\": [\"read\", \"operator\"], \"ttl\": 300, \"auto_approve\": true}]"
+      "text": "[{\"name\": \"web-server\", \"host\": \"10.0.1.10\", \"port\": 22, \"roles\": [\"read\", \"operator\", \"admin\"], \"ttl\": 300, \"auto_approve\": true}, {\"name\": \"app-server\", \"host\": \"10.0.1.20\", \"port\": 22, \"roles\": [\"read\", \"operator\"], \"ttl\": 300, \"auto_approve\": true}, {\"name\": \"blog-server\", \"host\": \"10.0.1.30\", \"port\": 22, \"roles\": [\"read\", \"operator\"], \"ttl\": 300, \"auto_approve\": true}]"
     }
   ]
 }
@@ -422,7 +422,7 @@ the primary tool for infrastructure operations.
 
 | Parameter   | Type   | Required | Description |
 |-------------|--------|----------|-------------|
-| `target`    | string | Yes      | Target name (e.g., `dockerhost`, `mandrake-rack`, `hugoblog`) |
+| `target`    | string | Yes      | Target name (e.g., `web-server`, `app-server`, `blog-server`) |
 | `role`      | string | Yes      | Role to use: `read`, `operator`, or `admin` |
 | `command`   | string | Yes      | Shell command to execute |
 | `session_id`| string | No       | Reuse a persistent session (see `session_create`) |
@@ -433,7 +433,7 @@ the primary tool for infrastructure operations.
 {
   "name": "exec",
   "arguments": {
-    "target": "dockerhost",
+    "target": "web-server",
     "role": "read",
     "command": "docker ps --format '{{.Names}}: {{.Status}}' | head -10"
   }
@@ -446,7 +446,7 @@ the primary tool for infrastructure operations.
 {
   "name": "exec",
   "arguments": {
-    "target": "dockerhost",
+    "target": "web-server",
     "role": "operator",
     "command": "docker restart tandoor-web",
     "session_id": "ses_abc123"
@@ -518,7 +518,7 @@ overhead of certificate generation and SSH handshake on each call.
 {
   "name": "session_create",
   "arguments": {
-    "target": "dockerhost",
+    "target": "web-server",
     "role": "operator"
   }
 }
@@ -531,7 +531,7 @@ overhead of certificate generation and SSH handshake on each call.
   "content": [
     {
       "type": "text",
-      "text": "{\"session_id\": \"ses_a1b2c3d4\", \"target\": \"dockerhost\", \"role\": \"operator\", \"created\": \"2026-03-10T14:30:00Z\", \"idle_timeout\": \"5m0s\"}"
+      "text": "{\"session_id\": \"ses_a1b2c3d4\", \"target\": \"web-server\", \"role\": \"operator\", \"created\": \"2026-03-10T14:30:00Z\", \"idle_timeout\": \"5m0s\"}"
     }
   ]
 }
@@ -606,7 +606,7 @@ Lists all active persistent SSH sessions for the authenticated agent.
   "content": [
     {
       "type": "text",
-      "text": "[{\"session_id\": \"ses_a1b2c3d4\", \"target\": \"dockerhost\", \"role\": \"operator\", \"created\": \"2026-03-10T14:30:00Z\", \"last_used\": \"2026-03-10T14:32:15Z\", \"idle_timeout\": \"5m0s\"}]"
+      "text": "[{\"session_id\": \"ses_a1b2c3d4\", \"target\": \"web-server\", \"role\": \"operator\", \"created\": \"2026-03-10T14:30:00Z\", \"last_used\": \"2026-03-10T14:32:15Z\", \"idle_timeout\": \"5m0s\"}]"
     }
   ]
 }
@@ -640,7 +640,7 @@ Lists active (non-expired) SSH certificates issued to the authenticated agent.
   "content": [
     {
       "type": "text",
-      "text": "[{\"serial\": \"1741612200\", \"target\": \"dockerhost\", \"principal\": \"agent-op\", \"issued\": \"2026-03-10T14:30:00Z\", \"expires\": \"2026-03-10T14:35:00Z\", \"remaining\": \"3m42s\"}]"
+      "text": "[{\"serial\": \"1741612200\", \"target\": \"web-server\", \"principal\": \"agent-op\", \"issued\": \"2026-03-10T14:30:00Z\", \"expires\": \"2026-03-10T14:35:00Z\", \"remaining\": \"3m42s\"}]"
     }
   ]
 }
@@ -673,7 +673,7 @@ passwords, or API keys.
 {
   "name": "http_request",
   "arguments": {
-    "url": "https://api.github.com/repos/ben-spanswick/hugo-blog/commits?per_page=5",
+    "url": "https://api.github.com/repos/YOUR_ORG/YOUR_REPO/commits?per_page=5",
     "method": "GET"
   }
 }
@@ -685,7 +685,7 @@ passwords, or API keys.
 {
   "name": "http_request",
   "arguments": {
-    "url": "http://192.168.100.100:3001/api/status-page/homelab",
+    "url": "http://UPTIME_KUMA_HOST:3001/api/status-page/default",
     "method": "GET"
   }
 }
@@ -745,7 +745,7 @@ are available for proxying.
   "content": [
     {
       "type": "text",
-      "text": "[{\"name\": \"github\", \"url_prefix\": \"https://api.github.com\", \"auth_type\": \"bearer\"}, {\"name\": \"gitea\", \"url_prefix\": \"http://192.168.100.54:3000\", \"auth_type\": \"header\"}, {\"name\": \"portainer\", \"url_prefix\": \"https://192.168.100.100:9443\", \"auth_type\": \"bearer\"}, {\"name\": \"grafana\", \"url_prefix\": \"http://192.168.100.100:3030\", \"auth_type\": \"bearer\"}, {\"name\": \"uptime-kuma\", \"url_prefix\": \"http://192.168.100.100:3001\", \"auth_type\": \"none\"}, {\"name\": \"homepage\", \"url_prefix\": \"http://192.168.100.100:3000\", \"auth_type\": \"none\"}, {\"name\": \"command-center\", \"url_prefix\": \"http://192.168.100.74:8550\", \"auth_type\": \"none\"}]"
+      "text": "[{\"name\": \"github\", \"url_prefix\": \"https://api.github.com\", \"auth_type\": \"bearer\"}, {\"name\": \"gitea\", \"url_prefix\": \"http://GITEA_HOST:3000\", \"auth_type\": \"header\"}, {\"name\": \"portainer\", \"url_prefix\": \"https://PORTAINER_HOST:9443\", \"auth_type\": \"bearer\"}, {\"name\": \"grafana\", \"url_prefix\": \"http://GRAFANA_HOST:3030\", \"auth_type\": \"bearer\"}, {\"name\": \"uptime-kuma\", \"url_prefix\": \"http://UPTIME_KUMA_HOST:3001\", \"auth_type\": \"none\"}, {\"name\": \"homepage\", \"url_prefix\": \"http://HOMEPAGE_HOST:3000\", \"auth_type\": \"none\"}, {\"name\": \"command-center\", \"url_prefix\": \"http://COMMAND_CENTER_HOST:8550\", \"auth_type\": \"none\"}]"
     }
   ]
 }
@@ -797,9 +797,9 @@ resource for any agent to read after initialization.
 # Clauth System Overview
 ## Available SSH Targets (3)
 | Target | Host | Roles | TTL | Auto-approve |
-| dockerhost | 192.168.100.100:22 | read, operator, admin | 5m | yes |
-| mandrake-rack | 192.168.30.55:22 | read, operator | 5m | yes |
-| hugoblog | 192.168.100.63:22 | read, operator | 5m | yes |
+| web-server | TARGET_HOST:22 | read, operator, admin | 5m | yes |
+| app-server | TARGET_HOST:22 | read, operator | 5m | yes |
+| blog-server | TARGET_HOST:22 | read, operator | 5m | yes |
 ## HTTP Proxy Services (7)
 github, gitea, portainer, grafana, uptime-kuma, homepage, command-center
 ## Your Permissions
@@ -826,12 +826,12 @@ Detailed information about each SSH target the agent can access.
 
 ```markdown
 # SSH Targets
-## dockerhost
-Host: 192.168.100.100:22 | Roles: read, operator, admin | TTL: 5m | Auto-approve: yes
-## mandrake-rack
-Host: 192.168.30.55:22 | Roles: read, operator | TTL: 5m | Auto-approve: yes
-## hugoblog
-Host: 192.168.100.63:22 | Roles: read, operator | TTL: 5m | Auto-approve: yes
+## web-server
+Host: TARGET_HOST:22 | Roles: read, operator, admin | TTL: 5m | Auto-approve: yes
+## app-server
+Host: TARGET_HOST:22 | Roles: read, operator | TTL: 5m | Auto-approve: yes
+## blog-server
+Host: TARGET_HOST:22 | Roles: read, operator | TTL: 5m | Auto-approve: yes
 ```
 
 ---
@@ -853,12 +853,12 @@ Detailed information about each configured HTTP proxy service.
 Credentials injected automatically -- never provide tokens or API keys.
 | Service | URL Prefix | Auth |
 | github | https://api.github.com | bearer |
-| gitea | http://192.168.100.54:3000 | header |
-| portainer | https://192.168.100.100:9443 | bearer |
-| grafana | http://192.168.100.100:3030 | bearer |
-| uptime-kuma | http://192.168.100.100:3001 | none |
-| homepage | http://192.168.100.100:3000 | none |
-| command-center | http://192.168.100.74:8550 | none |
+| gitea | http://GITEA_HOST:3000 | header |
+| portainer | https://PORTAINER_HOST:9443 | bearer |
+| grafana | http://GRAFANA_HOST:3030 | bearer |
+| uptime-kuma | http://UPTIME_KUMA_HOST:3001 | none |
+| homepage | http://HOMEPAGE_HOST:3000 | none |
+| command-center | http://COMMAND_CENTER_HOST:8550 | none |
 ```
 
 ---
@@ -906,13 +906,13 @@ sees only its own data.
 # Agent Status: claude
 ## Active Certificates (1)
 | Serial | Target | Principal | Expires | Remaining |
-| 1741612200 | dockerhost | agent-op | 2026-03-10T14:35:00Z | 3m42s |
+| 1741612200 | web-server | agent-op | 2026-03-10T14:35:00Z | 3m42s |
 ## Open Sessions (1)
 | Session ID | Target | Role | Idle |
-| ses_a1b2c3d4 | dockerhost | operator | 47s |
+| ses_a1b2c3d4 | web-server | operator | 47s |
 ## Recent Activity
-- 14:32:15 exec dockerhost (operator): docker ps -- exit 0
-- 14:30:00 session_create dockerhost -- ses_a1b2c3d4
+- 14:32:15 exec web-server (operator): docker ps -- exit 0
+- 14:30:00 session_create web-server -- ses_a1b2c3d4
 ```
 
 ---
@@ -1044,17 +1044,17 @@ Agent checks system health on all three targets using one-shot `exec`:
 
 // Step 2: Check each host
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "dockerhost", "role": "read",
+  "target": "web-server", "role": "read",
   "command": "uptime && free -h | head -2 && df -h / | tail -1"
 }}}
 
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "mandrake-rack", "role": "read",
+  "target": "app-server", "role": "read",
   "command": "uptime && free -h | head -2 && df -h / | tail -1"
 }}}
 
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "hugoblog", "role": "read",
+  "target": "blog-server", "role": "read",
   "command": "uptime && free -h | head -2 && df -h / | tail -1"
 }}}
 ```
@@ -1066,25 +1066,25 @@ Agent investigates an unhealthy container using a persistent session:
 ```json
 // Step 1: Open session
 {"method": "tools/call", "params": {"name": "session_create", "arguments": {
-  "target": "dockerhost", "role": "operator"
+  "target": "web-server", "role": "operator"
 }}}
 // Returns: {"session_id": "ses_abc123", ...}
 
 // Step 2: Check container status
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "dockerhost", "role": "operator", "session_id": "ses_abc123",
+  "target": "web-server", "role": "operator", "session_id": "ses_abc123",
   "command": "docker inspect automation-n8n --format '{{.State.Health.Status}}'"
 }}}
 
 // Step 3: Check logs
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "dockerhost", "role": "operator", "session_id": "ses_abc123",
+  "target": "web-server", "role": "operator", "session_id": "ses_abc123",
   "command": "docker logs automation-n8n --tail 50 --since 1h"
 }}}
 
 // Step 4: Restart if needed
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "dockerhost", "role": "operator", "session_id": "ses_abc123",
+  "target": "web-server", "role": "operator", "session_id": "ses_abc123",
   "command": "docker restart automation-n8n"
 }}}
 
@@ -1101,25 +1101,25 @@ Agent builds and deploys a Hugo blog post:
 ```json
 // Step 1: Build the site
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "hugoblog", "role": "operator",
+  "target": "blog-server", "role": "operator",
   "command": "cd /mnt/blog && hugo"
 }}}
 
 // Step 2: Check for errors
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "hugoblog", "role": "operator",
+  "target": "blog-server", "role": "operator",
   "command": "cd /mnt/blog && git status"
 }}}
 
 // Step 3: Push to deploy (triggers Cloudflare Pages)
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "hugoblog", "role": "operator",
+  "target": "blog-server", "role": "operator",
   "command": "cd /mnt/blog && git add -A && git commit -m 'New post' && git push origin main"
 }}}
 
 // Step 4: Verify via GitHub API through proxy
 {"method": "tools/call", "params": {"name": "http_request", "arguments": {
-  "url": "https://api.github.com/repos/ben-spanswick/hugo-blog/commits?per_page=1"
+  "url": "https://api.github.com/repos/YOUR_ORG/YOUR_REPO/commits?per_page=1"
 }}}
 ```
 
@@ -1130,22 +1130,22 @@ Agent correlates data from multiple services via HTTP proxy:
 ```json
 // Step 1: Check Uptime Kuma for current status
 {"method": "tools/call", "params": {"name": "http_request", "arguments": {
-  "url": "http://192.168.100.100:3001/api/status-page/homelab"
+  "url": "http://UPTIME_KUMA_HOST:3001/api/status-page/default"
 }}}
 
 // Step 2: Check Grafana for resource trends
 {"method": "tools/call", "params": {"name": "http_request", "arguments": {
-  "url": "http://192.168.100.100:3030/api/dashboards/home"
+  "url": "http://GRAFANA_HOST:3030/api/dashboards/home"
 }}}
 
 // Step 3: Check Portainer for container states
 {"method": "tools/call", "params": {"name": "http_request", "arguments": {
-  "url": "https://192.168.100.100:9443/api/endpoints"
+  "url": "https://PORTAINER_HOST:9443/api/endpoints"
 }}}
 
 // Step 4: Check Command Center for lab status
 {"method": "tools/call", "params": {"name": "http_request", "arguments": {
-  "url": "http://192.168.100.74:8550/api/status"
+  "url": "http://COMMAND_CENTER_HOST:8550/api/status"
 }}}
 ```
 
@@ -1180,7 +1180,7 @@ before performing any operations:
 
 // Step 6: Now the agent has full context -- begin operations
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "dockerhost", "role": "read",
+  "target": "web-server", "role": "read",
   "command": "docker ps --format 'table {{.Names}}\t{{.Status}}' | head -20"
 }}}
 ```
@@ -1304,7 +1304,7 @@ Common error responses:
 
 ```bash
 # Test SSH connectivity from the LXC
-ssh -o ConnectTimeout=5 agent-op@192.168.100.100
+ssh -o ConnectTimeout=5 agent-op@TARGET_HOST
 
 # Check target host SSH config
 # On target: verify TrustedUserCAKeys and AuthorizedPrincipalsFile
@@ -1342,8 +1342,8 @@ systemctl restart clauth-broker
 
 ```bash
 # The dashboard polls the broker API -- verify broker is responsive
-curl -s http://192.168.100.75:8553/v1/dashboard/activity/summary \
-  -H "Authorization: Bearer sprawl-dash-2026-test-token"
+curl -s http://BROKER_HOST:8553/v1/dashboard/activity/summary \
+  -H "Authorization: Bearer YOUR_DASHBOARD_TOKEN"
 
 # Restart broker if needed
 systemctl restart clauth-signer && systemctl restart clauth-broker

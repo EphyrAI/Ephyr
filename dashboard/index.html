@@ -268,9 +268,9 @@
     font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
     text-transform: uppercase; line-height: 1.4;
   }
-  .badge-admin { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
-  .badge-operator { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
-  .badge-readonly { background: var(--cyan-dim); color: var(--cyan); border: 1px solid rgba(0,212,255,0.3); }
+  .badge-admin { background: rgba(255,100,0,0.12); color: #ff6400; border: 1px solid rgba(255,100,0,0.35); }
+  .badge-operator { background: var(--cyan-dim); color: var(--cyan); border: 1px solid rgba(0,212,255,0.3); }
+  .badge-readonly { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
   .badge-deploy { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
   .badge-default { background: rgba(255,255,255,0.05); color: var(--text-dim); border: 1px solid var(--border); }
   .badge-grant { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
@@ -825,6 +825,78 @@
   }
   .overview-compact-entry:last-child { border-bottom: none; }
 
+  /* RBAC permission sections */
+  .rbac-section {
+    border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px;
+  }
+  .rbac-toggle {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+    font-size: 10px; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: 0.8px; user-select: none; padding: 2px 0;
+    transition: color 0.2s;
+  }
+  .rbac-toggle:hover { color: var(--text); }
+  .rbac-toggle .rbac-arrow { font-size: 8px; transition: transform 0.2s; display: inline-block; }
+  .rbac-toggle .rbac-arrow.open { transform: rotate(90deg); }
+  .rbac-body { padding-top: 8px; }
+  .rbac-group { margin-bottom: 8px; }
+  .rbac-group-label {
+    font-size: 9px; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 4px; font-weight: 600;
+  }
+  .rbac-target-row {
+    display: flex; align-items: center; gap: 6px; padding: 2px 0;
+    font-size: 11px; flex-wrap: wrap;
+  }
+  .rbac-target-name { color: var(--cyan); font-weight: 500; min-width: 80px; }
+  .rbac-agent-name { color: var(--green); font-weight: 500; }
+  .method-badge {
+    display: inline-block; padding: 1px 5px; border-radius: 2px;
+    font-size: 8px; font-weight: 700; letter-spacing: 0.3px;
+    text-transform: uppercase; line-height: 1.4;
+    background: rgba(255,255,255,0.04); color: var(--text-dim);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .method-badge.get { color: var(--green); border-color: rgba(0,255,157,0.25); background: rgba(0,255,157,0.06); }
+  .method-badge.post { color: var(--cyan); border-color: rgba(0,212,255,0.25); background: rgba(0,212,255,0.06); }
+  .method-badge.put { color: var(--amber); border-color: rgba(255,183,0,0.25); background: rgba(255,183,0,0.06); }
+  .method-badge.patch { color: var(--purple); border-color: rgba(168,85,247,0.25); background: rgba(168,85,247,0.06); }
+  .method-badge.delete { color: var(--red); border-color: rgba(255,0,60,0.25); background: rgba(255,0,60,0.06); }
+  .badge-legacy {
+    background: rgba(255,100,0,0.15); color: #ff6400;
+    border: 1px solid rgba(255,100,0,0.4); animation: pulse 2s ease-in-out infinite;
+  }
+  .badge-dashboard-admin { background: rgba(255,100,0,0.12); color: #ff6400; border: 1px solid rgba(255,100,0,0.35); }
+  .badge-dashboard-readonly { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
+  .rbac-matrix { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .rbac-matrix th {
+    text-align: left; padding: 6px 10px; font-size: 9px;
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px;
+    border-bottom: 1px solid var(--border); font-weight: 600;
+  }
+  .rbac-matrix td {
+    padding: 6px 10px; font-size: 11px;
+    border-bottom: 1px solid rgba(255,255,255,0.03); vertical-align: top;
+  }
+  .rbac-matrix tr:hover { background: rgba(255,255,255,0.02); }
+  .rbac-pill-list { display: flex; flex-wrap: wrap; gap: 3px; }
+  .rbac-note {
+    font-size: 10px; color: var(--text-dim); padding: 10px 12px;
+    background: rgba(0,0,0,0.3); border-radius: 4px; margin-top: 12px;
+    border-left: 2px solid var(--amber); line-height: 1.6;
+  }
+  .rbac-note code {
+    background: rgba(0,212,255,0.08); color: var(--cyan);
+    padding: 1px 4px; border-radius: 2px; font-size: 10px;
+  }
+  .rbac-template-card {
+    display: inline-flex; flex-direction: column; gap: 4px;
+    padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: 4px; background: rgba(0,0,0,0.2); min-width: 200px;
+  }
+  .rbac-template-name { font-size: 11px; font-weight: 600; color: var(--purple); }
+  .rbac-template-desc { font-size: 10px; color: var(--text-dim); }
+
   /* Responsive breakpoints */
   @media (max-width: 1400px) {
     .stats-row { grid-template-columns: repeat(3, 1fr); }
@@ -953,10 +1025,37 @@ function RoleBadge({ role }) {
   const r = role.toLowerCase();
   let cls = 'badge-default';
   if (r === 'admin') cls = 'badge-admin';
-  else if (r === 'operator') cls = 'badge-operator';
+  else if (r === 'operator' || r === 'op') cls = 'badge-operator';
   else if (r === 'readonly' || r === 'read-only' || r === 'read') cls = 'badge-readonly';
   else if (r === 'deploy') cls = 'badge-deploy';
   return <span className={`badge ${cls}`}>{role}</span>;
+}
+
+function MethodBadge({ method }) {
+  if (!method) return null;
+  const m = method.toUpperCase();
+  const cls = m.toLowerCase();
+  return <span className={`method-badge ${cls}`}>{m}</span>;
+}
+
+function DashboardLevelBadge({ level }) {
+  if (!level) return null;
+  const l = level.toLowerCase();
+  const cls = l === 'admin' ? 'badge-dashboard-admin' : 'badge-dashboard-readonly';
+  return <span className={`badge ${cls}`}>{level}</span>;
+}
+
+function RbacCollapsible({ label, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rbac-section">
+      <div className="rbac-toggle" onClick={() => setOpen(!open)}>
+        <span className={`rbac-arrow ${open ? 'open' : ''}`}>{'\u25b6'}</span>
+        <span>{label}</span>
+      </div>
+      {open && <div className="rbac-body">{children}</div>}
+    </div>
+  );
 }
 
 function EventTypeBadge({ type }) {
@@ -1742,12 +1841,40 @@ function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
 function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
   const [configHost, setConfigHost] = useState(null);
   const [roles, setRoles] = useState(['read', 'operator', 'admin']);
+  const [permissions, setPermissions] = useState(null);
 
   useEffect(() => {
     api('GET', '/v1/dashboard/config/roles', null, token)
       .then(data => { if (Array.isArray(data)) setRoles(data.map(r => typeof r === 'string' ? r : r.name)); })
       .catch(() => {});
   }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const fetchPerms = async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/permissions', null, token);
+        setPermissions(data || null);
+      } catch { setPermissions(null); }
+    };
+    fetchPerms();
+    const iv = setInterval(fetchPerms, 30000);
+    return () => clearInterval(iv);
+  }, [token]);
+
+  // Build host-to-agents map from permissions
+  const hostAgentMap = useMemo(() => {
+    if (!permissions || !permissions.agents) return {};
+    const map = {};
+    Object.entries(permissions.agents).forEach(([agentName, ap]) => {
+      if (ap.legacy_mode || !ap.ssh) return;
+      Object.entries(ap.ssh).forEach(([target, cfg]) => {
+        if (!map[target]) map[target] = [];
+        map[target].push({ agent: agentName, roles: cfg.roles || [], auto_approve: cfg.auto_approve });
+      });
+    });
+    return map;
+  }, [permissions]);
 
   return (
     <>
@@ -1787,6 +1914,24 @@ function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
                   );
                 })}
               </div>
+              {/* Agent Access from RBAC */}
+              {hostAgentMap[h.name] && hostAgentMap[h.name].length > 0 && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '8px' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                    Agent Access
+                  </div>
+                  {hostAgentMap[h.name].map(entry => (
+                    <div key={entry.agent} className="rbac-target-row">
+                      <span className="rbac-agent-name">{entry.agent}</span>
+                      <span className="rbac-pill-list">
+                        {entry.roles.map(r => <RoleBadge key={r} role={r} />)}
+                      </span>
+                      {entry.auto_approve && <span style={{ fontSize: '9px', color: 'var(--green)' }}>AUTO</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="host-card-actions">
                 <button className="btn btn-cyan" onClick={() => setConfigHost(h)}>CONFIGURE</button>
               </div>
@@ -1812,6 +1957,21 @@ function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
 
 function AgentsView({ sessions, summary, now, token, onViewActivity }) {
   const [agentActivity, setAgentActivity] = useState({});
+  const [permissions, setPermissions] = useState(null);
+
+  // Fetch RBAC permissions
+  useEffect(() => {
+    if (!token) return;
+    const fetchPerms = async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/permissions', null, token);
+        setPermissions(data || null);
+      } catch { setPermissions(null); }
+    };
+    fetchPerms();
+    const iv = setInterval(fetchPerms, 30000);
+    return () => clearInterval(iv);
+  }, [token]);
 
   const agents = useMemo(() => {
     const map = {};
@@ -1936,6 +2096,75 @@ function AgentsView({ sessions, summary, now, token, onViewActivity }) {
                 );
               })}
             </div>
+            {/* RBAC Permissions Section */}
+            {permissions && permissions.agents && permissions.agents[a.name] && (() => {
+              const ap = permissions.agents[a.name];
+              return (
+                <RbacCollapsible label={`Permissions${ap.legacy_mode ? ' (Legacy)' : ''}`}>
+                  {ap.legacy_mode ? (
+                    <div style={{ padding: '4px 0' }}>
+                      <span className="badge badge-legacy">LEGACY (UNRESTRICTED)</span>
+                    </div>
+                  ) : (
+                    <>
+                      {ap.dashboard && (
+                        <div className="rbac-group">
+                          <div className="rbac-group-label">Dashboard</div>
+                          <div style={{ padding: '2px 0' }}>
+                            <DashboardLevelBadge level={ap.dashboard} />
+                          </div>
+                        </div>
+                      )}
+                      {ap.ssh && Object.keys(ap.ssh).length > 0 && (
+                        <div className="rbac-group">
+                          <div className="rbac-group-label">SSH Targets</div>
+                          {Object.entries(ap.ssh).map(([target, cfg]) => (
+                            <div key={target} className="rbac-target-row">
+                              <span className="rbac-target-name">{target}</span>
+                              <span className="rbac-pill-list">
+                                {(cfg.roles || []).map(r => <RoleBadge key={r} role={r} />)}
+                              </span>
+                              {cfg.auto_approve && <span style={{ fontSize: '9px', color: 'var(--green)' }}>AUTO</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {ap.services && Object.keys(ap.services).length > 0 && (
+                        <div className="rbac-group">
+                          <div className="rbac-group-label">Services</div>
+                          {Object.entries(ap.services).map(([svc, cfg]) => (
+                            <div key={svc} className="rbac-target-row">
+                              <span className="rbac-target-name">{svc}</span>
+                              <span className="rbac-pill-list">
+                                {(cfg.methods || []).map(m => <MethodBadge key={m} method={m} />)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {ap.remotes && Object.keys(ap.remotes).length > 0 && (
+                        <div className="rbac-group">
+                          <div className="rbac-group-label">MCP Servers</div>
+                          {Object.entries(ap.remotes).map(([remote, cfg]) => (
+                            <div key={remote} className="rbac-target-row">
+                              <span style={{ color: 'var(--purple)', fontWeight: 500 }}>{remote}</span>
+                              {cfg.tools && cfg.tools.length > 0 ? (
+                                <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+                                  {cfg.tools.length} tool{cfg.tools.length !== 1 ? 's' : ''} allowed
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>all tools</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </RbacCollapsible>
+              );
+            })()}
+
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '10px' }}>
               <button className="btn btn-purple" onClick={() => onViewActivity && onViewActivity(a.name)}>
                 VIEW ACTIVITY
@@ -2494,6 +2723,7 @@ function ServicesView({ token }) {
   const [loading, setLoading] = useState(true);
   const [configService, setConfigService] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [permissions, setPermissions] = useState(null);
 
   const fetchServices = useCallback(async () => {
     try {
@@ -2504,6 +2734,33 @@ function ServicesView({ token }) {
   }, [token]);
 
   useEffect(() => { fetchServices(); }, [fetchServices]);
+
+  useEffect(() => {
+    if (!token) return;
+    const fetchPerms = async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/permissions', null, token);
+        setPermissions(data || null);
+      } catch { setPermissions(null); }
+    };
+    fetchPerms();
+    const iv = setInterval(fetchPerms, 30000);
+    return () => clearInterval(iv);
+  }, [token]);
+
+  // Build service-to-agents map from permissions
+  const serviceAgentMap = useMemo(() => {
+    if (!permissions || !permissions.agents) return {};
+    const map = {};
+    Object.entries(permissions.agents).forEach(([agentName, ap]) => {
+      if (ap.legacy_mode || !ap.services) return;
+      Object.entries(ap.services).forEach(([svc, cfg]) => {
+        if (!map[svc]) map[svc] = [];
+        map[svc].push({ agent: agentName, methods: cfg.methods || [] });
+      });
+    });
+    return map;
+  }, [permissions]);
 
   const handleRefresh = () => { fetchServices(); };
 
@@ -2540,6 +2797,23 @@ function ServicesView({ token }) {
                 {s.max_response_kb && <span>Max: {s.max_response_kb}KB</span>}
                 {s.allowed_methods && <span>Methods: {Array.isArray(s.allowed_methods) ? s.allowed_methods.join(', ') : s.allowed_methods}</span>}
               </div>
+              {/* Agent Access from RBAC */}
+              {serviceAgentMap[s.name] && serviceAgentMap[s.name].length > 0 && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginBottom: '10px' }}>
+                  <div style={{ fontSize: '9px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px' }}>
+                    Agent Access
+                  </div>
+                  {serviceAgentMap[s.name].map(entry => (
+                    <div key={entry.agent} className="rbac-target-row">
+                      <span className="rbac-agent-name" style={{ minWidth: '60px' }}>{entry.agent}</span>
+                      <span className="rbac-pill-list">
+                        {entry.methods.map(m => <MethodBadge key={m} method={m} />)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="service-card-actions">
                 <button className="btn btn-cyan" onClick={() => setConfigService(s)}>CONFIGURE</button>
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -3112,6 +3386,8 @@ function TerminalView({ hosts, token }) {
 function SettingsView({ summary, token, wsStatus }) {
   const [grantSettings, setGrantSettings] = useState({});
   const [grantLoading, setGrantLoading] = useState(true);
+  const [permissions, setPermissions] = useState(null);
+  const [permsLoading, setPermsLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -3120,6 +3396,17 @@ function SettingsView({ summary, token, wsStatus }) {
         setGrantSettings(data || {});
       } catch {}
       setGrantLoading(false);
+    })();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/permissions', null, token);
+        setPermissions(data || null);
+      } catch { setPermissions(null); }
+      setPermsLoading(false);
     })();
   }, [token]);
 
@@ -3236,6 +3523,117 @@ function SettingsView({ summary, token, wsStatus }) {
           <div>Total Denied: <span style={{ color: 'var(--red)' }}>{summary.total_denied || '-'}</span></div>
           <div>Active Certs: <span style={{ color: 'var(--cyan)' }}>{summary.active_certs || '-'}</span></div>
         </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">RBAC Configuration</div>
+        {permsLoading ? (
+          <div className="loading" style={{ padding: '12px' }}>Loading RBAC data...</div>
+        ) : !permissions ? (
+          <div style={{ padding: '12px', color: 'var(--text-dim)', fontSize: '11px' }}>
+            RBAC permissions endpoint not available. Ensure broker version supports GET /v1/dashboard/permissions.
+          </div>
+        ) : (
+          <>
+            {/* Templates */}
+            {permissions.templates && Object.keys(permissions.templates).length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', fontWeight: 600 }}>
+                  Role Templates
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {Object.entries(permissions.templates).map(([name, tmpl]) => (
+                    <div key={name} className="rbac-template-card">
+                      <span className="rbac-template-name">{name}</span>
+                      <span className="rbac-template-desc">{tmpl.description || '-'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Agent Permission Matrix */}
+            {permissions.agents && Object.keys(permissions.agents).length > 0 && (
+              <div>
+                <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', fontWeight: 600 }}>
+                  Agent Permission Matrix
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="rbac-matrix">
+                    <thead>
+                      <tr>
+                        <th>Agent</th>
+                        <th>Dashboard</th>
+                        <th>SSH Targets</th>
+                        <th>Services</th>
+                        <th>MCP Servers</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(permissions.agents).map(([agentName, ap]) => (
+                        <tr key={agentName}>
+                          <td><span className="rbac-agent-name">{agentName}</span>
+                            {ap.legacy_mode && <span className="badge badge-legacy" style={{ marginLeft: '6px', fontSize: '8px' }}>LEGACY</span>}
+                          </td>
+                          <td>{ap.dashboard ? <DashboardLevelBadge level={ap.dashboard} /> : <span style={{ color: 'var(--text-dim)' }}>-</span>}</td>
+                          <td>
+                            {ap.legacy_mode ? (
+                              <span style={{ color: 'var(--amber)', fontSize: '10px' }}>unrestricted</span>
+                            ) : ap.ssh && Object.keys(ap.ssh).length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                {Object.entries(ap.ssh).map(([target, cfg]) => (
+                                  <div key={target} style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                    <span style={{ color: 'var(--cyan)', fontSize: '10px', fontWeight: 500 }}>{target}</span>
+                                    <span className="rbac-pill-list">
+                                      {(cfg.roles || []).map(r => <RoleBadge key={r} role={r} />)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : <span style={{ color: 'var(--text-dim)' }}>-</span>}
+                          </td>
+                          <td>
+                            {ap.legacy_mode ? (
+                              <span style={{ color: 'var(--amber)', fontSize: '10px' }}>unrestricted</span>
+                            ) : ap.services && Object.keys(ap.services).length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                {Object.entries(ap.services).map(([svc, cfg]) => (
+                                  <div key={svc} style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                    <span style={{ color: 'var(--cyan)', fontSize: '10px', fontWeight: 500 }}>{svc}</span>
+                                    <span className="rbac-pill-list">
+                                      {(cfg.methods || []).map(m => <MethodBadge key={m} method={m} />)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : <span style={{ color: 'var(--text-dim)' }}>-</span>}
+                          </td>
+                          <td>
+                            {ap.legacy_mode ? (
+                              <span style={{ color: 'var(--amber)', fontSize: '10px' }}>unrestricted</span>
+                            ) : ap.remotes && Object.keys(ap.remotes).length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                {Object.entries(ap.remotes).map(([remote, cfg]) => (
+                                  <span key={remote} style={{ color: 'var(--purple)', fontSize: '10px', fontWeight: 500 }}>
+                                    {remote}{cfg.tools && cfg.tools.length > 0 ? ` (${cfg.tools.length})` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : <span style={{ color: 'var(--text-dim)' }}>-</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="rbac-note">
+              Role assignments are managed via <code>policy.yaml</code>. Reload policy with: <code>systemctl reload clauth-broker</code>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

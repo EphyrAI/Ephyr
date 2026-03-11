@@ -49,7 +49,7 @@ roles:
 
 targets:
   webserver:
-    host: "192.168.100.10"
+    host: "10.0.1.10"
     port: 22
     vlan: 100
     allowed_roles: [read, operator]
@@ -85,10 +85,18 @@ is used in audit logs, session tracking, and MCP authentication.
 | max_concurrent_certs | int | 3 | No | Maximum number of certificates this agent can hold simultaneously. When reached, new requests are denied. If the agent re-requests for the same target+role, the old cert is auto-revoked first. |
 | api_key_hash | string | "" | No | bcrypt hash of the agent's API key for MCP (TCP) authentication. If empty, the agent cannot use MCP. See the MCP Setup section in the Deployment Guide for generation instructions. |
 | description | string | "" | No | Human-readable description shown in dashboards and audit logs. |
+| inherits | list of strings | [] | No | List of template names to inherit permissions from. Templates are merged left-to-right, then agent-level overrides are applied. See the RBAC section below. |
+| ssh | map | (none) | No | Per-target SSH permissions. Keys are target names or `"*"` (wildcard). Each value has `roles` (list) and `auto_approve` (bool). See RBAC section. |
+| services | map | (none) | No | Per-service HTTP proxy permissions. Keys are service names or `"*"`. Each value has `methods` (list of HTTP methods). See RBAC section. |
+| remotes | map | (none) | No | Per-remote MCP federation permissions. Keys are remote names or `"*"`. Values are objects (currently empty, reserved for tool-level restrictions). See RBAC section. |
+| dashboard | string | "" | No | Dashboard access level: `"none"`, `"viewer"`, `"operator"`, or `"admin"`. Empty or unset means no explicit dashboard access. |
 
 **Validation rules:**
 - At least one agent must be defined (startup fails otherwise).
 - No two agents may share the same uid (startup fails on duplicate).
+- All template names in `inherits` must reference defined templates.
+
+**Backwards compatibility:** Agents that omit all RBAC fields (`inherits`, `ssh`, `services`, `remotes`, `dashboard`) operate in legacy mode with full access to all targets, services, and remotes. This preserves pre-RBAC behavior for existing deployments.
 
 ### roles Section
 
@@ -143,6 +151,234 @@ If an agent requests a certificate for the same target+role combination and
 already has an active cert for that combination, the old certificate is
 automatically revoked before issuing the new one. This prevents the agent from
 consuming its max_concurrent_certs limit with stale certificates.
+
+---
+
+## RBAC (Per-Agent Permissions)
+
+Clauth supports fine-grained, per-agent access control across SSH targets,
+HTTP proxy services, MCP federation, and the dashboard. Permissions are defined
+in `policy.yaml` using a template inheritance model.
+
+### Templates
+
+Templates define reusable permission sets. Define them under the `templates:`
+key in policy.yaml.
+
+```yaml
+templates:
+  monitoring:
+    description: "Read-only monitoring"
+    ssh:
+      "*":
+        roles: [read]
+        auto_approve: true
+    services:
+      grafana:
+        methods: [GET]
+      uptime-kuma:
+        methods: [GET]
+    remotes: {}
+    dashboard: "viewer"
+
+  full-ops:
+    description: "Operator-level access to everything"
+    ssh:
+      "*":
+        roles: [read, operator]
+        auto_approve: true
+    services:
+      "*":
+        methods: [GET, POST, PUT, PATCH, DELETE]
+    remotes:
+      "*": {}
+    dashboard: "operator"
+```
+
+### Template Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| description | string | Human-readable description of the template's purpose. |
+| ssh | map | Per-target SSH permissions. Keys are target names or `"*"` (wildcard). |
+| ssh.{target}.roles | list of strings | SSH roles the agent may use on this target. Intersected with the target's `allowed_roles` at evaluation time. |
+| ssh.{target}.auto_approve | bool | Whether certificate requests for this target are auto-approved. |
+| services | map | Per-service HTTP proxy permissions. Keys are service names or `"*"`. |
+| services.{service}.methods | list of strings | Allowed HTTP methods (e.g., `[GET, POST]`). Empty or omitted means all methods. |
+| remotes | map | Per-remote MCP federation permissions. Keys are remote names or `"*"`. |
+| dashboard | string | Dashboard access level: `none`, `viewer`, `operator`, `admin`. |
+
+### Per-Agent RBAC Configuration
+
+Agents inherit from templates and add overrides:
+
+```yaml
+agents:
+  claude:
+    uid: 1000
+    max_concurrent_certs: 20
+    api_key_hash: "$2a$10$..."
+    inherits: [full-ops]
+    ssh:
+      docker-host:
+        roles: [read, operator, admin]
+        auto_approve: true
+    services:
+      github:
+        methods: [GET, POST, PUT, PATCH, DELETE]
+      grafana:
+        methods: [GET]
+    remotes:
+      demo-tools: {}
+    dashboard: "admin"
+```
+
+### Permission Resolution
+
+When an agent inherits from templates and also defines its own permissions,
+the following resolution rules apply:
+
+1. **Template merging** -- If `inherits` lists multiple templates, they are
+   merged left-to-right. For SSH, services, and remotes, a key defined in a
+   later template overwrites the same key from an earlier one. The `dashboard`
+   field from the last template that sets it wins.
+
+2. **Agent overrides** -- Any `ssh`, `services`, `remotes`, or `dashboard`
+   fields defined directly on the agent override the corresponding inherited
+   values for the same key. Keys not overridden by the agent are preserved
+   from templates.
+
+3. **SSH role intersection** -- The agent's effective SSH roles for a target
+   are the intersection of:
+   - The roles listed in the agent's resolved `ssh` block for that target
+   - The `allowed_roles` defined on the target in the `targets` section
+   An agent cannot gain a role that the target does not allow.
+
+4. **Service allow-list** -- Only services explicitly listed (by name or via
+   `"*"` wildcard) in the resolved permissions are accessible. Method
+   restrictions further limit what the agent can do.
+
+5. **Remote allow-list** -- Only remotes explicitly listed (by name or via
+   `"*"` wildcard) are accessible for federation tool calls.
+
+6. **Legacy mode** -- Agents that omit all RBAC fields operate with full
+   access to all targets (using the target's `allowed_roles`), all services,
+   and all remotes. This preserves backwards compatibility.
+
+### Wildcard Entries
+
+The `"*"` key is a wildcard that matches all targets, services, or remotes:
+
+```yaml
+ssh:
+  "*":
+    roles: [read]
+    auto_approve: true
+```
+
+This grants the `read` role on every target that has `read` in its
+`allowed_roles`. Specific target overrides take precedence over the wildcard.
+
+### Dashboard Access Levels
+
+| Level | Description |
+|-------|-------------|
+| `none` | No dashboard access. API calls return 403. |
+| `viewer` | Read-only. Can view hosts, services, sessions, audit log. Cannot toggle or modify. |
+| `operator` | Can toggle hosts/services/remotes on/off, revoke certificates. |
+| `admin` | Full access including settings, host config changes, and terminal. |
+
+### Discovery Filtering
+
+The `list_targets`, `list_services`, and `list_remotes` MCP tools
+automatically filter their results based on the calling agent's resolved
+permissions. An agent only sees resources it is allowed to access.
+
+### Example: Complete Policy with RBAC
+
+```yaml
+global:
+  max_active_certs: 50
+  default_ttl: "5m"
+  max_ttl: "30m"
+  rate_limit:
+    requests_per_window: 60
+    window_seconds: 60
+
+roles:
+  read:
+    principal: "agent-read"
+    description: "Read-only access"
+  operator:
+    principal: "agent-op"
+    description: "Operational commands"
+  admin:
+    principal: "agent-admin"
+    description: "Administrative access"
+
+targets:
+  web-server:
+    host: "10.0.1.10"
+    port: 22
+    allowed_roles: [read, operator, admin]
+    auto_approve: true
+  database:
+    host: "10.0.1.20"
+    port: 22
+    allowed_roles: [read, operator]
+    auto_approve: false
+
+templates:
+  monitoring:
+    description: "Read-only monitoring"
+    ssh:
+      "*":
+        roles: [read]
+        auto_approve: true
+    services:
+      grafana:
+        methods: [GET]
+    remotes: {}
+    dashboard: "viewer"
+
+  full-ops:
+    description: "Full operator access"
+    ssh:
+      "*":
+        roles: [read, operator]
+        auto_approve: true
+    services:
+      "*":
+        methods: [GET, POST, PUT, PATCH, DELETE]
+    remotes:
+      "*": {}
+    dashboard: "operator"
+
+agents:
+  claude:
+    uid: 1000
+    max_concurrent_certs: 20
+    api_key_hash: "$2a$10$..."
+    inherits: [full-ops]
+    ssh:
+      web-server:
+        roles: [read, operator, admin]
+        auto_approve: true
+    services:
+      github:
+        methods: [GET, POST, PUT, PATCH, DELETE]
+    dashboard: "admin"
+
+  scraper:
+    uid: 1001
+    max_concurrent_certs: 3
+    inherits: [monitoring]
+    dashboard: "none"
+```
+
+In this example:
+- **claude** inherits `full-ops` (read+operator on all targets, all services, all remotes), then overrides `web-server` to add `admin`, adds `github` to services, and sets dashboard to `admin`. Note: claude gets `admin` on `web-server` because the target allows it, but only `read+operator` on `database` because that target does not list `admin` in `allowed_roles`.
+- **scraper** inherits `monitoring` (read-only SSH, GET on grafana, no remotes, viewer dashboard), then overrides dashboard to `none`.
 
 ---
 
@@ -349,7 +585,7 @@ directly in the file.
 {
   "gitea": {
     "name": "Gitea",
-    "url_prefix": "http://192.168.100.54:3000",
+    "url_prefix": "http://gitea.example.local:3000",
     "auth_type": "bearer",
     "credential": "your-api-token",
     "description": "Git hosting",

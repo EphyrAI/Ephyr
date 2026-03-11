@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/sprawl/clauth/internal/policy"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,6 +24,7 @@ type MCPAgentConfig struct {
 	Roles         []string // allowed roles for this agent
 	MaxConcurrent int      // maximum concurrent certificates
 	AutoApprove   bool     // whether requests are auto-approved
+	Perms         *policy.ResolvedAgentPerms // RBAC permissions (nil = use legacy behavior)
 }
 
 // NewMCPAuthenticator creates an MCPAuthenticator with an empty agent registry.
@@ -78,6 +80,7 @@ func (a *MCPAuthenticator) Authenticate(apiKey string) (*MCPAgent, error) {
 				Roles:         cfg.Roles,
 				MaxConcurrent: cfg.MaxConcurrent,
 				AutoApprove:   cfg.AutoApprove,
+				Perms:         cfg.Perms,
 			}, nil
 		}
 		// bcrypt.ErrMismatchedHashAndPassword is expected for non-matching agents.

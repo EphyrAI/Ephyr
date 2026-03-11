@@ -521,19 +521,7 @@ clauth/
 └── go.sum
 ```
 
-## Known Issues
-
-The dashboard (~3,300 lines of React SPA) has a backlog of approximately 25 known bugs identified during a UI audit. Key issues include:
-
-- **Remote toggle enforcement** -- Toggling a remote MCP server off via the dashboard updates the UI state but federated tool calls may not be fully blocked in all code paths. The federation engine checks `Enabled` on the config struct, but the toggle path and the enforcement path use different field types (`bool` vs `*bool`).
-- **Frontend field mismatches** -- Several dashboard views display fields that don't match the API response schema (e.g., activity detail fields, session metadata). These cause undefined/null values in the UI.
-- **Overview stat card drift** -- Some stat cards on the Overview page show stale counts when hosts/services/remotes are toggled, until the next WebSocket push cycle.
-- **Terminal view edge cases** -- WebSocket SSH terminal sessions can leak if the browser tab is closed without explicit disconnect.
-- **Service config panel** -- The slide-out config panel for services does not validate all fields before submission (e.g., empty URL prefix is accepted).
-- **Activity filters** -- Time-range filters on the Activity view do not persist across view switches.
-
-These are tracked internally. Contributions welcome -- see [CONTRIBUTING.md](CONTRIBUTING.md).
-
+## Requirements
 ## Requirements
 
 - **Go 1.24+** -- uses enhanced `net/http` routing patterns (Go 1.22+) and recent stdlib features
@@ -554,13 +542,161 @@ Clauth is deliberately minimal. Three direct dependencies, all well-established:
 
 No external databases. No message queues. No container runtime. State lives in memory and on disk as JSON files.
 
+## RBAC -- Per-Agent Permissions
+
+Clauth implements fine-grained, per-agent access control across all three proxy paths (SSH, HTTP, MCP federation) and the dashboard. Permissions are defined declaratively in `policy.yaml` using a template inheritance model.
+
+### Overview
+
+Every agent can have explicit permissions for:
+
+- **SSH targets** -- Which targets the agent can access and with which roles (intersection with the target's `allowed_roles`)
+- **HTTP proxy services** -- Which services the agent can use and which HTTP methods are permitted
+- **MCP federation** -- Which remote MCP servers the agent can call and optionally which tools
+- **Dashboard** -- Access level: `none`, `viewer`, `operator`, or `admin`
+
+### Backwards Compatibility
+
+Agents that do not define any RBAC fields (`ssh`, `services`, `remotes`, `dashboard`) operate in **legacy mode** with full access -- the same behavior as before RBAC was added. This means existing deployments continue to work without any policy changes.
+
+### Templates
+
+Templates define reusable permission sets. An agent inherits permissions from one or more templates via the `inherits` field, then applies agent-level overrides.
+
+```yaml
+templates:
+  monitoring:
+    description: "Read-only monitoring"
+    ssh:
+      "*":                    # wildcard: applies to all targets
+        roles: [read]
+        auto_approve: true
+    services:
+      grafana:
+        methods: [GET]
+      uptime-kuma:
+        methods: [GET]
+    remotes: {}               # empty = no federation access
+    dashboard: "viewer"
+
+  full-ops:
+    description: "Operator-level access to everything"
+    ssh:
+      "*":
+        roles: [read, operator]
+        auto_approve: true
+    services:
+      "*":                    # wildcard: all services
+        methods: [GET, POST, PUT, PATCH, DELETE]
+    remotes:
+      "*": {}                 # wildcard: all remotes, all tools
+    dashboard: "operator"
+```
+
+### Per-Agent Configuration
+
+Agents reference templates and add overrides:
+
+```yaml
+agents:
+  claude:
+    uid: 1000
+    max_concurrent_certs: 20
+    api_key_hash: "$2a$10$..."
+    inherits: [full-ops]          # inherit from template(s)
+    ssh:
+      docker-host:                # override: admin on docker-host
+        roles: [read, operator, admin]
+        auto_approve: true
+      mandrake-rack:
+        roles: [read, operator]
+        auto_approve: true
+    services:
+      github:
+        methods: [GET, POST, PUT, PATCH, DELETE]
+      grafana:
+        methods: [GET]            # restrict to read-only
+    remotes:
+      demo-tools: {}              # allow this remote, all tools
+    dashboard: "admin"            # override template's "operator"
+
+  monitoring-bot:
+    uid: 1001
+    inherits: [monitoring]        # read-only everywhere
+    # No overrides needed -- template is sufficient
+```
+
+### Permission Resolution Rules
+
+When an agent inherits from a template and also defines its own permissions, the resolution follows these rules:
+
+1. **SSH roles** -- Per-target, the agent's effective roles are the **intersection** of:
+   - The roles listed in the agent's `ssh` block for that target (or inherited from template)
+   - The `allowed_roles` defined on the target itself in the `targets` section
+   - If neither the agent nor its templates define SSH permissions for a target, the agent cannot access it (unless in legacy mode)
+
+2. **Services** -- The agent can only access services explicitly listed in its `services` block or inherited via templates. The `methods` list restricts which HTTP methods are allowed. A wildcard `"*"` key means all services are accessible.
+
+3. **Remotes** -- The agent can only call federated tools on remotes explicitly listed in its `remotes` block or inherited via templates. A wildcard `"*"` key means all remotes are accessible. Per-remote tool restrictions are optional.
+
+4. **Dashboard** -- Agent-level `dashboard` value overrides the inherited template value. Levels: `none` (no dashboard access), `viewer` (read-only), `operator` (toggles and basic management), `admin` (full access including settings).
+
+5. **Agent overrides win** -- When an agent defines a field that also exists in an inherited template, the agent's value takes precedence for that specific key. Unspecified keys fall through to the template.
+
+6. **Multiple templates** -- When inheriting from multiple templates, they are merged left-to-right. Later templates override earlier ones for the same keys.
+
+### Discovery Filtering
+
+The `list_targets`, `list_services`, and `list_remotes` MCP tools automatically filter their results based on the calling agent's permissions. An agent only sees infrastructure it is allowed to access:
+
+- `list_targets` returns only targets where the agent has at least one permitted role
+- `list_services` returns only services the agent is allowed to use
+- `list_remotes` returns only remotes the agent is allowed to call
+
+This means agents self-discover their available infrastructure without seeing resources they cannot access.
+
+### Enforcement Points
+
+RBAC permissions are enforced at three levels:
+
+| Layer | File | What it checks |
+|-------|------|----------------|
+| SSH exec | `mcp_tools.go` | Agent's roles for the target, intersection with target's `allowed_roles` |
+| HTTP proxy | `proxy.go` | Agent's allowed services and permitted HTTP methods |
+| MCP federation | `mcp.go` | Agent's allowed remotes and optional tool restrictions |
+| Discovery | `mcp_tools.go` | Filters `list_targets`, `list_services`, `list_remotes` results |
+| Dashboard | `dashboard.go` | Agent's dashboard access level |
+
+### Example: Restricting a New Agent
+
+To add a monitoring-only agent that can read from all hosts but only view Grafana dashboards:
+
+```yaml
+agents:
+  prometheus-scraper:
+    uid: 1002
+    max_concurrent_certs: 3
+    inherits: [monitoring]
+    services:
+      grafana:
+        methods: [GET]
+    remotes: {}
+    dashboard: "none"
+```
+
+This agent gets SSH `read` on all targets (from the `monitoring` template), can only make GET requests to Grafana, has no access to federated MCP servers, and cannot use the dashboard.
+
 ## Roadmap
 
-Planned features, roughly prioritized:
+### Implemented
 
-- **RBAC redesign** -- Replace the current global role model with per-agent-per-target permissions. Define role templates (e.g., "monitoring-read", "deploy-operator") that can be assigned to specific agent+target pairs. This enables fine-grained access control like "agent A gets read on hosts 1-3 but operator only on host 2" without duplicating role definitions.
+- **RBAC** -- Per-agent permissions for SSH targets, HTTP proxy services, and MCP federation. Template inheritance, wildcard support, method restrictions, dashboard access levels. See the [RBAC](#rbac--per-agent-permissions) section below.
+
+### Planned
+
+Roughly prioritized:
+
 - **Prometheus metrics + ntfy alerts** -- Export cert counts, request rates, error rates. Push alerts on denied requests or anomalous activity.
-- **Dashboard bug fixes** -- Address the ~25 known UI issues from the audit, prioritizing remote toggle enforcement and field mismatches.
 - **Sub-agent tracking** -- Accept an optional context/session ID from MCP clients to distinguish parallel sub-agents (e.g. Claude Code's Agent tool). Track and display as a tree: parent agent -> sub-agents -> their actions. Requires a custom MCP extension since the protocol has no sub-session concept.
 - **OIDC / JWT agent auth** -- Alternative to API key auth for multi-tenant deployments.
 - **Certificate pinning to source IP** -- Bind certs to the requesting agent's IP for defense-in-depth.

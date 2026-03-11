@@ -4,10 +4,11 @@ import "time"
 
 // Config is the top-level policy configuration loaded from YAML.
 type Config struct {
-	Global  GlobalPolicy              `yaml:"global"`
-	Agents  map[string]AgentPolicy    `yaml:"agents"`
-	Targets map[string]TargetPolicy   `yaml:"targets"`
-	Roles   map[string]RoleDefinition `yaml:"roles"`
+	Global    GlobalPolicy              `yaml:"global"`
+	Agents    map[string]AgentPolicy    `yaml:"agents"`
+	Targets   map[string]TargetPolicy   `yaml:"targets"`
+	Roles     map[string]RoleDefinition `yaml:"roles"`
+	Templates map[string]TemplatePolicy `yaml:"templates,omitempty"`
 }
 
 // GlobalPolicy defines cluster-wide limits and defaults.
@@ -30,6 +31,36 @@ type AgentPolicy struct {
 	MaxConcurrentCerts int    `yaml:"max_concurrent_certs"` // default 3
 	Description        string `yaml:"description"`
 	APIKeyHash         string `yaml:"api_key_hash"`
+	Inherits           []string                     `yaml:"inherits,omitempty"`
+	SSH                map[string]AgentTargetAccess  `yaml:"ssh,omitempty"`
+	Services           map[string]ServiceAccess      `yaml:"services,omitempty"`
+	Remotes            map[string]RemoteAccess       `yaml:"remotes,omitempty"`
+	Dashboard          string                        `yaml:"dashboard,omitempty"`
+}
+
+// AgentTargetAccess defines per-agent SSH access on a specific target.
+type AgentTargetAccess struct {
+	Roles       []string `yaml:"roles"`
+	AutoApprove *bool    `yaml:"auto_approve,omitempty"`
+}
+
+// ServiceAccess defines per-agent HTTP proxy service permissions.
+type ServiceAccess struct {
+	Methods []string `yaml:"methods,omitempty"` // empty = all methods allowed
+}
+
+// RemoteAccess defines per-agent MCP federation permissions.
+type RemoteAccess struct {
+	Tools []string `yaml:"tools,omitempty"` // empty = all tools allowed
+}
+
+// TemplatePolicy defines a reusable permission template.
+type TemplatePolicy struct {
+	Description string                      `yaml:"description"`
+	SSH         map[string]AgentTargetAccess `yaml:"ssh,omitempty"`
+	Services    map[string]ServiceAccess     `yaml:"services,omitempty"`
+	Remotes     map[string]RemoteAccess      `yaml:"remotes,omitempty"`
+	Dashboard   string                       `yaml:"dashboard,omitempty"`
 }
 
 // TargetPolicy defines a target host and what roles may access it.
@@ -58,6 +89,31 @@ type ResolvedConfig struct {
 	GlobalDefaultTTL time.Duration
 	GlobalMaxTTL     time.Duration
 	TargetMaxTTLs    map[string]time.Duration // target name -> parsed max_ttl
+	AgentPerms       map[string]*ResolvedAgentPerms
+}
+
+// DashboardLevel represents the dashboard access level for an agent.
+type DashboardLevel int
+
+const (
+	// DashboardNone means no dashboard access.
+	DashboardNone DashboardLevel = iota
+	// DashboardViewer means read-only dashboard access.
+	DashboardViewer
+	// DashboardOperator means operational dashboard access.
+	DashboardOperator
+	// DashboardAdmin means full dashboard access.
+	DashboardAdmin
+)
+
+// ResolvedAgentPerms holds the effective permissions for an agent after
+// template inheritance and role intersection.
+type ResolvedAgentPerms struct {
+	SSHAccess     map[string]*AgentTargetAccess // target -> effective roles
+	ServiceAccess map[string]*ServiceAccess     // service -> allowed methods
+	RemoteAccess  map[string]*RemoteAccess      // remote -> allowed tools
+	Dashboard     DashboardLevel
+	LegacyMode    bool // true if agent has no RBAC fields (full access)
 }
 
 // Decision is the outcome of a policy evaluation.

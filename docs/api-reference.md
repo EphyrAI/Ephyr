@@ -227,7 +227,7 @@ host access controller, and returns one of three outcomes:
   "serial": "a1b2c3d4",
   "expires_at": "2026-03-10T12:10:00Z",
   "principal": "agent-op",
-  "host": "192.168.100.100",
+  "host": "TARGET_HOST",
   "port": 22
 }
 ```
@@ -353,7 +353,7 @@ is handled by the dashboard token middleware.
 [
   {
     "name": "docker-host",
-    "host": "192.168.100.100",
+    "host": "TARGET_HOST",
     "port": 22,
     "allowed_roles": ["read", "operator"],
     "auto_approve": true,
@@ -482,7 +482,7 @@ Overview statistics for the dashboard home view.
 ```json
 {
   "hostname": "Clauth",
-  "ip": "192.168.100.75",
+  "ip": "BROKER_HOST",
   "uptime": "4h 32m",
   "broker_status": "healthy",
   "ca_key_status": "loaded",
@@ -508,7 +508,7 @@ Overview statistics for the dashboard home view.
 
 ```bash
 curl -H "Authorization: Bearer $DASHBOARD_TOKEN" \
-  http://192.168.100.75:8553/v1/dashboard/summary
+  http://BROKER_HOST:8553/v1/dashboard/summary
 ```
 
 ---
@@ -523,7 +523,7 @@ List all policy targets with access status, VLAN, and active session counts.
 [
   {
     "name": "docker-host",
-    "host": "192.168.100.100",
+    "host": "TARGET_HOST",
     "vlan": 100,
     "status": "online",
     "role": "DockerHost -- production Docker services (VLAN 100 Mandrake)",
@@ -579,7 +579,7 @@ Recent entries from the on-disk audit log (`/var/log/clauth/audit.json`).
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "http://192.168.100.75:8553/v1/dashboard/audit?limit=20&type=denied"
+  "http://BROKER_HOST:8553/v1/dashboard/audit?limit=20&type=denied"
 ```
 
 ---
@@ -686,7 +686,7 @@ only non-zero fields are applied. New configs are created with all provided fiel
 
 ```json
 {
-  "host": "192.168.100.100",
+  "host": "TARGET_HOST",
   "port": 22,
   "vlan": 100,
   "ssh_user": "root",
@@ -762,7 +762,7 @@ Create or update an HTTP proxy service configuration.
 
 ```json
 {
-  "url_prefix": "http://192.168.100.54:3000",
+  "url_prefix": "http://GITEA_HOST:3000",
   "auth_type": "bearer",
   "credential": "gitea-api-token",
   "description": "Gitea API",
@@ -810,7 +810,7 @@ Real-time event stream via WebSocket on the Dashboard TCP listener (:8553).
 **Connection example:**
 
 ```javascript
-const ws = new WebSocket("ws://192.168.100.75:8553/v1/events?token=YOUR_TOKEN");
+const ws = new WebSocket("ws://BROKER_HOST:8553/v1/events?token=YOUR_TOKEN");
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
   console.log(data.type, data.data);

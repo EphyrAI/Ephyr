@@ -134,6 +134,15 @@ func validate(cfg *Config) (*ResolvedConfig, error) {
 		uidSeen[agent.UID] = name
 	}
 
+	// Validate template references: check that all inherits references exist.
+	for name, agent := range cfg.Agents {
+		for _, tmplName := range agent.Inherits {
+			if _, ok := cfg.Templates[tmplName]; !ok {
+				return nil, fmt.Errorf("agent %q inherits undefined template %q", name, tmplName)
+			}
+		}
+	}
+
 	// Check that all roles referenced by targets are defined.
 	targetMaxTTLs := make(map[string]time.Duration, len(cfg.Targets))
 
@@ -182,10 +191,15 @@ func validate(cfg *Config) (*ResolvedConfig, error) {
 		}
 	}
 
-	return &ResolvedConfig{
+	rc := &ResolvedConfig{
 		Raw:              cfg,
 		GlobalDefaultTTL: globalDefaultTTL,
 		GlobalMaxTTL:     globalMaxTTL,
 		TargetMaxTTLs:    targetMaxTTLs,
-	}, nil
+	}
+
+	// Resolve RBAC permissions for all agents.
+	rc.AgentPerms = ResolveAgentPerms(cfg)
+
+	return rc, nil
 }

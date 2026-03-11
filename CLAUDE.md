@@ -140,28 +140,117 @@ The broker matches the URL to a configured service and injects credentials. You 
 - Role escalation is not possible -- you can only use roles listed in `list_targets` for each target
 - Network policy restricts proxy destinations -- not all URLs are reachable
 
-## Known Dashboard Bugs
+### RBAC -- Per-Agent Permissions (Implemented)
 
-The dashboard (~3,300 lines, `dashboard/index.html`) has ~25 known bugs from a UI audit. Key high-severity issues:
+RBAC is defined in `policy.yaml` using templates and per-agent blocks. The YAML schema supports three permission domains plus dashboard access levels.
 
-### High Severity
-- **Remote toggle enforcement gap** -- Toggling a remote off in the dashboard updates UI state and writes to config, but the federation engine and tool dispatch may not fully block calls in all paths. The `RemoteConfig.Enabled` field is a plain `bool` in `federation.go` while `ServiceConfig.Enabled` is a `*bool` in `proxy.go` -- inconsistent patterns.
-- **Overview stat cards show stale counts** after host/service/remote toggles until the next WebSocket push cycle (2s polling).
-- **Terminal WebSocket sessions leak** if browser tab is closed without explicit disconnect -- no cleanup handler on tab close.
+#### How permissions are defined in policy.yaml
 
-### Medium Severity
-- **Activity view field mismatches** -- Several fields displayed in the activity detail panel don't match the API response schema, showing undefined/null values.
-- **Service config panel missing validation** -- Empty URL prefix, invalid auth type, and duplicate names are accepted by the frontend form.
-- **Activity time-range filters don't persist** across view switches (state lost on re-render).
-- **Session metadata display** -- Session list shows raw timestamps instead of relative times in some columns.
+```yaml
+templates:
+  <name>:
+    description: "..."
+    ssh:
+      "<target-or-*>":
+        roles: [read, operator]
+        auto_approve: true
+    services:
+      "<service-or-*>":
+        methods: [GET, POST]
+    remotes:
+      "<remote-or-*>": {}
+    dashboard: "viewer"    # none | viewer | operator | admin
 
-### Low Severity
-- Various CSS inconsistencies at responsive breakpoints (< 900px).
-- Privacy mode canvas rendering doesn't work on all browsers.
-- Settings view changes don't take effect until page refresh.
+agents:
+  <name>:
+    uid: 1000
+    inherits: [<template>, ...]    # inherit + override
+    ssh:
+      <target>:
+        roles: [read, operator, admin]
+        auto_approve: true
+    services:
+      <service>:
+        methods: [GET]
+    remotes:
+      <remote>: {}
+    dashboard: "admin"
+```
 
-### Planned: RBAC Redesign
-The current role model is global -- roles like "read" and "operator" apply the same way to all targets. A planned redesign will support per-agent-per-target permissions with role templates, enabling fine-grained access like "agent A gets read on hosts 1-3 but operator only on host 2."
+**Key rules:**
+- `"*"` is a wildcard key (all targets/services/remotes)
+- Agent-level keys override inherited template keys for the same target/service/remote
+- Multiple templates merge left-to-right; later templates override earlier ones
+- SSH roles are **intersected** with the target's `allowed_roles` (agent cannot escalate beyond what the target allows)
+- Services use an **allow-list** model: agent can only use listed services (or `"*"`)
+- Remotes use an **allow-list** model: agent can only call listed remotes (or `"*"`)
+- Agents without RBAC fields (`ssh`, `services`, `remotes`, `dashboard`) get **legacy mode** (full access, same as pre-RBAC behavior)
+
+#### Where enforcement happens in code
+
+| File | What it enforces |
+|------|-----------------|
+| `internal/broker/mcp_tools.go` | SSH role validation in `toolExec` and `toolSessionCreate`; filters `toolListTargets` to only show targets with permitted roles; filters `toolListServices` to allowed services; filters `toolListRemotes` to allowed remotes |
+| `internal/broker/proxy.go` | HTTP method restrictions per-service for the calling agent |
+| `internal/broker/mcp.go` | Federation tool call routing checks agent's remote permissions before proxying |
+| `internal/broker/dashboard.go` | Dashboard access level enforcement |
+
+The `MCPAgent` struct in `mcp.go` carries the agent's resolved `Roles` list. For SSH, `toolListTargets` computes the intersection of agent roles and each target's `allowed_roles`, hiding targets where the intersection is empty.
+
+#### How to add a new agent with restricted permissions
+
+1. Create a Linux user on the broker host (for Unix socket auth via SO_PEERCRED):
+   ```bash
+   useradd -r -s /bin/bash -M newagent
+   ```
+
+2. Add to `policy.yaml`:
+   ```yaml
+   agents:
+     newagent:
+       uid: 1003
+       max_concurrent_certs: 3
+       inherits: [monitoring]     # or any template
+       services:
+         grafana:
+           methods: [GET]
+       dashboard: "viewer"
+   ```
+
+3. Reload: `systemctl reload clauth-broker`
+
+#### How to add a new template
+
+Add under the `templates:` key in `policy.yaml`:
+
+```yaml
+templates:
+  deploy-only:
+    description: "Can deploy but not read"
+    ssh:
+      docker-host:
+        roles: [operator]
+        auto_approve: true
+    services:
+      gitea:
+        methods: [GET, POST]
+    remotes: {}
+    dashboard: "none"
+```
+
+Templates are purely a YAML convenience -- the broker resolves them into flat per-agent permission sets at policy load time.
+
+#### Permission resolution
+
+Resolution happens in the policy loader (`internal/policy/loader.go`) during `load()`:
+
+1. Parse all templates into permission structures
+2. For each agent, merge inherited templates left-to-right
+3. Apply agent-level overrides on top (agent keys win for same target/service/remote)
+4. Intersect SSH roles with each target's `allowed_roles`
+5. Store resolved permissions on the agent's runtime representation
+
+The `MCPAgent.Roles` field in `mcp.go` holds the resolved role list. Discovery tools (`list_targets`, `list_services`, `list_remotes`) filter results based on these resolved permissions so agents only see what they can access.
 
 ## Project Layout
 

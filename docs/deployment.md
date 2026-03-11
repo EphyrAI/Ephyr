@@ -509,7 +509,7 @@ For Claude Code, add to your MCP settings (typically in
   "mcpServers": {
     "clauth": {
       "type": "url",
-      "url": "http://192.168.100.75:8554/mcp",
+      "url": "http://BROKER_HOST:8554/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_PLAINTEXT_KEY_HERE"
       }
@@ -532,7 +532,7 @@ systemctl restart clauth-broker
 
 ```bash
 # Initialize handshake
-curl -s -X POST http://192.168.100.75:8554/mcp \
+curl -s -X POST http://BROKER_HOST:8554/mcp \
   -H "Authorization: Bearer YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -546,7 +546,7 @@ curl -s -X POST http://192.168.100.75:8554/mcp \
   }' | python3 -m json.tool
 
 # List available tools
-curl -s -X POST http://192.168.100.75:8554/mcp \
+curl -s -X POST http://BROKER_HOST:8554/mcp \
   -H "Authorization: Bearer YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -556,7 +556,7 @@ curl -s -X POST http://192.168.100.75:8554/mcp \
   }' | python3 -m json.tool
 
 # List targets
-curl -s -X POST http://192.168.100.75:8554/mcp \
+curl -s -X POST http://BROKER_HOST:8554/mcp \
   -H "Authorization: Bearer YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -579,12 +579,12 @@ services without exposing raw credentials.
 Via the dashboard API:
 
 ```bash
-curl -s -X PUT http://192.168.100.75:8553/v1/dashboard/services/gitea \
+curl -s -X PUT http://BROKER_HOST:8553/v1/dashboard/services/gitea \
   -H "Authorization: Bearer YOUR_DASHBOARD_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Gitea",
-    "url_prefix": "http://192.168.100.54:3000",
+    "url_prefix": "http://GITEA_HOST:3000",
     "auth_type": "bearer",
     "credential": "your-gitea-api-token",
     "description": "Gitea API",
@@ -623,7 +623,7 @@ to `network_policy.json` require a broker restart.
 ### Step 3: Test via MCP
 
 ```bash
-curl -s -X POST http://192.168.100.75:8554/mcp \
+curl -s -X POST http://BROKER_HOST:8554/mcp \
   -H "Authorization: Bearer YOUR_MCP_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -633,7 +633,7 @@ curl -s -X POST http://192.168.100.75:8554/mcp \
     "params": {
       "name": "http_request",
       "arguments": {
-        "url": "http://192.168.100.54:3000/api/v1/repos/search?limit=5",
+        "url": "http://GITEA_HOST:3000/api/v1/repos/search?limit=5",
         "method": "GET"
       }
     }
@@ -668,7 +668,7 @@ systemctl restart clauth-broker
 
 ### Step 2: Open the Dashboard
 
-Navigate to http://BROKER_IP:8553 in a browser.
+Navigate to http://BROKER_HOST:8553 in a browser.
 
 Static files (the React dashboard) are served without authentication from
 the directory configured by CLAUTH_DASHBOARD_DIR.
@@ -736,9 +736,9 @@ systemctl enable nftables
 For tighter security, replace 192.168.0.0/16 with specific VLAN subnets:
 
 ```nft
-# Only production VLAN and management VLAN
-ip saddr { 192.168.100.0/24, 192.168.10.0/24 } tcp dport 8553 accept
-ip saddr { 192.168.100.0/24, 192.168.10.0/24 } tcp dport 8554 accept
+# Only specific VLANs (replace X and Y with your VLAN subnets)
+ip saddr { 192.168.X.0/24, 192.168.Y.0/24 } tcp dport 8553 accept
+ip saddr { 192.168.X.0/24, 192.168.Y.0/24 } tcp dport 8554 accept
 ```
 
 ---
@@ -816,14 +816,14 @@ After completing all setup steps, verify each component:
 
 - [ ] **Dashboard accessible**
   ```bash
-  curl -s http://BROKER_IP:8553/v1/dashboard/summary \
+  curl -s http://BROKER_HOST:8553/v1/dashboard/summary \
     -H "Authorization: Bearer YOUR_TOKEN" | python3 -m json.tool
   # Should return JSON with broker_status: "healthy"
   ```
 
 - [ ] **MCP endpoint responds to initialize**
   ```bash
-  curl -s -X POST http://BROKER_IP:8554/mcp \
+  curl -s -X POST http://BROKER_HOST:8554/mcp \
     -H "Authorization: Bearer YOUR_MCP_KEY" \
     -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}' \
@@ -855,7 +855,7 @@ After completing all setup steps, verify each component:
 
 - [ ] **Activity monitoring shows entries**
   ```bash
-  curl -s http://BROKER_IP:8553/v1/dashboard/activity \
+  curl -s http://BROKER_HOST:8553/v1/dashboard/activity \
     -H "Authorization: Bearer YOUR_TOKEN" | python3 -m json.tool
   # Should list recent activity entries
   ```
