@@ -326,6 +326,21 @@
     background: rgba(0,0,0,0.2); transition: border-color 0.2s;
   }
   .host-item:hover { border-color: var(--border-bright); }
+  .host-item.item-active {
+    border-left: 2px solid var(--green);
+    background: linear-gradient(90deg, rgba(0,255,157,0.04) 0%, transparent 60%);
+  }
+  .host-item.item-active-cyan {
+    border-left: 2px solid var(--cyan);
+    background: linear-gradient(90deg, rgba(0,212,255,0.04) 0%, transparent 60%);
+  }
+  .host-item.item-active-purple {
+    border-left: 2px solid var(--purple);
+    background: linear-gradient(90deg, rgba(168,85,247,0.04) 0%, transparent 60%);
+  }
+  .host-item.item-disabled {
+    opacity: 0.5;
+  }
   .host-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .host-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
   .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -1203,7 +1218,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
     (async () => {
       try {
         const data = await api('GET', '/v1/dashboard/remotes', null, token);
-        setRemotes(data || []);
+        setRemotes((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
       } catch {}
     })();
   }, [token]);
@@ -1212,7 +1227,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
     (async () => {
       try {
         const data = await api('GET', '/v1/dashboard/services', null, token);
-        setServices(data || []);
+        setServices((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
       } catch {}
     })();
   }, [token]);
@@ -1233,6 +1248,20 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
     const iv = setInterval(fetchOvActivity, 5000);
     return () => clearInterval(iv);
   }, [token]);
+
+  const handleToggleService = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/services/${encodeURIComponent(name)}/toggle`, null, token);
+      setServices(prev => prev.map(s => s.name === name ? { ...s, enabled: result.enabled } : s));
+    } catch {}
+  };
+
+  const handleToggleRemote = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/toggle`, null, token);
+      setRemotes(prev => prev.map(r => r.name === name ? { ...r, enabled: result.enabled } : r));
+    } catch {}
+  };
 
   return (
     <div>
@@ -1272,16 +1301,6 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
           <div className="stat-value amber">{summary.hosts_online || 0}</div>
           <div className="stat-sub">of {summary.hosts_enabled || 0} enabled</div>
         </div>
-        <div className="stat-card" style={{ borderColor: 'var(--purple)' }}>
-          <div className="stat-label">MCP Servers</div>
-          <div className="stat-value" style={{ color: 'var(--purple)' }}>{remotes.filter(r => r.status === 'connected').length}/{remotes.length || 0}</div>
-          <div className="stat-sub">federated</div>
-        </div>
-        <div className="stat-card cyan">
-          <div className="stat-label">Services</div>
-          <div className="stat-value cyan">{services.length || 0}</div>
-          <div className="stat-sub">proxied</div>
-        </div>
       </div>
 
       {/* 3 management panels: Hosts | Services | MCP Servers */}
@@ -1290,13 +1309,13 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         <div className="panel">
           <div className="panel-header">
             <span>Hosts</span>
-            <span className="panel-count">{(hosts || []).length}</span>
+            <span className="panel-count" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--amber)' }}>{(hosts || []).filter(h => h.access_enabled).length}<span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>/{(hosts || []).length}</span></span>
           </div>
           <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
             {(hosts || []).length === 0 ? (
               <div className="empty-state">No hosts configured</div>
             ) : (hosts || []).map(h => (
-              <div key={h.name} className="host-item">
+              <div key={h.name} className={`host-item${h.active_sessions > 0 ? ' item-active' : ''}${!h.access_enabled ? ' item-disabled' : ''}`}>
                 <div className="host-left">
                   <StatusDot status={h.status || (h.access_enabled ? 'online' : 'offline')} />
                   <div>
@@ -1318,13 +1337,13 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         <div className="panel">
           <div className="panel-header">
             <span>Services</span>
-            <span className="panel-count">{services.length}</span>
+            <span className="panel-count" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--cyan)' }}>{services.filter(s => s.enabled !== false).length}<span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>/{services.length}</span></span>
           </div>
           <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
             {services.length === 0 ? (
               <div className="empty-state">No services configured</div>
             ) : services.map(s => (
-              <div key={s.name} className="host-item">
+              <div key={s.name} className={`host-item${s.enabled === false ? ' item-disabled' : ' item-active-cyan'}`}>
                 <div className="host-left">
                   <StatusDot status="online" />
                   <div>
@@ -1334,7 +1353,10 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                     </div>
                   </div>
                 </div>
-                <AuthTypeBadge authType={s.auth_type || 'none'} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AuthTypeBadge authType={s.auth_type || 'none'} />
+                  <ToggleSwitch checked={s.enabled !== false} onChange={() => handleToggleService(s.name)} />
+                </div>
               </div>
             ))}
           </div>
@@ -1344,13 +1366,13 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         <div className="panel">
           <div className="panel-header">
             <span>MCP Servers</span>
-            <span className="panel-count">{remotes.length}</span>
+            <span className="panel-count" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--purple)' }}>{remotes.filter(r => r.status === 'connected').length}<span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>/{remotes.length}</span></span>
           </div>
           <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
             {remotes.length === 0 ? (
               <div className="empty-state">No MCP servers configured</div>
             ) : remotes.map(r => (
-              <div key={r.name} className="host-item">
+              <div key={r.name} className={`host-item${r.status === 'connected' ? ' item-active-purple' : r.enabled === false ? ' item-disabled' : ''}`}>
                 <div className="host-left">
                   <StatusDot status={r.status === 'connected' ? 'online' : r.status === 'error' ? 'error' : 'offline'} />
                   <div>
@@ -1360,7 +1382,10 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                     </div>
                   </div>
                 </div>
-                <RemoteStatusBadge status={r.status} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <RemoteStatusBadge status={r.status} />
+                  <ToggleSwitch checked={r.enabled !== false} onChange={() => handleToggleRemote(r.name)} />
+                </div>
               </div>
             ))}
           </div>
@@ -1615,7 +1640,7 @@ function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
         ) : (hosts || []).map(h => {
           const hostSessions = (sessions || []).filter(s => s.target === h.name && s.status === 'active');
           return (
-            <div key={h.name} className="host-card">
+            <div key={h.name} className={`host-card${h.active_sessions > 0 ? ' item-active' : ''}`}>
               <div className="host-card-top">
                 <div className="host-card-name">
                   <StatusDot status={h.status || (h.access_enabled ? 'online' : 'offline')} />
@@ -2289,7 +2314,7 @@ function ServicesView({ token }) {
   const fetchServices = useCallback(async () => {
     try {
       const data = await api('GET', '/v1/dashboard/services', null, token);
-      setServices(data || []);
+      setServices((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
     } catch {}
     setLoading(false);
   }, [token]);
@@ -2297,6 +2322,13 @@ function ServicesView({ token }) {
   useEffect(() => { fetchServices(); }, [fetchServices]);
 
   const handleRefresh = () => { fetchServices(); };
+
+  const handleToggleServiceDirect = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/services/${encodeURIComponent(name)}/toggle`, null, token);
+      setServices(prev => prev.map(s => s.name === name ? { ...s, enabled: result.enabled } : s));
+    } catch {}
+  };
 
   return (
     <>
@@ -2312,7 +2344,7 @@ function ServicesView({ token }) {
           {services.length === 0 ? (
             <div className="empty-state" style={{ gridColumn: '1 / -1' }}>No services configured</div>
           ) : services.map(s => (
-            <div key={s.name} className="service-card">
+            <div key={s.name} className={`service-card${s.enabled === false ? ' item-disabled' : ''}`}>
               <div className="service-card-header">
                 <span className="service-card-name">{s.name}</span>
                 <AuthTypeBadge authType={s.auth_type || 'none'} />
@@ -2326,6 +2358,10 @@ function ServicesView({ token }) {
               </div>
               <div className="service-card-actions">
                 <button className="btn btn-cyan" onClick={() => setConfigService(s)}>CONFIGURE</button>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{s.enabled !== false ? 'ON' : 'OFF'}</span>
+                  <ToggleSwitch checked={s.enabled !== false} onChange={() => handleToggleServiceDirect(s.name)} />
+                </div>
               </div>
             </div>
           ))}
@@ -2508,7 +2544,7 @@ function MCPServersView({ token }) {
   const fetchRemotes = useCallback(async () => {
     try {
       const data = await api('GET', '/v1/dashboard/remotes', null, token);
-      setRemotes(data || []);
+      setRemotes((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
     } catch {}
     setLoading(false);
   }, [token]);
@@ -2521,6 +2557,13 @@ function MCPServersView({ token }) {
   }, [fetchRemotes]);
 
   const handleRefresh = () => { fetchRemotes(); };
+
+  const handleToggleRemoteDirect = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/toggle`, null, token);
+      setRemotes(prev => prev.map(r => r.name === name ? { ...r, enabled: result.enabled, status: result.enabled ? r.status : 'disconnected' } : r));
+    } catch {}
+  };
 
   const handleForceRefresh = async (name) => {
     try {
@@ -2561,7 +2604,7 @@ function MCPServersView({ token }) {
               No MCP servers configured. Add one to federate tools from external servers.
             </div>
           ) : remotes.map(r => (
-            <div key={r.name} className="service-card" style={{ borderColor: r.status === 'error' ? 'rgba(255,0,60,0.3)' : undefined }}>
+            <div key={r.name} className={`service-card${r.enabled === false ? ' item-disabled' : ''}`} style={{ borderColor: r.status === 'error' ? 'rgba(255,0,60,0.3)' : r.status === 'connected' ? 'rgba(168,85,247,0.3)' : undefined }}>
               <div className="service-card-header">
                 <span className="service-card-name">{r.name}</span>
                 <RemoteStatusBadge status={r.status} />
@@ -2577,6 +2620,10 @@ function MCPServersView({ token }) {
               <div className="service-card-actions">
                 <button className="btn btn-cyan" onClick={() => setConfigRemote(r)}>CONFIGURE</button>
                 <button className="btn btn-amber" onClick={() => handleForceRefresh(r.name)}>REFRESH</button>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{r.enabled !== false ? 'ON' : 'OFF'}</span>
+                  <ToggleSwitch checked={r.enabled !== false} onChange={() => handleToggleRemoteDirect(r.name)} />
+                </div>
               </div>
             </div>
           ))}
@@ -3049,7 +3096,7 @@ function App() {
         api('GET', '/v1/dashboard/sessions', null, token),
       ]);
       setSummary(sum || {});
-      setHosts(h || []);
+      setHosts((h || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
       setSessions(s || []);
       setLoading(false);
     } catch (err) {
@@ -3068,7 +3115,7 @@ function App() {
         api('GET', '/v1/dashboard/sessions', null, token),
       ]);
       setSummary(sum || {});
-      setHosts(h || []);
+      setHosts((h || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
       setSessions(s || []);
     } catch (err) {
       if (err.message === 'UNAUTHORIZED') { setToken(''); setTokenError('Invalid or expired token'); }
