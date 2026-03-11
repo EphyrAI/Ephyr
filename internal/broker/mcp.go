@@ -432,6 +432,33 @@ func (s *MCPServer) handleFederatedToolCall(ctx context.Context, w http.Response
 		return
 	}
 
+	// Check/issue MCP access grant (unless passthrough mode).
+	if s.broker.grantStore != nil {
+		grantMode := s.broker.grantStore.Mode
+		// Check remote-specific grant mode.
+		cfg, cfgOK := s.federator.GetRemote(remoteName)
+		if cfgOK && cfg != nil && cfg.GrantMode != "" {
+			grantMode = GrantMode(cfg.GrantMode)
+		}
+		if grantMode == GrantModeTTL {
+			existing := s.broker.grantStore.Validate(GrantTypeMCP, agent.Name, remoteName)
+			if existing == nil {
+				s.broker.grantStore.Issue(GrantTypeMCP, agent.Name, remoteName, 0, map[string]string{
+					"remote": remoteName,
+					"tool":   toolName,
+				})
+				s.broker.eventHub.Broadcast(Event{
+					Type: "grant_issued",
+					Data: map[string]string{
+						"type":   "mcp",
+						"agent":  agent.Name,
+						"target": remoteName,
+					},
+				})
+			}
+		}
+	}
+
 	// Marshal arguments back to json.RawMessage for the federation client.
 	argsJSON, _ := json.Marshal(params.Arguments)
 

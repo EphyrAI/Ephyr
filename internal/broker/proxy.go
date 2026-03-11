@@ -45,6 +45,7 @@ type ServiceConfig struct {
 	Timeout        int               `json:"timeout"`          // seconds, default 30
 	Description    string            `json:"description"`
 	Enabled        *bool             `json:"enabled,omitempty"` // nil or true = enabled, false = disabled
+	GrantMode      string            `json:"grant_mode,omitempty"` // "ttl" or "passthrough"
 	Headers        map[string]string `json:"headers"`          // extra headers to inject
 }
 
@@ -201,6 +202,33 @@ func (p *ProxyEngine) Do(agentName string, req *ProxyRequest) (*ProxyResult, err
 		}
 		if !pathAllowed {
 			return nil, fmt.Errorf("proxy: path %s not allowed for service %s", reqPath, svc.Name)
+		}
+	}
+
+	// Check/issue access grant (unless passthrough mode).
+	if p.broker.grantStore != nil {
+		grantMode := p.broker.grantStore.Mode
+		if svc != nil && svc.GrantMode != "" {
+			grantMode = GrantMode(svc.GrantMode)
+		}
+		if svc != nil && grantMode == GrantModeTTL {
+			existing := p.broker.grantStore.Validate(GrantTypeService, agentName, svc.Name)
+			if existing == nil {
+				// Auto-issue a new grant.
+				p.broker.grantStore.Issue(GrantTypeService, agentName, svc.Name, 0, map[string]string{
+					"url_prefix": svc.URLPrefix,
+					"auth_type":  svc.AuthType,
+				})
+				// Broadcast event.
+				p.broker.eventHub.Broadcast(Event{
+					Type: "grant_issued",
+					Data: map[string]string{
+						"type":   "service",
+						"agent":  agentName,
+						"target": svc.Name,
+					},
+				})
+			}
 		}
 	}
 

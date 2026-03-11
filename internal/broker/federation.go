@@ -24,6 +24,7 @@ type RemoteMCPConfig struct {
 	Headers        map[string]string `json:"headers,omitempty"`         // extra static headers
 	Description    string            `json:"description,omitempty"`
 	Enabled        bool              `json:"enabled"`
+	GrantMode      string            `json:"grant_mode,omitempty"` // "ttl" or "passthrough"
 	Timeout        int               `json:"timeout,omitempty"`         // seconds, default 30
 	RefreshSeconds int               `json:"refresh_seconds,omitempty"` // discovery refresh interval, default 60
 	MaxResponseKB  int               `json:"max_response_kb,omitempty"` // max response body in KB, default 1024

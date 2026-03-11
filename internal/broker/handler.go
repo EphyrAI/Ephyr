@@ -370,6 +370,15 @@ func (bs *BrokerServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	bs.state.AddCert(activeCert)
 
+	// Issue an SSH cert access grant so it appears alongside service/MCP grants.
+	if bs.grantStore != nil {
+		bs.grantStore.Issue(GrantTypeSSHCert, agentName, req.Target, evalResult.ClampedDuration, map[string]string{
+			"role":      req.Role,
+			"principal": evalResult.Principal,
+			"serial":    cert.Serial,
+		})
+	}
+
 	// Track in policy engine as well (for concurrent cert limits).
 	bs.policyEngine.TrackCert(parseSerial(cert.Serial), int(uid), req.Target, req.Role, parseRFC3339(cert.ExpiresAt))
 

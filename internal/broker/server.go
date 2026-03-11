@@ -86,6 +86,7 @@ type BrokerServer struct {
 	activityStore *ActivityStore
 	proxyEngine   *ProxyEngine
 	federator     *MCPFederator
+	grantStore    *GrantStore
 	// Counters for granted and denied certificate requests (atomic).
 	grantCount uint64
 	denyCount  uint64
@@ -170,6 +171,9 @@ func NewBrokerServer(cfg BrokerConfig) (*BrokerServer, error) {
 
 	// Initialize activity store (10000 entry ring buffer).
 	bs.activityStore = NewActivityStore(10000)
+
+	// Initialize access grant store.
+	bs.grantStore = NewGrantStore()
 
 	return bs, nil
 }
@@ -317,6 +321,9 @@ func (bs *BrokerServer) GracefulShutdown() {
 	bs.state.Stop()
 	if bs.federator != nil {
 		bs.federator.Stop()
+	}
+	if bs.grantStore != nil {
+		bs.grantStore.Stop()
 	}
 	bs.auditLog.Close()
 

@@ -71,6 +71,8 @@ type DashboardSummary struct {
 	HostsOnline     int    `json:"hosts_online"`
 	HostsEnabled    int    `json:"hosts_enabled"`
 	SignerOK        bool   `json:"signer_ok"`
+	ActiveGrants    int    `json:"active_grants,omitempty"`
+	GrantMode       string `json:"grant_mode,omitempty"`
 }
 
 // DashboardHost is a single host entry for GET /v1/dashboard/hosts.
@@ -89,6 +91,7 @@ type DashboardSession struct {
 	Serial    string `json:"serial"`
 	Agent     string `json:"agent"`
 	Target    string `json:"target"`
+	Type      string `json:"type"`
 	Role      string `json:"role"`
 	Principal string `json:"principal"`
 	CertTTL   int64  `json:"cert_ttl"`
@@ -96,6 +99,14 @@ type DashboardSession struct {
 	IssuedAt  string `json:"issued_at"`
 	ExpiresAt string `json:"expires_at"`
 	Status    string `json:"status"`
+}
+
+// GrantSettings represents the settings for the access grant system.
+type GrantSettings struct {
+	Mode              string `json:"mode"`
+	DefaultServiceTTL string `json:"default_service_ttl"`
+	DefaultMCPTTL     string `json:"default_mcp_ttl"`
+	ActiveGrants      int    `json:"active_grants"`
 }
 
 // startDashboardListener starts the TCP HTTP server for the dashboard on
@@ -185,6 +196,11 @@ func (bs *BrokerServer) dashboardRoutes() *http.ServeMux {
 	mux.HandleFunc("POST /v1/dashboard/services/{name}/toggle", bs.handleToggleService)
 	mux.HandleFunc("POST /v1/dashboard/remotes/{name}/toggle", bs.handleToggleRemote)
 
+	// --- Grant management ---
+	mux.HandleFunc("POST /v1/dashboard/grants/{id}/revoke", bs.handleRevokeGrant)
+	mux.HandleFunc("GET /v1/dashboard/settings/grants", bs.handleGetGrantSettings)
+	mux.HandleFunc("PUT /v1/dashboard/settings/grants", bs.handleUpdateGrantSettings)
+
 	// --- Static file serving for the React dashboard ---
 	if bs.cfg.DashboardDir != "" {
 		fs := http.FileServer(http.Dir(bs.cfg.DashboardDir))
@@ -253,6 +269,10 @@ func (bs *BrokerServer) handleDashboardSummary(w http.ResponseWriter, r *http.Re
 		HostsEnabled:    hostsEnabled,
 		SignerOK:        signerOK,
 	}
+	if bs.grantStore != nil {
+		resp.ActiveGrants = bs.grantStore.ActiveCount()
+		resp.GrantMode = string(bs.grantStore.Mode)
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -316,6 +336,7 @@ func (bs *BrokerServer) handleDashboardSessions(w http.ResponseWriter, r *http.R
 			Serial:    c.Serial,
 			Agent:     c.AgentName,
 			Target:    c.Target,
+			Type:      "ssh_cert",
 			Role:      c.Role,
 			Principal: c.Principal,
 			CertTTL:   int64(remaining),
@@ -324,6 +345,56 @@ func (bs *BrokerServer) handleDashboardSessions(w http.ResponseWriter, r *http.R
 			ExpiresAt: c.ExpiresAt.Format(time.RFC3339),
 			Status:    status,
 		})
+	}
+
+	// Include service and MCP grants from the grant store.
+	if bs.grantStore != nil {
+		for _, g := range bs.grantStore.ListAll() {
+			remaining := time.Until(g.ExpiresAt).Seconds()
+			if remaining < 0 {
+				remaining = 0
+			}
+			status := "active"
+			if g.Status == "revoked" {
+				status = "revoked"
+			}
+			if time.Now().After(g.ExpiresAt) {
+				status = "expired"
+			}
+
+			// Determine MaxTTL based on grant type.
+			var maxTTL int64
+			switch g.Type {
+			case GrantTypeService:
+				maxTTL = int64(bs.grantStore.DefaultServiceTTL.Seconds())
+			case GrantTypeMCP:
+				maxTTL = int64(bs.grantStore.DefaultMCPTTL.Seconds())
+			default:
+				maxTTL = 300 // 5 minute fallback
+			}
+
+			ds := DashboardSession{
+				Serial:    g.ID,
+				Agent:     g.Agent,
+				Target:    g.Target,
+				Type:      string(g.Type),
+				CertTTL:   int64(remaining),
+				MaxTTL:    maxTTL,
+				IssuedAt:  g.IssuedAt.Format(time.RFC3339),
+				ExpiresAt: g.ExpiresAt.Format(time.RFC3339),
+				Status:    status,
+			}
+			// Add role from details if available.
+			if g.Details != nil {
+				if role, ok := g.Details["role"]; ok {
+					ds.Role = role
+				}
+				if authType, ok := g.Details["auth_type"]; ok {
+					ds.Principal = authType
+				}
+			}
+			sessions = append(sessions, ds)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, sessions)
@@ -814,4 +885,73 @@ func (bs *BrokerServer) handleToggleRemote(w http.ResponseWriter, r *http.Reques
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"name": name, "enabled": newEnabled})
+}
+
+
+// handleRevokeGrant serves POST /v1/dashboard/grants/{id}/revoke.
+func (bs *BrokerServer) handleRevokeGrant(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if bs.grantStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "grants not configured"})
+		return
+	}
+	if !bs.grantStore.Revoke(id) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "grant not found"})
+		return
+	}
+	bs.eventHub.Broadcast(Event{
+		Type: "grant_revoked",
+		Data: map[string]string{"id": id},
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked", "id": id})
+}
+
+// handleGetGrantSettings serves GET /v1/dashboard/settings/grants.
+func (bs *BrokerServer) handleGetGrantSettings(w http.ResponseWriter, r *http.Request) {
+	if bs.grantStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "grants not configured"})
+		return
+	}
+	writeJSON(w, http.StatusOK, GrantSettings{
+		Mode:              string(bs.grantStore.Mode),
+		DefaultServiceTTL: bs.grantStore.DefaultServiceTTL.String(),
+		DefaultMCPTTL:     bs.grantStore.DefaultMCPTTL.String(),
+		ActiveGrants:      bs.grantStore.ActiveCount(),
+	})
+}
+
+// handleUpdateGrantSettings serves PUT /v1/dashboard/settings/grants.
+func (bs *BrokerServer) handleUpdateGrantSettings(w http.ResponseWriter, r *http.Request) {
+	if bs.grantStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "grants not configured"})
+		return
+	}
+	var req GrantSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if req.Mode == "ttl" || req.Mode == "passthrough" {
+		bs.grantStore.Mode = GrantMode(req.Mode)
+	}
+	if req.DefaultServiceTTL != "" {
+		if d, err := time.ParseDuration(req.DefaultServiceTTL); err == nil && d > 0 {
+			bs.grantStore.DefaultServiceTTL = d
+		}
+	}
+	if req.DefaultMCPTTL != "" {
+		if d, err := time.ParseDuration(req.DefaultMCPTTL); err == nil && d > 0 {
+			bs.grantStore.DefaultMCPTTL = d
+		}
+	}
+	bs.eventHub.Broadcast(Event{
+		Type: "settings_changed",
+		Data: map[string]string{"section": "grants", "mode": string(bs.grantStore.Mode)},
+	})
+	writeJSON(w, http.StatusOK, GrantSettings{
+		Mode:              string(bs.grantStore.Mode),
+		DefaultServiceTTL: bs.grantStore.DefaultServiceTTL.String(),
+		DefaultMCPTTL:     bs.grantStore.DefaultMCPTTL.String(),
+		ActiveGrants:      bs.grantStore.ActiveCount(),
+	})
 }

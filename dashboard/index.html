@@ -973,6 +973,19 @@ function StatusBadge({ status }) {
   return <span className={`badge ${cls}`}>{status}</span>;
 }
 
+function GrantTypeBadge({ type }) {
+  const colors = {
+    ssh_cert: { bg: 'rgba(0,255,136,0.15)', color: 'var(--green)', label: 'SSH' },
+    service: { bg: 'rgba(0,212,255,0.15)', color: 'var(--cyan)', label: 'SERVICE' },
+    mcp: { bg: 'rgba(168,85,247,0.15)', color: 'var(--purple)', label: 'MCP' },
+  };
+  const c = colors[type] || colors.ssh_cert;
+  return React.createElement('span', {
+    style: { padding: '2px 6px', borderRadius: '3px', fontSize: '9px', fontWeight: 700,
+      fontFamily: "'JetBrains Mono', monospace", background: c.bg, color: c.color, letterSpacing: '0.5px' }
+  }, c.label);
+}
+
 function StatusDot({ status, animated }) {
   const s = (status || '').toLowerCase();
   let cls = 'unknown';
@@ -1294,7 +1307,17 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         <div className="stat-card cyan">
           <div className="stat-label">Active Sessions</div>
           <div className="stat-value cyan">{summary.active_certs || 0}</div>
-          <div className="stat-sub">certificates</div>
+          <div className="stat-sub">{(() => {
+            const ss = activeSessions || [];
+            const sshCount = ss.filter(s => !s.type || s.type === 'ssh_cert').length;
+            const svcCount = ss.filter(s => s.type === 'service').length;
+            const mcpCount = ss.filter(s => s.type === 'mcp').length;
+            const parts = [];
+            if (sshCount > 0) parts.push(`${sshCount} SSH`);
+            if (svcCount > 0) parts.push(`${svcCount} Service`);
+            if (mcpCount > 0) parts.push(`${mcpCount} MCP`);
+            return parts.length > 0 ? parts.join(' \u00b7 ') : 'certificates';
+          })()}</div>
         </div>
         <div className="stat-card amber">
           <div className="stat-label">Hosts Online</div>
@@ -1433,11 +1456,12 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                       const remaining = parseTTL(s.expires_at, now);
                       return (
                         <div key={s.serial} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <GrantTypeBadge type={s.type || 'ssh_cert'} />
                           <RoleBadge role={s.role} />
                           <div style={{ flex: 1 }}>
                             <TTLBar remaining={remaining} maxTTL={maxTTL} />
                           </div>
-                          <button className="btn btn-revoke" onClick={() => onRevoke(s.serial)} style={{ fontSize: '9px', padding: '2px 8px' }}>REVOKE</button>
+                          <button className="btn btn-revoke" onClick={() => onRevoke(s.serial, s.type || 'ssh_cert')} style={{ fontSize: '9px', padding: '2px 8px' }}>REVOKE</button>
                         </div>
                       );
                     })}
@@ -1921,12 +1945,19 @@ function AgentsView({ sessions, summary, now, token, onViewActivity }) {
 
 function SessionsView({ sessions, now, onRevoke }) {
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [filterType, setFilterType] = useState('ALL');
 
-  // Filter sessions by status
+  // Filter sessions by status and type
   const filtered = useMemo(() => {
     const list = (sessions || []).filter(s => {
-      if (statusFilter === 'ACTIVE') return s.status === 'active';
-      if (statusFilter === 'EXPIRED') return s.status !== 'active';
+      if (statusFilter === 'ACTIVE' && s.status !== 'active') return false;
+      if (statusFilter === 'EXPIRED' && s.status === 'active') return false;
+      if (filterType !== 'ALL') {
+        const sType = s.type || 'ssh_cert';
+        if (filterType === 'SSH' && sType !== 'ssh_cert') return false;
+        if (filterType === 'SERVICE' && sType !== 'service') return false;
+        if (filterType === 'MCP' && sType !== 'mcp') return false;
+      }
       return true;
     });
     // Sort: active sessions by expires_at ascending (expiring soonest first), then expired at bottom
@@ -1942,10 +1973,13 @@ function SessionsView({ sessions, now, onRevoke }) {
       return new Date(b.expires_at || 0).getTime() - new Date(a.expires_at || 0).getTime();
     });
     return list;
-  }, [sessions, statusFilter, now]);
+  }, [sessions, statusFilter, filterType, now]);
 
   const activeCount = (sessions || []).filter(s => s.status === 'active').length;
   const expiredCount = (sessions || []).length - activeCount;
+  const sshCount = (sessions || []).filter(s => !s.type || s.type === 'ssh_cert').length;
+  const serviceCount = (sessions || []).filter(s => s.type === 'service').length;
+  const mcpCount = (sessions || []).filter(s => s.type === 'mcp').length;
 
   return (
     <div className="panel" style={{ background: 'transparent', border: 'none' }}>
@@ -1960,6 +1994,19 @@ function SessionsView({ sessions, now, onRevoke }) {
             {f.label}
           </button>
         ))}
+        <span style={{ width: '1px', height: '20px', background: 'var(--border)', margin: '0 4px' }} />
+        {[
+          { key: 'ALL', label: 'ALL TYPES' },
+          { key: 'SSH', label: `SSH (${sshCount})` },
+          { key: 'SERVICE', label: `SERVICE (${serviceCount})` },
+          { key: 'MCP', label: `MCP (${mcpCount})` },
+        ].map(f => (
+          <button key={`type-${f.key}`} className={`filter-btn ${filterType === f.key ? 'active' : ''}`}
+            style={filterType === f.key ? { borderColor: f.key === 'SSH' ? 'var(--green)' : f.key === 'SERVICE' ? 'var(--cyan)' : f.key === 'MCP' ? 'var(--purple)' : 'var(--green)', color: f.key === 'SSH' ? 'var(--green)' : f.key === 'SERVICE' ? 'var(--cyan)' : f.key === 'MCP' ? 'var(--purple)' : 'var(--green)', background: f.key === 'SSH' ? 'var(--green-dim)' : f.key === 'SERVICE' ? 'var(--cyan-dim)' : f.key === 'MCP' ? 'var(--purple-dim)' : 'var(--green-dim)' } : {}}
+            onClick={() => setFilterType(f.key)}>
+            {f.label}
+          </button>
+        ))}
         <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginLeft: 'auto' }}>
           Sorted: expiring soonest first
         </span>
@@ -1969,6 +2016,7 @@ function SessionsView({ sessions, now, onRevoke }) {
           <thead>
             <tr>
               <th></th>
+              <th>Type</th>
               <th>Agent</th>
               <th>Target</th>
               <th>Role</th>
@@ -1980,7 +2028,7 @@ function SessionsView({ sessions, now, onRevoke }) {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan="8" className="empty-state">No sessions</td></tr>
+              <tr><td colSpan="9" className="empty-state">No sessions</td></tr>
             ) : filtered.map(s => {
               const isActive = s.status === 'active';
               const remaining = parseTTL(s.expires_at, now);
@@ -1988,6 +2036,7 @@ function SessionsView({ sessions, now, onRevoke }) {
               return (
                 <tr key={s.serial} className={!isActive ? 'inactive' : ''}>
                   <td><StatusDot status={isActive ? 'active' : 'offline'} /></td>
+                  <td><GrantTypeBadge type={s.type || 'ssh_cert'} /></td>
                   <td style={{ color: 'var(--green)', fontWeight: 600 }}>{s.agent}</td>
                   <td style={{ color: 'var(--cyan)', fontWeight: 600 }}>{s.target}</td>
                   <td><RoleBadge role={s.role} /></td>
@@ -2004,7 +2053,7 @@ function SessionsView({ sessions, now, onRevoke }) {
                   </td>
                   <td>
                     {isActive && (
-                      <button className="btn btn-revoke" onClick={() => onRevoke(s.serial)}>REVOKE</button>
+                      <button className="btn btn-revoke" onClick={() => onRevoke(s.serial, s.type || 'ssh_cert')}>REVOKE</button>
                     )}
                   </td>
                 </tr>
@@ -3052,6 +3101,30 @@ function TerminalView({ hosts, token }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function SettingsView({ summary, token, wsStatus }) {
+  const [grantSettings, setGrantSettings] = useState({});
+  const [grantLoading, setGrantLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/settings/grants', null, token);
+        setGrantSettings(data || {});
+      } catch {}
+      setGrantLoading(false);
+    })();
+  }, [token]);
+
+  const updateGrantSettings = async (updates) => {
+    const newSettings = { ...grantSettings, ...updates };
+    setGrantSettings(newSettings);
+    try {
+      const result = await api('PUT', '/v1/dashboard/settings/grants', newSettings, token);
+      setGrantSettings(result || newSettings);
+    } catch (err) {
+      console.error('Failed to update grant settings:', err);
+    }
+  };
+
   return (
     <div>
       <div className="settings-section">
@@ -3060,6 +3133,39 @@ function SettingsView({ summary, token, wsStatus }) {
           <span className="settings-label">API Token</span>
           <CanvasSecret value={token} width={350} height={20} />
         </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">Access Grant Settings</div>
+        {grantLoading ? (
+          <div className="loading" style={{ padding: '12px' }}>Loading grant settings...</div>
+        ) : (
+          <div style={{ padding: '4px 0' }}>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', marginBottom: '4px', color: 'var(--text-dim)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>Grant Mode</label>
+              <select value={grantSettings.mode || 'ttl'} onChange={e => updateGrantSettings({ mode: e.target.value })}
+                style={{ background: 'rgba(0,0,0,0.3)', color: 'var(--text-bright)', border: '1px solid var(--border)', padding: '6px 8px', borderRadius: '4px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', outline: 'none' }}>
+                <option value="ttl">TTL (default) -- issue time-limited grants</option>
+                <option value="passthrough">Passthrough -- fire and forget, skip grants</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--text-dim)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>Service TTL</label>
+                <input value={grantSettings.default_service_ttl || '5m0s'} onChange={e => updateGrantSettings({ default_service_ttl: e.target.value })}
+                  style={{ background: 'rgba(0,0,0,0.3)', color: 'var(--text-bright)', border: '1px solid var(--border)', padding: '6px 8px', borderRadius: '4px', width: '100px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--text-dim)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>MCP TTL</label>
+                <input value={grantSettings.default_mcp_ttl || '5m0s'} onChange={e => updateGrantSettings({ default_mcp_ttl: e.target.value })}
+                  style={{ background: 'rgba(0,0,0,0.3)', color: 'var(--text-bright)', border: '1px solid var(--border)', padding: '6px 8px', borderRadius: '4px', width: '100px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', outline: 'none' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '6px' }}>
+                <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>Active grants: <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{grantSettings.active_grants || 0}</span></span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="settings-section">
@@ -3324,14 +3430,18 @@ function App() {
     }
   };
 
-  // Revoke session
-  const handleRevoke = async (serial) => {
+  // Revoke session/grant
+  const handleRevoke = async (serial, type) => {
+    const endpoint = (type === 'service' || type === 'mcp')
+      ? `/v1/dashboard/grants/${encodeURIComponent(serial)}/revoke`
+      : `/v1/dashboard/sessions/${encodeURIComponent(serial)}/revoke`;
     try {
-      await api('POST', `/v1/dashboard/sessions/${encodeURIComponent(serial)}/revoke`, null, token);
+      await api('POST', endpoint, null, token);
       setSessions(prev => prev.map(s => s.serial === serial ? { ...s, status: 'revoked' } : s));
       fetchLive();
     } catch (err) {
       if (err.message === 'UNAUTHORIZED') { setToken(''); setTokenError('Invalid or expired token'); }
+      console.error('Revoke failed:', err);
     }
   };
 
