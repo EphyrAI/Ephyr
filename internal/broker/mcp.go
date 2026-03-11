@@ -20,6 +20,7 @@ type MCPServer struct {
 	execPool    *ExecSessionPool  // defined in mcp_exec.go, set via SetExecPool
 	auth        *MCPAuthenticator // defined in mcp_auth.go
 	proxyEngine *ProxyEngine      // defined in proxy.go, set via SetProxyEngine
+	federator   *MCPFederator     // defined in federation.go, set via SetFederator
 }
 
 // --- JSON-RPC 2.0 types ---
@@ -158,6 +159,12 @@ func (s *MCPServer) SetProxyEngine(engine *ProxyEngine) {
 	s.proxyEngine = engine
 }
 
+// SetFederator sets the MCP federator, which is created separately
+// and may not be available at MCPServer construction time.
+func (s *MCPServer) SetFederator(fed *MCPFederator) {
+	s.federator = fed
+}
+
 // ServeHTTP implements http.Handler. It is the single POST /mcp endpoint
 // for Streamable HTTP MCP transport.
 func (s *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -279,7 +286,7 @@ func (s *MCPServer) handleInitialize(w http.ResponseWriter, req jsonRPCRequest) 
 		ProtocolVersion: mcpProtocolVersion,
 		Capabilities: MCPCapabilities{
 			Tools: &MCPToolsCapability{
-				ListChanged: false,
+				ListChanged: s.federator != nil,
 			},
 			Resources: &MCPResourcesCapability{
 				ListChanged: false,
@@ -297,6 +304,11 @@ func (s *MCPServer) handleInitialize(w http.ResponseWriter, req jsonRPCRequest) 
 // handleToolsList returns the list of available tool definitions.
 func (s *MCPServer) handleToolsList(w http.ResponseWriter, req jsonRPCRequest) {
 	tools := s.toolDefinitions()
+
+	// Append federated tools from remote MCP servers.
+	if s.federator != nil {
+		tools = append(tools, s.federator.FederatedToolDefinitions()...)
+	}
 
 	result := MCPToolsListResult{
 		Tools: tools,
@@ -338,6 +350,12 @@ func (s *MCPServer) handleToolsCall(ctx context.Context, w http.ResponseWriter, 
 			"tool": params.Name,
 		},
 	})
+
+	// Check for federated tool call (remote.toolname pattern).
+	if s.federator != nil && s.federator.IsFederatedTool(params.Name) {
+		s.handleFederatedToolCall(ctx, w, req, agent, params)
+		return
+	}
 
 	// Check if this tool supports streaming.
 	if s.isStreamingTool(params.Name) {
@@ -398,6 +416,64 @@ func (s *MCPServer) handleStreamingToolCall(ctx context.Context, w http.Response
 	// Write as SSE event.
 	fmt.Fprintf(w, "data: %s\n\n", data)
 	flusher.Flush()
+}
+
+// handleFederatedToolCall forwards a tool call to a remote MCP server via the federator.
+func (s *MCPServer) handleFederatedToolCall(ctx context.Context, w http.ResponseWriter, req jsonRPCRequest, agent *MCPAgent, params MCPToolsCallParams) {
+	remoteName, toolName, ok := s.federator.ParseFederatedTool(params.Name)
+	if !ok {
+		s.writeJSONRPC(w, req.ID, errorResult("unknown federated tool: "+params.Name), nil)
+		return
+	}
+
+	state := s.federator.getState(remoteName)
+	if state == nil {
+		s.writeJSONRPC(w, req.ID, errorResult("unknown remote: "+remoteName), nil)
+		return
+	}
+
+	// Marshal arguments back to json.RawMessage for the federation client.
+	argsJSON, _ := json.Marshal(params.Arguments)
+
+	timeout := 30
+	if t, ok := params.Arguments["timeout"]; ok {
+		if tf, ok := t.(float64); ok {
+			timeout = int(tf)
+		}
+	}
+
+	content, isError, err := s.federator.callRemoteTool(state, toolName, argsJSON, timeout)
+	if err != nil {
+		s.writeJSONRPC(w, req.ID, errorResult("federation error: "+err.Error()), nil)
+		return
+	}
+
+	// Record activity.
+	if s.broker.activityStore != nil {
+		s.broker.activityStore.Record(&ActivityEntry{
+			Timestamp: time.Now(),
+			Agent:     agent.Name,
+			Type:      ActivityMCPCall,
+			Service:   remoteName,
+			Target:    toolName,
+			Method:    "tools/call",
+			Success:   !isError,
+		})
+	}
+
+	// Audit log.
+	s.broker.auditLog.LogEvent(audit.AuditEvent{
+		Severity:  audit.SeverityInfo,
+		EventType: "mcp_federation",
+		Agent:     agent.Name,
+		Details: map[string]string{
+			"remote": remoteName,
+			"tool":   toolName,
+		},
+	})
+
+	result := &MCPToolsCallResult{Content: content, IsError: isError}
+	s.writeJSONRPC(w, req.ID, result, nil)
 }
 
 // isStreamingTool returns true if the named tool should use SSE transport.

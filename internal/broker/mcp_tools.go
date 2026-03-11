@@ -204,6 +204,14 @@ func (s *MCPServer) toolDefinitions() []MCPToolDefinition {
 				"properties": map[string]interface{}{},
 			},
 		},
+		{
+			Name:        "list_remotes",
+			Description: "List federated remote MCP servers, their tools, and connection status",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
 	}
 }
 
@@ -230,6 +238,8 @@ func (s *MCPServer) handleToolCall(ctx context.Context, agent *MCPAgent, toolNam
 		return s.toolHTTPRequest(ctx, agent, args)
 	case "list_services":
 		return s.toolListServices(ctx, agent)
+	case "list_remotes":
+		return s.toolListRemotes(ctx, agent)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -641,4 +651,19 @@ func (s *MCPServer) toolListServices(ctx context.Context, agent *MCPAgent) (*MCP
 	}
 
 	return jsonResult(result)
+}
+
+// toolListRemotes returns the list of federated remote MCP servers with their
+// connection status, tool counts, and descriptions.
+func (s *MCPServer) toolListRemotes(ctx context.Context, agent *MCPAgent) (*MCPToolsCallResult, error) {
+	if s.federator == nil {
+		return errorResult("MCP federation is not configured"), nil
+	}
+
+	states := s.federator.ListRemoteStates()
+	if len(states) == 0 {
+		return textResult("No remote MCP servers configured."), nil
+	}
+
+	return jsonResult(states)
 }

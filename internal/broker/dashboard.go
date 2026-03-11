@@ -174,6 +174,13 @@ func (bs *BrokerServer) dashboardRoutes() *http.ServeMux {
 	mux.HandleFunc("PUT /v1/dashboard/services/{name}", bs.handleUpdateService)
 	mux.HandleFunc("DELETE /v1/dashboard/services/{name}", bs.handleDeleteService)
 
+	// --- Remote MCP federation CRUD ---
+	mux.HandleFunc("GET /v1/dashboard/remotes", bs.handleListRemotes)
+	mux.HandleFunc("GET /v1/dashboard/remotes/{name}", bs.handleGetRemote)
+	mux.HandleFunc("PUT /v1/dashboard/remotes/{name}", bs.handlePutRemote)
+	mux.HandleFunc("DELETE /v1/dashboard/remotes/{name}", bs.handleDeleteRemote)
+	mux.HandleFunc("POST /v1/dashboard/remotes/{name}/refresh", bs.handleRefreshRemote)
+
 	// --- Static file serving for the React dashboard ---
 	if bs.cfg.DashboardDir != "" {
 		fs := http.FileServer(http.Dir(bs.cfg.DashboardDir))
@@ -582,4 +589,145 @@ func (bs *BrokerServer) handleDeleteService(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "name": name})
+}
+
+// handleListRemotes serves GET /v1/dashboard/remotes.
+// Returns all remote MCP server configs with runtime state.
+func (bs *BrokerServer) handleListRemotes(w http.ResponseWriter, r *http.Request) {
+	if bs.federator == nil {
+		writeJSON(w, http.StatusOK, []struct{}{})
+		return
+	}
+	states := bs.federator.ListRemoteStates()
+	if states == nil {
+		states = []RemoteStateInfo{}
+	}
+	writeJSON(w, http.StatusOK, states)
+}
+
+// handleGetRemote serves GET /v1/dashboard/remotes/{name}.
+// Returns a single remote's config with runtime state.
+func (bs *BrokerServer) handleGetRemote(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if bs.federator == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "federation not configured"})
+		return
+	}
+	state := bs.federator.GetRemoteState(name)
+	if state == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "remote not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+// handlePutRemote serves PUT /v1/dashboard/remotes/{name}.
+// Creates or updates a remote MCP server config.
+func (bs *BrokerServer) handlePutRemote(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if bs.federator == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "federation not configured"})
+		return
+	}
+
+	var cfg RemoteMCPConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+	cfg.Name = name // enforce URL path name
+
+	// If a remote with this name already exists, remove it first so AddRemote
+	// succeeds (AddRemote rejects duplicates). This makes PUT idempotent.
+	_ = bs.federator.RemoveRemote(name)
+
+	if err := bs.federator.AddRemote(cfg); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	bs.auditLog.LogEvent(audit.AuditEvent{
+		Severity:  audit.SeverityInfo,
+		EventType: "remote_added",
+		Target:    name,
+		Details: map[string]string{
+			"url":    cfg.URL,
+			"remote": r.RemoteAddr,
+		},
+	})
+
+	bs.eventHub.Broadcast(Event{
+		Type: "remote_added",
+		Data: map[string]string{
+			"name": name,
+			"url":  cfg.URL,
+		},
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "name": name})
+}
+
+// handleDeleteRemote serves DELETE /v1/dashboard/remotes/{name}.
+// Removes a remote MCP server and stops its background refresh.
+func (bs *BrokerServer) handleDeleteRemote(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if bs.federator == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "federation not configured"})
+		return
+	}
+
+	if err := bs.federator.RemoveRemote(name); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+
+	bs.auditLog.LogEvent(audit.AuditEvent{
+		Severity:  audit.SeverityWarn,
+		EventType: "remote_removed",
+		Target:    name,
+		Details: map[string]string{
+			"remote": r.RemoteAddr,
+		},
+	})
+
+	bs.eventHub.Broadcast(Event{
+		Type: "remote_removed",
+		Data: map[string]string{
+			"name": name,
+		},
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "name": name})
+}
+
+// handleRefreshRemote serves POST /v1/dashboard/remotes/{name}/refresh.
+// Forces re-discovery of a remote's tools and resources.
+func (bs *BrokerServer) handleRefreshRemote(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if bs.federator == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "federation not configured"})
+		return
+	}
+
+	state := bs.federator.getState(name)
+	if state == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "remote not found"})
+		return
+	}
+
+	// Trigger discovery in background so the response returns immediately.
+	go func() {
+		if err := bs.federator.discoverRemote(state); err != nil {
+			log.Printf("[federation] manual refresh of %s failed: %v", name, err)
+		}
+	}()
+
+	bs.eventHub.Broadcast(Event{
+		Type: "remote_refresh",
+		Data: map[string]string{
+			"name": name,
+		},
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "refreshing", "name": name})
 }

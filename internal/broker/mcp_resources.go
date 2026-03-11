@@ -79,6 +79,17 @@ func (s *MCPServer) handleResourcesList(w http.ResponseWriter, req jsonRPCReques
 			Description: "Quick reference for all available MCP tools with parameters and usage examples",
 			MimeType:    "text/markdown",
 		},
+		{
+			URI:         "clauth://remotes",
+			Name:        "Remote MCP Servers",
+			Description: "Federated remote MCP servers with tools, connection status, and last refresh times",
+			MimeType:    "text/markdown",
+		},
+	}
+
+	// Append federated resources from remote MCP servers.
+	if s.federator != nil {
+		resources = append(resources, s.federator.FederatedResources()...)
 	}
 
 	s.writeJSONRPC(w, req.ID, MCPResourcesListResult{Resources: resources}, nil)
@@ -105,6 +116,36 @@ func (s *MCPServer) handleResourcesRead(w http.ResponseWriter, req jsonRPCReques
 		return
 	}
 
+	// Check for federated resource read (URIs starting with "remote:").
+	if s.federator != nil && s.federator.IsFederatedResource(params.URI) {
+		remoteName, originalURI, ok := s.federator.ParseFederatedResource(params.URI)
+		if !ok {
+			s.writeJSONRPC(w, req.ID, nil, &jsonRPCError{
+				Code:    mcpErrInvalidParams,
+				Message: "invalid federated resource URI: " + params.URI,
+			})
+			return
+		}
+		state := s.federator.getState(remoteName)
+		if state == nil {
+			s.writeJSONRPC(w, req.ID, nil, &jsonRPCError{
+				Code:    mcpErrInvalidParams,
+				Message: "unknown remote: " + remoteName,
+			})
+			return
+		}
+		result, readErr := s.federator.readRemoteResource(state, originalURI)
+		if readErr != nil {
+			s.writeJSONRPC(w, req.ID, nil, &jsonRPCError{
+				Code:    mcpErrInternal,
+				Message: "federation error: " + readErr.Error(),
+			})
+			return
+		}
+		s.writeJSONRPC(w, req.ID, result, nil)
+		return
+	}
+
 	var content string
 	var err error
 
@@ -121,6 +162,8 @@ func (s *MCPServer) handleResourcesRead(w http.ResponseWriter, req jsonRPCReques
 		content = s.resourceStatus(agent)
 	case "clauth://tools":
 		content = s.resourceTools()
+	case "clauth://remotes":
+		content = s.resourceRemotes(agent)
 	default:
 		err = fmt.Errorf("unknown resource: %s", params.URI)
 	}
@@ -488,6 +531,48 @@ func (s *MCPServer) resourceTools() string {
 	b.WriteString("### list_services\n")
 	b.WriteString("List available HTTP proxy services and their URL prefixes.\n")
 	b.WriteString("- **Parameters:** none\n")
+
+	return b.String()
+}
+
+// resourceRemotes returns a markdown summary of federated remote MCP servers.
+func (s *MCPServer) resourceRemotes(agent *MCPAgent) string {
+	var b strings.Builder
+	b.WriteString("# Federated MCP Servers\n\n")
+
+	if s.federator == nil {
+		b.WriteString("MCP federation is not configured.\n")
+		return b.String()
+	}
+
+	states := s.federator.ListRemoteStates()
+	if len(states) == 0 {
+		b.WriteString("No remote MCP servers configured. Use the dashboard to add remotes.\n")
+		return b.String()
+	}
+
+	b.WriteString("These remote MCP servers are federated through Clauth. Their tools appear in your tools list with a namespace prefix.\n\n")
+
+	for _, rs := range states {
+		status := string(rs.Status)
+		if rs.Status == RemoteStatusConnected {
+			status = "connected"
+		}
+		b.WriteString(fmt.Sprintf("## %s (%s)\n\n", rs.Name, status))
+		b.WriteString(fmt.Sprintf("- **URL:** %s\n", rs.URL))
+		if rs.Description != "" {
+			b.WriteString(fmt.Sprintf("- **Description:** %s\n", rs.Description))
+		}
+		b.WriteString(fmt.Sprintf("- **Tools:** %d\n", rs.ToolCount))
+		b.WriteString(fmt.Sprintf("- **Resources:** %d\n", rs.ResourceCount))
+		if rs.LastRefresh != nil {
+			b.WriteString(fmt.Sprintf("- **Last refresh:** %s\n", rs.LastRefresh.Format(time.RFC3339)))
+		}
+		if rs.LastErrorMsg != "" {
+			b.WriteString(fmt.Sprintf("- **Last error:** %s\n", rs.LastErrorMsg))
+		}
+		b.WriteString("\n")
+	}
 
 	return b.String()
 }

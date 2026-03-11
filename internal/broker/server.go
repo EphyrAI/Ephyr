@@ -85,6 +85,7 @@ type BrokerServer struct {
 	mcpServer *MCPServer
 	activityStore *ActivityStore
 	proxyEngine   *ProxyEngine
+	federator     *MCPFederator
 	// Counters for granted and denied certificate requests (atomic).
 	grantCount uint64
 	denyCount  uint64
@@ -312,6 +313,9 @@ func (bs *BrokerServer) GracefulShutdown() {
 	}
 
 	bs.state.Stop()
+	if bs.federator != nil {
+		bs.federator.Stop()
+	}
 	bs.auditLog.Close()
 
 	// Clean up socket.
@@ -412,6 +416,11 @@ func (bs *BrokerServer) startMCPListener() {
 	proxyEngine := NewProxyEngine(bs, "/var/lib/clauth/services.json", proxyPolicy)
 	mcpSrv.SetProxyEngine(proxyEngine)
 	bs.proxyEngine = proxyEngine
+
+	// Initialize MCP federation engine.
+	fed := NewMCPFederator(bs, "/var/lib/clauth/remotes.json")
+	mcpSrv.SetFederator(fed)
+	bs.federator = fed
 
 	bs.mcpServer = mcpSrv
 
