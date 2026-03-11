@@ -1207,6 +1207,15 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
       } catch {}
     })();
   }, [token]);
+  const [services, setServices] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/services', null, token);
+        setServices(data || []);
+      } catch {}
+    })();
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -1227,7 +1236,27 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
 
   return (
     <div>
-      <div className="stats-row">
+      {/* Row 1: Access metrics */}
+      <div className="stats-row" style={{ marginBottom: '12px' }}>
+        <div className="stat-card green">
+          <div className="stat-label">Access Granted</div>
+          <div className="stat-value green">{summary.total_granted || 0}</div>
+          <div className="stat-sub">total certificates</div>
+        </div>
+        <div className="stat-card amber">
+          <div className="stat-label">Pending</div>
+          <div className="stat-value amber">{summary.pending_requests || 0}</div>
+          <div className="stat-sub">awaiting approval</div>
+        </div>
+        <div className="stat-card red">
+          <div className="stat-label">Denied</div>
+          <div className="stat-value red">{summary.total_denied || 0}</div>
+          <div className="stat-sub">of {(summary.total_granted || 0) + (summary.total_denied || 0)} total</div>
+        </div>
+      </div>
+
+      {/* Row 2: Active resources */}
+      <div className="stats-row" style={{ marginBottom: '16px' }}>
         <div className="stat-card green">
           <div className="stat-label">Active Agents</div>
           <div className="stat-value green">{summary.agents_active || 0}</div>
@@ -1236,70 +1265,34 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         <div className="stat-card cyan">
           <div className="stat-label">Active Sessions</div>
           <div className="stat-value cyan">{summary.active_certs || 0}</div>
-          <div className="stat-sub">{summary.pending_requests || 0} pending</div>
+          <div className="stat-sub">certificates</div>
         </div>
         <div className="stat-card amber">
           <div className="stat-label">Hosts Online</div>
           <div className="stat-value amber">{summary.hosts_online || 0}</div>
           <div className="stat-sub">of {summary.hosts_enabled || 0} enabled</div>
         </div>
-        <div className="stat-card green">
-          <div className="stat-label">Access Granted</div>
-          <div className="stat-value green">{summary.total_granted || 0}</div>
-          <div className="stat-sub">total certificates</div>
+        <div className="stat-card" style={{ borderColor: 'var(--purple)' }}>
+          <div className="stat-label">MCP Servers</div>
+          <div className="stat-value" style={{ color: 'var(--purple)' }}>{remotes.filter(r => r.status === 'connected').length}/{remotes.length || 0}</div>
+          <div className="stat-sub">federated</div>
         </div>
-        <div className="stat-card red">
-          <div className="stat-label">Denied / Total</div>
-          <div className="stat-value red">{summary.total_denied || 0}</div>
-          <div className="stat-sub">of {(summary.total_granted || 0) + (summary.total_denied || 0)} requests</div>
+        <div className="stat-card cyan">
+          <div className="stat-label">Services</div>
+          <div className="stat-value cyan">{services.length || 0}</div>
+          <div className="stat-sub">proxied</div>
         </div>
-          {remotes.length > 0 && (
-            <div className="stat-card">
-              <div className="stat-value" style={{ color: 'var(--purple)' }}>{remotes.filter(r => r.status === 'connected').length}/{remotes.length}</div>
-              <div className="stat-label">Remotes</div>
-            </div>
-          )}
       </div>
 
-      <div className="panels-row">
+      {/* 3 management panels: Hosts | Services | MCP Servers */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        {/* Hosts panel */}
         <div className="panel">
           <div className="panel-header">
-            <span>Active Sessions</span>
-            <span className="panel-count">{activeSessions.length}</span>
-          </div>
-          <div className="panel-body">
-            {activeSessions.length === 0 ? (
-              <div className="empty-state">No active sessions</div>
-            ) : activeSessions.map(s => {
-              const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
-              const remaining = parseTTL(s.expires_at, now);
-              return (
-                <div key={s.serial} className={`session-item ${remaining <= 0 ? 'expired' : ''}`}>
-                  <div className="session-top">
-                    <div className="session-route">
-                      <span className="session-agent">{s.agent}</span>
-                      <span className="session-arrow">&rarr;</span>
-                      <span className="session-target">{s.target}</span>
-                    </div>
-                    <RoleBadge role={s.role} />
-                  </div>
-                  {s.command && <div className="session-cmd">$ {s.command}</div>}
-                  <div className="session-bottom">
-                    <TTLBar remaining={remaining} maxTTL={maxTTL} />
-                    <button className="btn btn-revoke" onClick={() => onRevoke(s.serial)}>REVOKE</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-header">
-            <span>Host Access Control</span>
+            <span>Hosts</span>
             <span className="panel-count">{(hosts || []).length}</span>
           </div>
-          <div className="panel-body">
+          <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
             {(hosts || []).length === 0 ? (
               <div className="empty-state">No hosts configured</div>
             ) : (hosts || []).map(h => (
@@ -1312,62 +1305,115 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                       <span className={getVlanClass(h.vlan)}>V{h.vlan}</span>
                       {' \u00b7 '}
                       <span style={{ color: 'var(--cyan)' }}>{h.host}</span>
-                      {h.allowed_roles && h.allowed_roles.length > 0 && (
-                        <>{' \u00b7 '}{h.allowed_roles.join(', ')}</>
-                      )}
                     </div>
                   </div>
                 </div>
-                <div className="host-right">
-                  {h.active_sessions > 0 && (
-                    <span style={{ fontSize: '10px', color: 'var(--cyan)' }}>{h.active_sessions} active</span>
-                  )}
-                  <ToggleSwitch checked={h.access_enabled} onChange={() => onToggleHost(h.name)} />
+                <ToggleSwitch checked={h.access_enabled} onChange={() => onToggleHost(h.name)} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Services panel */}
+        <div className="panel">
+          <div className="panel-header">
+            <span>Services</span>
+            <span className="panel-count">{services.length}</span>
+          </div>
+          <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
+            {services.length === 0 ? (
+              <div className="empty-state">No services configured</div>
+            ) : services.map(s => (
+              <div key={s.name} className="host-item">
+                <div className="host-left">
+                  <StatusDot status="online" />
+                  <div>
+                    <div className="host-name">{s.name}</div>
+                    <div className="host-meta">
+                      <span style={{ color: 'var(--cyan)', fontSize: '10px' }}>{s.url_prefix || '-'}</span>
+                    </div>
+                  </div>
                 </div>
+                <AuthTypeBadge authType={s.auth_type || 'none'} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* MCP Servers panel */}
+        <div className="panel">
+          <div className="panel-header">
+            <span>MCP Servers</span>
+            <span className="panel-count">{remotes.length}</span>
+          </div>
+          <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
+            {remotes.length === 0 ? (
+              <div className="empty-state">No MCP servers configured</div>
+            ) : remotes.map(r => (
+              <div key={r.name} className="host-item">
+                <div className="host-left">
+                  <StatusDot status={r.status === 'connected' ? 'online' : r.status === 'error' ? 'error' : 'offline'} />
+                  <div>
+                    <div className="host-name">{r.name}</div>
+                    <div className="host-meta">
+                      <span style={{ color: 'var(--text-dim)', fontSize: '10px' }}>{r.tool_count || 0} tools &bull; {r.resource_count || 0} resources</span>
+                    </div>
+                  </div>
+                </div>
+                <RemoteStatusBadge status={r.status} />
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {remotes.length > 0 && (
-        <div style={{ marginTop: '16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h3 style={{ fontFamily: "'Orbitron', sans-serif", fontSize: '12px', fontWeight: 600, color: 'var(--text-bright)', letterSpacing: '1px' }}>MCP FEDERATION</h3>
-            <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{remotes.length} remote{remotes.length !== 1 ? 's' : ''}</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
-            {remotes.map(r => (
-              <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: 'var(--bg)', borderRadius: '4px', border: '1px solid var(--border)' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, background: r.status === 'connected' ? 'var(--green)' : r.status === 'error' ? 'var(--red)' : 'var(--amber)', boxShadow: r.status === 'connected' ? '0 0 4px var(--green)' : 'none' }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-bright)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{r.tool_count || 0} tools &bull; {r.resource_count || 0} resources</div>
+      {/* Active Sessions panel */}
+      <div className="panel" style={{ marginBottom: '16px' }}>
+        <div className="panel-header">
+          <span>Active Sessions</span>
+          <span className="panel-count">{activeSessions.length}</span>
+        </div>
+        <div className="panel-body" style={{ maxHeight: '200px', overflowY: 'auto' }}>
+          {activeSessions.length === 0 ? (
+            <div className="empty-state">No active sessions</div>
+          ) : activeSessions.map(s => {
+            const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
+            const remaining = parseTTL(s.expires_at, now);
+            return (
+              <div key={s.serial} className={`session-item ${remaining <= 0 ? 'expired' : ''}`}>
+                <div className="session-top">
+                  <div className="session-route">
+                    <span className="session-agent">{s.agent}</span>
+                    <span className="session-arrow">&rarr;</span>
+                    <span className="session-target">{s.target}</span>
+                  </div>
+                  <RoleBadge role={s.role} />
+                </div>
+                {s.command && <div className="session-cmd">$ {s.command}</div>}
+                <div className="session-bottom">
+                  <TTLBar remaining={remaining} maxTTL={maxTTL} />
+                  <button className="btn btn-revoke" onClick={() => onRevoke(s.serial)}>REVOKE</button>
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      )}
+      </div>
 
+      {/* Live Event Feed (consolidated) */}
       <div className="overview-activity-section">
         <div className="overview-activity-header">
           <span className="panel-header" style={{ border: 'none', padding: 0 }}>
-            <span>Recent Activity</span>
+            <span>Live Event Feed</span>
           </span>
-        </div>
-        <div className="overview-activity-stats">
-          <span>Rate: <span style={{ color: 'var(--green)', fontWeight: 600 }}>{actSummary.actions_per_minute || 0}/min</span></span>
-          <span>Total: <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{actSummary.total_actions || 0}</span></span>
-          <span>Errors: <span style={{ color: 'var(--red)', fontWeight: 600 }}>{actSummary.error_count || 0}</span></span>
-          {actSummary.top_services && actSummary.top_services.length > 0 && (
-            <span>Top: {actSummary.top_services.slice(0, 3).map((ts, i) => (
-              <span key={i} style={{ color: 'var(--cyan)' }}>{i > 0 ? ', ' : ''}{ts.name || ts}({ts.count || ''})</span>
-            ))}</span>
-          )}
+          <div className="overview-activity-stats">
+            <span>Rate: <span style={{ color: 'var(--green)', fontWeight: 600 }}>{actSummary.actions_per_minute || 0}/min</span></span>
+            <span>Total: <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{actSummary.total_actions || 0}</span></span>
+            <span>Errors: <span style={{ color: 'var(--red)', fontWeight: 600 }}>{actSummary.error_count || 0}</span></span>
+          </div>
         </div>
         <div className="overview-activity-body">
-          {recentActivity.length === 0 ? (
+          {recentActivity.length === 0 && events.length === 0 ? (
             <div className="empty-state" style={{ padding: '16px' }}>No recent activity</div>
           ) : recentActivity.map((e, i) => (
             <div key={i} className="overview-compact-entry">
@@ -1383,10 +1429,6 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
             </div>
           ))}
         </div>
-      </div>
-
-      <div style={{ marginTop: '16px' }}>
-        <EventTerminal events={events} />
       </div>
     </div>
   );
@@ -2457,7 +2499,7 @@ function RemoteConfigPanel({ remote, open, onClose, onSave, onDelete, token }) {
   );
 }
 
-function RemotesView({ token }) {
+function MCPServersView({ token }) {
   const [remotes, setRemotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [configRemote, setConfigRemote] = useState(null);
@@ -2503,11 +2545,11 @@ function RemotesView({ token }) {
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-          {remotes.length} remote{remotes.length !== 1 ? 's' : ''} configured
+          {remotes.length} MCP server{remotes.length !== 1 ? 's' : ''} configured
           {remotes.filter(r => r.status === 'connected').length > 0 &&
             ` \u2022 ${remotes.filter(r => r.status === 'connected').length} connected`}
         </span>
-        <button className="btn btn-green" onClick={() => setShowAdd(true)}>+ ADD REMOTE</button>
+        <button className="btn btn-green" onClick={() => setShowAdd(true)}>+ ADD MCP SERVER</button>
       </div>
 
       {loading ? (
@@ -2516,7 +2558,7 @@ function RemotesView({ token }) {
         <div className="services-grid">
           {remotes.length === 0 ? (
             <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
-              No remote MCP servers configured. Add one to federate tools from external MCP servers.
+              No MCP servers configured. Add one to federate tools from external servers.
             </div>
           ) : remotes.map(r => (
             <div key={r.name} className="service-card" style={{ borderColor: r.status === 'error' ? 'rgba(255,0,60,0.3)' : undefined }}>
@@ -3124,16 +3166,16 @@ function App() {
   if (!token) return <TokenModal onSubmit={handleTokenSubmit} error={tokenError} />;
 
   const navItems = [
-    { id: 'overview', label: 'Overview', icon: '\u25c8', group: 'SYSTEM' },
-    { id: 'hosts', label: 'Hosts', icon: '\u2b21', group: 'SYSTEM' },
-    { id: 'agents', label: 'Agents', icon: '\u25ce', group: 'SYSTEM' },
+    { id: 'overview', label: 'Overview', icon: '\u25c8', group: 'OVERVIEW' },
+    { id: 'hosts', label: 'Hosts', icon: '\u2b21', group: 'INFRASTRUCTURE' },
+    { id: 'services', label: 'Services', icon: '\u2394', group: 'INFRASTRUCTURE' },
+    { id: 'mcp-servers', label: 'MCP Servers', icon: '\u2b95', group: 'INFRASTRUCTURE' },
+    { id: 'agents', label: 'Agents', icon: '\u25ce', group: 'MONITOR' },
     { id: 'activity', label: 'Activity', icon: '\u2261', group: 'MONITOR' },
     { id: 'sessions', label: 'Sessions', icon: '\u27d0', group: 'MONITOR' },
     { id: 'audit', label: 'Audit Log', icon: '\u25a4', group: 'MONITOR' },
-    { id: 'terminal', label: 'Terminal', icon: '\u2318', group: 'MANAGE' },
-    { id: 'services', label: 'Services', icon: '\u2394', group: 'MANAGE' },
-    { id: 'remotes', label: 'Remotes', icon: '\u2b95', group: 'MANAGE' },
-    { id: 'settings', label: 'Settings', icon: '\u2699', group: 'MANAGE' },
+    { id: 'terminal', label: 'Terminal', icon: '\u2318', group: 'TOOLS' },
+    { id: 'settings', label: 'Settings', icon: '\u2699', group: 'TOOLS' },
   ];
 
   const viewTitles = {
@@ -3145,7 +3187,7 @@ function App() {
     audit: 'Audit Log',
     terminal: 'Terminal Access',
     services: 'Service Configuration',
-    remotes: 'MCP Federation',
+    'mcp-servers': 'MCP Servers',
     settings: 'Settings',
   };
 
@@ -3218,7 +3260,7 @@ function App() {
               {view === 'audit' && <AuditView token={token} events={events} />}
               {view === 'terminal' && <TerminalView hosts={hosts} token={token} />}
               {view === 'services' && <ServicesView token={token} />}
-              {view === 'remotes' && <RemotesView token={token} />}
+              {view === 'mcp-servers' && <MCPServersView token={token} />}
               {view === 'settings' && <SettingsView summary={summary} token={token} wsStatus={wsStatus} />}
             </>
           )}
