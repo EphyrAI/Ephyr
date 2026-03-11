@@ -93,6 +93,16 @@
     text-transform: uppercase; margin-top: 4px;
   }
   .sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+  .nav-group-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    padding: 12px 20px 4px;
+    opacity: 0.6;
+  }
+  .nav-group-label:first-child { padding-top: 4px; }
   .nav-item {
     display: flex; align-items: center; gap: 10px;
     padding: 10px 16px; cursor: pointer; color: var(--text-dim);
@@ -349,7 +359,7 @@
   .event-detail .role-name { color: var(--amber); }
 
   /* Host cards grid */
-  .hosts-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .hosts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
   .host-card {
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: 6px; padding: 16px; transition: border-color 0.2s;
@@ -767,6 +777,19 @@
   .badge-auth-query { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
   .badge-auth-none { background: rgba(255,255,255,0.03); color: var(--text-dim); border: 1px solid var(--border); }
 
+  /* Remote status badges */
+  .badge-status-connected { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
+  .badge-status-disconnected { background: rgba(255,255,255,0.03); color: var(--text-dim); border: 1px solid var(--border); }
+  .badge-status-error { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
+  .badge-status-initializing { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
+
+  /* Remote card extras */
+  .remote-card-stats { display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); margin-bottom: 10px; }
+  .remote-card-stats span { display: flex; align-items: center; gap: 4px; }
+  .remote-card-stats .stat-count { color: var(--text-bright); font-weight: 500; }
+  .remote-card-error { font-size: 10px; color: var(--red); margin-bottom: 10px; padding: 6px 8px; background: var(--red-dim); border-radius: 3px; word-break: break-all; }
+  .remote-card-refresh { font-size: 10px; color: var(--text-dim); margin-bottom: 10px; }
+
   /* Overview activity section */
   .overview-activity-section {
     margin-top: 16px; background: var(--bg-card);
@@ -786,6 +809,28 @@
     font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.03);
   }
   .overview-compact-entry:last-child { border-bottom: none; }
+
+  /* Responsive breakpoints */
+  @media (max-width: 1400px) {
+    .stats-row { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 1100px) {
+    .sidebar { width: 180px; }
+    .main-area { margin-left: 180px; }
+    .panels-row { grid-template-columns: 1fr; }
+    .hosts-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 900px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .sidebar { display: none; }
+    .main-area { margin-left: 0; }
+  }
+  @media (max-width: 600px) {
+    .stats-row { grid-template-columns: 1fr; }
+    .services-grid { grid-template-columns: 1fr; }
+    .content { padding: 12px; }
+    .slideout-panel { width: 100%; right: -100%; }
+  }
 </style>
 </head>
 <body>
@@ -1057,6 +1102,14 @@ function AuthTypeBadge({ authType }) {
   return <span className={`badge ${cls}`}>{authType}</span>;
 }
 
+function RemoteStatusBadge({ status }) {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  const map = { connected: 'badge-status-connected', disconnected: 'badge-status-disconnected', error: 'badge-status-error', initializing: 'badge-status-initializing' };
+  const cls = map[s] || 'badge-status-disconnected';
+  return <span className={`badge ${cls}`}>{status}</span>;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SIDEBAR SYSTEM STATS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1145,6 +1198,15 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
   const activeSessions = (sessions || []).filter(s => s.status === 'active');
   const [recentActivity, setRecentActivity] = useState([]);
   const [actSummary, setActSummary] = useState({});
+  const [remotes, setRemotes] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/remotes', null, token);
+        setRemotes(data || []);
+      } catch {}
+    })();
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -1191,6 +1253,12 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
           <div className="stat-value red">{summary.total_denied || 0}</div>
           <div className="stat-sub">of {(summary.total_granted || 0) + (summary.total_denied || 0)} requests</div>
         </div>
+          {remotes.length > 0 && (
+            <div className="stat-card">
+              <div className="stat-value" style={{ color: 'var(--purple)' }}>{remotes.filter(r => r.status === 'connected').length}/{remotes.length}</div>
+              <div className="stat-label">Remotes</div>
+            </div>
+          )}
       </div>
 
       <div className="panels-row">
@@ -1261,6 +1329,26 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
           </div>
         </div>
       </div>
+
+      {remotes.length > 0 && (
+        <div style={{ marginTop: '16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', padding: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ fontFamily: "'Orbitron', sans-serif", fontSize: '12px', fontWeight: 600, color: 'var(--text-bright)', letterSpacing: '1px' }}>MCP FEDERATION</h3>
+            <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{remotes.length} remote{remotes.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
+            {remotes.map(r => (
+              <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: 'var(--bg)', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, background: r.status === 'connected' ? 'var(--green)' : r.status === 'error' ? 'var(--red)' : 'var(--amber)', boxShadow: r.status === 'connected' ? '0 0 4px var(--green)' : 'none' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-bright)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{r.tool_count || 0} tools &bull; {r.resource_count || 0} resources</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="overview-activity-section">
         <div className="overview-activity-header">
@@ -2215,6 +2303,257 @@ function ServicesView({ token }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 5b. REMOTES VIEW (MCP Federation)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function RemoteConfigPanel({ remote, open, onClose, onSave, onDelete, token }) {
+  const [config, setConfig] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const isNew = !remote;
+
+  useEffect(() => {
+    if (open) {
+      if (remote) {
+        setConfig({ ...remote, credential: remote.credential_set ? '***' : '' });
+      } else {
+        setConfig({
+          name: '', url: '', auth_type: 'none', credential: '',
+          description: '', enabled: true, timeout: 30,
+          refresh_seconds: 300, tool_prefix: '',
+        });
+      }
+      setError('');
+    }
+  }, [open, remote]);
+
+  const handleFieldChange = (field, value) => {
+    setConfig(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const payload = { ...config };
+      if (payload.credential === '***') delete payload.credential;
+      payload.timeout = parseInt(payload.timeout) || 30;
+      payload.refresh_seconds = parseInt(payload.refresh_seconds) || 300;
+      payload.enabled = payload.enabled !== false;
+      const name = isNew ? encodeURIComponent(payload.name) : encodeURIComponent(remote.name);
+      await api('PUT', `/v1/dashboard/remotes/${name}`, payload, token);
+      if (onSave) onSave();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async () => {
+    if (!remote) return;
+    if (!confirm(`Remove remote MCP server "${remote.name}"? This will stop all federation with this server.`)) return;
+    try {
+      await api('DELETE', `/v1/dashboard/remotes/${encodeURIComponent(remote.name)}`, null, token);
+      if (onDelete) onDelete();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (!open || !config) return null;
+
+  return (
+    <>
+      <div className={`slideout-overlay ${open ? 'open' : ''}`} onClick={onClose} />
+      <div className={`slideout-panel ${open ? 'open' : ''}`}>
+        <div className="slideout-header">
+          <h3>{isNew ? 'Add Remote MCP Server' : `Configure: ${remote.name}`}</h3>
+          <button className="slideout-close" onClick={onClose}>&times;</button>
+        </div>
+        <div className="slideout-body">
+          {error && <div className="modal-error" style={{ marginBottom: '16px' }}>{error}</div>}
+
+          <div className="form-section-title">Remote Server</div>
+          <div className="form-group">
+            <label className="form-label">Name</label>
+            <input className="form-input" value={config.name || ''} readOnly={!isNew}
+              style={isNew ? {} : { opacity: 0.5 }}
+              onChange={e => handleFieldChange('name', e.target.value)}
+              placeholder="e.g. weather-api" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">MCP Endpoint URL</label>
+            <input className="form-input" value={config.url || ''}
+              onChange={e => handleFieldChange('url', e.target.value)}
+              placeholder="e.g. https://api.example.com/mcp" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Description</label>
+            <input className="form-input" value={config.description || ''}
+              onChange={e => handleFieldChange('description', e.target.value)}
+              placeholder="Weather forecasting MCP server" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Tool Prefix (optional, defaults to name)</label>
+            <input className="form-input" value={config.tool_prefix || ''}
+              onChange={e => handleFieldChange('tool_prefix', e.target.value)}
+              placeholder="e.g. wx (tools appear as wx.get_forecast)" />
+          </div>
+          <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input type="checkbox" checked={config.enabled !== false}
+              onChange={e => handleFieldChange('enabled', e.target.checked)}
+              style={{ accentColor: 'var(--green)' }} />
+            <label className="form-label" style={{ marginBottom: 0 }}>Enabled</label>
+          </div>
+
+          <div className="form-section-title">Authentication</div>
+          <div className="form-group">
+            <label className="form-label">Auth Type</label>
+            <select className="form-select" value={config.auth_type || 'none'}
+              onChange={e => handleFieldChange('auth_type', e.target.value)}>
+              <option value="none">None</option>
+              <option value="bearer">Bearer Token</option>
+              <option value="basic">Basic Auth</option>
+              <option value="header">Custom Header</option>
+            </select>
+          </div>
+          {config.auth_type !== 'none' && (
+            <div className="form-group">
+              <label className="form-label">Credential</label>
+              <input className="form-input" type="password"
+                value={config.credential === '***' ? '' : (config.credential || '')}
+                onChange={e => handleFieldChange('credential', e.target.value)}
+                placeholder={config.credential === '***' ? 'set - enter new to change' : 'API key or token'} />
+            </div>
+          )}
+
+          <div className="form-section-title">Tuning</div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Timeout (seconds)</label>
+              <input className="form-input" type="number" value={config.timeout || 30}
+                onChange={e => handleFieldChange('timeout', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Refresh Interval (seconds)</label>
+              <input className="form-input" type="number" value={config.refresh_seconds || 300}
+                onChange={e => handleFieldChange('refresh_seconds', e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <div className="slideout-footer">
+          {!isNew && (
+            <button className="btn btn-revoke" onClick={handleDelete} style={{ marginRight: 'auto' }}>REMOVE</button>
+          )}
+          <button className="btn btn-amber" onClick={onClose}>CANCEL</button>
+          <button className="btn btn-green" onClick={handleSave} disabled={saving}>
+            {saving ? 'SAVING...' : 'SAVE'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function RemotesView({ token }) {
+  const [remotes, setRemotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [configRemote, setConfigRemote] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+
+  const fetchRemotes = useCallback(async () => {
+    try {
+      const data = await api('GET', '/v1/dashboard/remotes', null, token);
+      setRemotes(data || []);
+    } catch {}
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { fetchRemotes(); }, [fetchRemotes]);
+  // Auto-refresh every 10s to pick up status changes
+  useEffect(() => {
+    const iv = setInterval(fetchRemotes, 10000);
+    return () => clearInterval(iv);
+  }, [fetchRemotes]);
+
+  const handleRefresh = () => { fetchRemotes(); };
+
+  const handleForceRefresh = async (name) => {
+    try {
+      await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/refresh`, null, token);
+      // Refetch after a short delay to show updated status
+      setTimeout(fetchRemotes, 1500);
+    } catch {}
+  };
+
+  const fmtTime = (ts) => {
+    if (!ts) return 'never';
+    const d = new Date(ts);
+    const now = new Date();
+    const diffMs = now - d;
+    if (diffMs < 60000) return `${Math.floor(diffMs / 1000)}s ago`;
+    if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`;
+    if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`;
+    return d.toLocaleDateString();
+  };
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+          {remotes.length} remote{remotes.length !== 1 ? 's' : ''} configured
+          {remotes.filter(r => r.status === 'connected').length > 0 &&
+            ` \u2022 ${remotes.filter(r => r.status === 'connected').length} connected`}
+        </span>
+        <button className="btn btn-green" onClick={() => setShowAdd(true)}>+ ADD REMOTE</button>
+      </div>
+
+      {loading ? (
+        <div className="loading">Loading remotes...</div>
+      ) : (
+        <div className="services-grid">
+          {remotes.length === 0 ? (
+            <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
+              No remote MCP servers configured. Add one to federate tools from external MCP servers.
+            </div>
+          ) : remotes.map(r => (
+            <div key={r.name} className="service-card" style={{ borderColor: r.status === 'error' ? 'rgba(255,0,60,0.3)' : undefined }}>
+              <div className="service-card-header">
+                <span className="service-card-name">{r.name}</span>
+                <RemoteStatusBadge status={r.status} />
+              </div>
+              <div className="service-card-url">{r.url || '-'}</div>
+              {r.description && <div className="service-card-desc">{r.description}</div>}
+              <div className="remote-card-stats">
+                <span>Tools: <span className="stat-count">{r.tool_count || 0}</span></span>
+                <span>Resources: <span className="stat-count">{r.resource_count || 0}</span></span>
+              </div>
+              <div className="remote-card-refresh">Last refresh: {fmtTime(r.last_refresh)}</div>
+              {r.last_error && <div className="remote-card-error">{r.last_error}</div>}
+              <div className="service-card-actions">
+                <button className="btn btn-cyan" onClick={() => setConfigRemote(r)}>CONFIGURE</button>
+                <button className="btn btn-amber" onClick={() => handleForceRefresh(r.name)}>REFRESH</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <RemoteConfigPanel
+        remote={showAdd ? null : configRemote}
+        open={showAdd || !!configRemote}
+        onClose={() => { setConfigRemote(null); setShowAdd(false); }}
+        onSave={handleRefresh}
+        onDelete={handleRefresh}
+        token={token}
+      />
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 6. TERMINAL VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2785,15 +3124,16 @@ function App() {
   if (!token) return <TokenModal onSubmit={handleTokenSubmit} error={tokenError} />;
 
   const navItems = [
-    { id: 'overview', label: 'Overview', icon: '\u25c8' },
-    { id: 'hosts', label: 'Hosts', icon: '\u2b21' },
-    { id: 'agents', label: 'Agents', icon: '\u25ce' },
-    { id: 'activity', label: 'Activity', icon: '\u2261' },
-    { id: 'sessions', label: 'Sessions', icon: '\u27d0' },
-    { id: 'audit', label: 'Audit Log', icon: '\u25a4' },
-    { id: 'terminal', label: 'Terminal', icon: '\u2318' },
-    { id: 'services', label: 'Services', icon: '\u2394' },
-    { id: 'settings', label: 'Settings', icon: '\u2699' },
+    { id: 'overview', label: 'Overview', icon: '\u25c8', group: 'SYSTEM' },
+    { id: 'hosts', label: 'Hosts', icon: '\u2b21', group: 'SYSTEM' },
+    { id: 'agents', label: 'Agents', icon: '\u25ce', group: 'SYSTEM' },
+    { id: 'activity', label: 'Activity', icon: '\u2261', group: 'MONITOR' },
+    { id: 'sessions', label: 'Sessions', icon: '\u27d0', group: 'MONITOR' },
+    { id: 'audit', label: 'Audit Log', icon: '\u25a4', group: 'MONITOR' },
+    { id: 'terminal', label: 'Terminal', icon: '\u2318', group: 'MANAGE' },
+    { id: 'services', label: 'Services', icon: '\u2394', group: 'MANAGE' },
+    { id: 'remotes', label: 'Remotes', icon: '\u2b95', group: 'MANAGE' },
+    { id: 'settings', label: 'Settings', icon: '\u2699', group: 'MANAGE' },
   ];
 
   const viewTitles = {
@@ -2805,6 +3145,7 @@ function App() {
     audit: 'Audit Log',
     terminal: 'Terminal Access',
     services: 'Service Configuration',
+    remotes: 'MCP Federation',
     settings: 'Settings',
   };
 
@@ -2818,12 +3159,22 @@ function App() {
           <div className="subtitle">THE SPRAWL &mdash; PRIVILEGED ACCESS BROKER</div>
         </div>
         <div className="sidebar-nav">
-          {navItems.map(n => (
-            <div key={n.id} className={`nav-item ${view === n.id ? 'active' : ''}`} onClick={() => { if (n.id !== 'activity') setActivityAgent(''); setView(n.id); }}>
-              <span className="nav-icon">{n.icon}</span>
-              {n.label}
-            </div>
-          ))}
+          {(() => {
+            let lastGroup = '';
+            return navItems.map(n => {
+              const showGroup = n.group !== lastGroup;
+              lastGroup = n.group;
+              return (
+                <React.Fragment key={n.id}>
+                  {showGroup && <div className="nav-group-label">{n.group}</div>}
+                  <div className={`nav-item ${view === n.id ? 'active' : ''}`} onClick={() => { if (n.id !== 'activity') setActivityAgent(''); setView(n.id); }}>
+                    <span className="nav-icon">{n.icon}</span>
+                    {n.label}
+                  </div>
+                </React.Fragment>
+              );
+            });
+          })()}
         </div>
         <SidebarStats summary={summary} />
         <div className="sidebar-footer">
@@ -2867,6 +3218,7 @@ function App() {
               {view === 'audit' && <AuditView token={token} events={events} />}
               {view === 'terminal' && <TerminalView hosts={hosts} token={token} />}
               {view === 'services' && <ServicesView token={token} />}
+              {view === 'remotes' && <RemotesView token={token} />}
               {view === 'settings' && <SettingsView summary={summary} token={token} wsStatus={wsStatus} />}
             </>
           )}
