@@ -42,20 +42,22 @@ Clauth runs as three isolated processes with strict privilege separation:
                                                   |
 +------------------+  Unix socket  +--------------+----------------+  Unix socket  +------------------+
 |                  |  /run/clauth/ |                               |  /run/clauth/ |                  |
-|   Agent          |  broker.sock  |         clauth-broker         |  signer.sock  |  clauth-signer   |
-|   (CLI or MCP)   +-------------->|                               +-------------->|                  |
-|                  |               |  Policy engine - Sessions     |               |  CA key holder   |
-+--------+---------+               |  MCP server - HTTP proxy      |               |  Signs certs     |
-         |                         |  Activity monitor - Audit     |               |  Never on network|
-         |                         +--------------+----------------+               +------------------+
-         |                                        |
-         |  SSH with ephemeral cert               |  HTTP proxy with
-         |                                        |  credential injection
-         v                                        v
-+------------------+               +-------------------------------+
-|  Target Host     |               |  Web Services                 |
-|  (SSH server)    |               |  (GitHub, Gitea, Grafana, …)  |
-+------------------+               +-------------------------------+
+|   Agent (CLI)    |  broker.sock  |         clauth-broker         |  signer.sock  |  clauth-signer   |
+|                  +-------------->|                               +-------------->|                  |
++------------------+               |  Policy engine - Sessions     |               |  CA key holder   |
+                                   |  MCP server - HTTP proxy      |               |  Signs certs     |
++------------------+  HTTP :8554   |  Activity monitor - Audit     |               |  Never on network|
+|   Agent (MCP)    |  Bearer auth  |  MCP federation               |               +------------------+
+|  Claude, etc.    +-------------->|                               |
++--------+---------+               +-+------------+----------+-----+
+         |                           |            |          |
+         |  SSH with ephemeral cert  |            |          |  MCP JSON-RPC
+         |                           |            |          |  (tool proxying)
+         v                           v            v          v
++------------------+  +------------------+  +------------------+
+|  Target Host     |  |  Web Services    |  |  Remote MCP      |
+|  (SSH server)    |  |  (GitHub, etc.)  |  |  Servers         |
++------------------+  +------------------+  +------------------+
 ```
 
 **clauth-signer** holds the Ed25519 CA private key and does nothing else. It listens on a Unix socket, signs certificate requests, and runs in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. The CA key never leaves this process.
@@ -74,7 +76,7 @@ Auto-approve workflows let trusted agents get certificates instantly. For sensit
 
 ### MCP Server
 
-JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](https://modelcontextprotocol.io/) (2025-03-26). Eight tools and six resources give agents complete infrastructure access with built-in self-discovery.
+JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](https://modelcontextprotocol.io/) (2025-03-26). Nine tools and seven resources give agents complete infrastructure access with built-in self-discovery.
 
 **Tools:**
 
@@ -88,6 +90,7 @@ JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](htt
 | `list_certs` | List active certificates for this agent |
 | `http_request` | Make an HTTP request through the authenticated proxy |
 | `list_services` | List services with automatic credential injection |
+| `list_remotes` | List federated remote MCP servers and their tools |
 
 **Resources** (agent self-discovery):
 
@@ -99,6 +102,7 @@ JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](htt
 | `clauth://roles` | Role definitions and SSH principal mappings |
 | `clauth://status` | Agent's active certificates, sessions, and recent activity |
 | `clauth://tools` | Quick reference for all MCP tools with parameters |
+| `clauth://remotes` | Federated MCP servers with connection status and available tools |
 
 Resources let agents understand the system without external documentation. An agent can read `clauth://overview` on first connection to discover what infrastructure is available.
 
@@ -112,19 +116,22 @@ A generic authenticated proxy for any web service -- internal or external. Confi
 
 Works with internal services (Gitea, Grafana, Portainer) and external APIs (GitHub, cloud providers) alike. Network policy controls which destinations agents can reach: RFC 1918 private ranges are allowed by default, external access uses a configurable hostname allowlist. Supported auth types: Bearer token, HTTP Basic, custom header, query parameter. URL path and HTTP method restrictions available per-service.
 
+### MCP Federation
+
+Clauth can aggregate tools and resources from remote MCP servers, presenting them through a single unified endpoint. Configure a remote server once, and the broker automatically discovers its tools via the MCP handshake (initialize → tools/list → resources/list), then exposes them to agents with namespace prefixing.
+
+Remote tools appear as `{server}.{tool}` (e.g., `demo-tools.roll_dice`). When an agent calls a federated tool, the broker proxies the request transparently, injecting any configured credentials. Background refresh keeps the tool catalog up to date, with exponential backoff on failures.
+
+Remote servers can use any auth type (bearer, basic, header, none) and are managed via the dashboard or REST API. Each remote's connection status, tool count, and last refresh time are visible in real time.
+
 ### Real-time Dashboard
 
-React 18 single-page application with a cyberpunk dark theme. Nine views cover every aspect of the system:
+React 18 single-page application with a cyberpunk dark theme. Ten views across four groups:
 
-- **Overview** -- system health, active certs, agent count, signer status
-- **Hosts** -- target list with enable/disable toggles and config panel
-- **Agents** -- per-agent activity stats and timeline
-- **Activity** -- filterable log of all exec, proxy, and session actions
-- **Sessions** -- active certificates with TTL countdown and revocation
-- **Audit** -- structured event log from disk
-- **Terminal** -- web-based SSH via xterm.js (multi-tab, up to 5 concurrent)
-- **Services** -- HTTP proxy service configuration (CRUD)
-- **Settings** -- broker configuration and token management
+- **OVERVIEW:** Overview -- stat cards, host/service/MCP panels with toggles, active sessions, live event feed
+- **INFRASTRUCTURE:** Hosts, Services, MCP Servers (with enable/disable toggles and config panels)
+- **MONITOR:** Agents, Activity, Sessions, Audit Log
+- **TOOLS:** Terminal, Settings
 
 WebSocket live event streaming pushes state changes to all connected clients. Anti-screen-capture privacy mode blurs sensitive fields on tab switch and renders tokens to canvas elements that resist screenshots.
 
@@ -265,6 +272,11 @@ clauth ssh webserver --role read
 
 # Or just run a command
 clauth exec webserver --role operator -- systemctl status nginx
+
+# Discover available infrastructure
+clauth targets     # SSH targets
+clauth services    # HTTP proxy services
+clauth remotes     # Federated MCP servers
 ```
 
 ## MCP Integration
@@ -328,7 +340,7 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-The same 8 tools are available in any MCP-compatible client.
+The same tools are available in any MCP-compatible client.
 
 ## Configuration
 
@@ -400,6 +412,8 @@ All broker flags can be set via environment:
 | `POST` | `/v1/approve/{request_id}` | Approve a pending request (admin) |
 | `POST` | `/v1/deny/{request_id}` | Deny a pending request (admin) |
 | `POST` | `/v1/admin/hosts/{name}/toggle` | Enable/disable host access (admin) |
+| `GET` | `/v1/services` | List HTTP proxy services (credentials redacted) |
+| `GET` | `/v1/remotes` | List federated MCP servers with status |
 
 ### Dashboard TCP API (`:8553`)
 
@@ -426,6 +440,13 @@ All Unix socket endpoints above, plus:
 | `GET` | `/v1/dashboard/services/{name}` | Get service config |
 | `PUT` | `/v1/dashboard/services/{name}` | Create/update service |
 | `DELETE` | `/v1/dashboard/services/{name}` | Delete service |
+| `POST` | `/v1/dashboard/services/{name}/toggle` | Toggle service on/off |
+| `GET` | `/v1/dashboard/remotes` | List remote MCP servers |
+| `GET` | `/v1/dashboard/remotes/{name}` | Get remote config and status |
+| `PUT` | `/v1/dashboard/remotes/{name}` | Create/update remote |
+| `DELETE` | `/v1/dashboard/remotes/{name}` | Delete remote |
+| `POST` | `/v1/dashboard/remotes/{name}/refresh` | Force tool re-discovery |
+| `POST` | `/v1/dashboard/remotes/{name}/toggle` | Toggle remote on/off |
 | `GET` | `/v1/events` | WebSocket live event stream |
 
 ### MCP Endpoint (`:8554`)
@@ -440,22 +461,24 @@ All Unix socket endpoints above, plus:
 clauth/
 ├── cmd/
 │   ├── broker/         # clauth-broker entry point, flag parsing, signal handling
-│   ├── clauth/         # CLI tool: session, ssh, exec, key management
+│   ├── clauth/         # CLI tool: session, ssh, exec, service/remote discovery
 │   └── signer/         # clauth-signer entry point, CA key loading
 ├── internal/
 │   ├── audit/          # Structured JSON-line audit logger, anomaly detection
 │   ├── auth/           # Session manager, SO_PEERCRED extraction
 │   ├── broker/         # Core broker: server, handlers, dashboard, MCP,
 │   │                   #   proxy engine, activity store, config manager,
-│   │                   #   terminal proxy, WebSocket hub, rate limiter
+│   │                   #   terminal proxy, WebSocket hub, rate limiter,
+│   │                   #   MCP federation engine
 │   ├── policy/         # Policy types, YAML loader, evaluation engine
 │   └── signer/         # Certificate signing, CA key management, IPC protocol
 ├── configs/
 │   └── policy.yaml     # Default policy configuration
 ├── dashboard/
-│   └── index.html      # React 18 SPA (~2,900 lines, CDN dependencies)
+│   └── index.html      # React 18 SPA (~3,400 lines, CDN dependencies)
 ├── deploy/
 │   └── systemd/        # clauth-broker.service, clauth-signer.service
+├── CLAUDE.md           # Project instructions for Claude Code
 ├── Makefile            # build, test, install, install-systemd, install-user
 ├── go.mod              # 3 direct dependencies
 └── go.sum
@@ -484,7 +507,7 @@ No external databases. No message queues. No container runtime. State lives in m
 
 Clauth started as a homelab project to solve a real problem: giving Claude Code safe, auditable access to infrastructure without scattering SSH keys everywhere. It turns out this is a problem a lot of people have.
 
-Contributions welcome. The codebase is ~10,000 lines of Go with no code generation and no frameworks -- just the standard library plus three dependencies. If you can read Go, you can contribute.
+Contributions welcome. The codebase is ~12,000 lines of Go with no code generation and no frameworks -- just the standard library plus three dependencies. If you can read Go, you can contribute.
 
 To run the tests:
 
@@ -501,5 +524,5 @@ Apache License 2.0. See [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <code>~10,000 lines of Go | 3 external dependencies | Zero external databases | Production-ready</code>
+  <code>~12,000 lines of Go | 3 external dependencies | Zero external databases | Production-ready</code>
 </p>

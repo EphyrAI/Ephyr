@@ -1392,40 +1392,78 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         </div>
       </div>
 
-      {/* Active Sessions panel */}
+      {/* Active Sessions panel - grouped by agent+target */}
       <div className="panel" style={{ marginBottom: '16px' }}>
         <div className="panel-header">
           <span>Active Sessions</span>
           <span className="panel-count">{activeSessions.length}</span>
         </div>
-        <div className="panel-body" style={{ maxHeight: '200px', overflowY: 'auto' }}>
-          {activeSessions.length === 0 ? (
-            <div className="empty-state">No active sessions</div>
-          ) : activeSessions.map(s => {
-            const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
-            const remaining = parseTTL(s.expires_at, now);
+        <div className="panel-body" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+          {(() => {
+            if (activeSessions.length === 0 && recentActivity.filter(a => a.action_type === 'http_proxy' || a.action_type === 'mcp_call').length === 0) {
+              return <div className="empty-state">No active sessions</div>;
+            }
+            // Group active sessions by agent+target
+            const groups = {};
+            activeSessions.forEach(s => {
+              const key = `${s.agent}\u2192${s.target}`;
+              if (!groups[key]) groups[key] = { agent: s.agent, target: s.target, certs: [] };
+              groups[key].certs.push(s);
+            });
+            // Sort groups by earliest-expiring cert first
+            const sortedGroups = Object.values(groups).sort((a, b) => {
+              const aMin = Math.min(...a.certs.map(c => parseTTL(c.expires_at, now)));
+              const bMin = Math.min(...b.certs.map(c => parseTTL(c.expires_at, now)));
+              return aMin - bMin;
+            });
+            // Recent proxy & MCP activity
+            const proxyMcpActivity = (recentActivity || []).filter(a => a.action_type === 'http_proxy' || a.action_type === 'mcp_call').slice(0, 5);
             return (
-              <div key={s.serial} className={`session-item ${remaining <= 0 ? 'expired' : ''}`}>
-                <div className="session-top">
-                  <div className="session-route">
-                    <span className="session-agent">{s.agent}</span>
-                    <span className="session-arrow">&rarr;</span>
-                    <span className="session-target">{s.target}</span>
+              <>
+                {sortedGroups.map(group => (
+                  <div key={`${group.agent}-${group.target}`} style={{ marginBottom: '8px', border: '1px solid var(--border)', borderRadius: '4px', background: 'rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', borderBottom: '1px solid var(--border)', background: 'rgba(0,0,0,0.15)' }}>
+                      <span style={{ color: 'var(--green)', fontWeight: 600, fontSize: '12px' }}>{group.agent}</span>
+                      <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
+                      <span style={{ color: 'var(--cyan)', fontWeight: 600, fontSize: '12px' }}>{group.target}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-dim)' }}>{group.certs.length} cert{group.certs.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    {group.certs.map(s => {
+                      const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
+                      const remaining = parseTTL(s.expires_at, now);
+                      return (
+                        <div key={s.serial} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <RoleBadge role={s.role} />
+                          <div style={{ flex: 1 }}>
+                            <TTLBar remaining={remaining} maxTTL={maxTTL} />
+                          </div>
+                          <button className="btn btn-revoke" onClick={() => onRevoke(s.serial)} style={{ fontSize: '9px', padding: '2px 8px' }}>REVOKE</button>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <RoleBadge role={s.role} />
-                </div>
-                {s.command && <div className="session-cmd">$ {s.command}</div>}
-                <div className="session-bottom">
-                  <TTLBar remaining={remaining} maxTTL={maxTTL} />
-                  <button className="btn btn-revoke" onClick={() => onRevoke(s.serial)}>REVOKE</button>
-                </div>
-              </div>
+                ))}
+                {proxyMcpActivity.length > 0 && (
+                  <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
+                    <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px', fontWeight: 600 }}>Recent Proxy &amp; MCP</div>
+                    {proxyMcpActivity.map((a, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', fontSize: '11px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <span style={{ color: 'var(--green)', fontWeight: 600, minWidth: '50px' }}>{a.agent || '-'}</span>
+                        <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
+                        <span style={{ color: 'var(--cyan)' }}>{a.target || a.service || '-'}</span>
+                        <ActionTypeBadge type={a.action_type} />
+                        <span style={{ color: 'var(--text-dim)', fontSize: '10px', marginLeft: 'auto' }}>{relativeTime(a.timestamp)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             );
-          })}
+          })()}
         </div>
       </div>
 
-      {/* Live Event Feed (consolidated) */}
+      {/* Live Event Feed (consolidated) - merges recentActivity + WebSocket events */}
       <div className="overview-activity-section">
         <div className="overview-activity-header">
           <span className="panel-header" style={{ border: 'none', padding: 0 }}>
@@ -1438,21 +1476,65 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
           </div>
         </div>
         <div className="overview-activity-body">
-          {recentActivity.length === 0 && events.length === 0 ? (
-            <div className="empty-state" style={{ padding: '16px' }}>No recent activity</div>
-          ) : recentActivity.map((e, i) => (
-            <div key={i} className="overview-compact-entry">
-              <span style={{ color: 'var(--text-dim)', fontSize: '10px', minWidth: '60px' }}>{relativeTime(e.timestamp)}</span>
-              <ActionTypeBadge type={e.action_type || e.type} />
-              <span style={{ color: 'var(--green)', fontWeight: 600 }}>{e.agent || '-'}</span>
-              <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
-              <span style={{ color: 'var(--cyan)' }}>{e.target || e.service || '-'}</span>
-              <span style={{ color: 'var(--text-dim)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {e.details || e.command || e.url || ''}
-              </span>
-              <ActivityStatusBadge status={e.status === 'error' || e.error ? 'error' : (e.status || 'success')} />
-            </div>
-          ))}
+          {(() => {
+            // Normalize recentActivity entries
+            const activityNorm = (recentActivity || []).map(e => ({
+              timestamp: e.timestamp,
+              action_type: e.action_type || e.type || 'unknown',
+              agent: e.agent || '-',
+              target: e.target || e.service || '-',
+              details: e.details || e.command || e.url || '',
+              status: e.status === 'error' || e.error ? 'error' : (e.status || 'success'),
+              _source: 'activity',
+            }));
+            // Normalize WebSocket events
+            const wsNorm = (events || []).map(e => {
+              const data = e.data || {};
+              return {
+                timestamp: e.timestamp,
+                action_type: e.type || e.event_type || 'info',
+                agent: data.agent || e.agent || '-',
+                target: data.target || e.target || '-',
+                details: data.reason || data.role || data.message || '',
+                status: (e.type || '').includes('denied') ? 'error' : 'success',
+                _source: 'ws',
+              };
+            });
+            // Merge and deduplicate (by timestamp+action_type+agent, prefer activity source)
+            const seen = new Set();
+            const all = [];
+            activityNorm.forEach(e => {
+              const key = `${e.timestamp}|${e.action_type}|${e.agent}`;
+              seen.add(key);
+              all.push(e);
+            });
+            wsNorm.forEach(e => {
+              const key = `${e.timestamp}|${e.action_type}|${e.agent}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                all.push(e);
+              }
+            });
+            // Sort descending by timestamp, take top 8
+            all.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+            const merged = all.slice(0, 8);
+            if (merged.length === 0) {
+              return <div className="empty-state" style={{ padding: '16px' }}>No recent activity</div>;
+            }
+            return merged.map((e, i) => (
+              <div key={i} className="overview-compact-entry">
+                <span style={{ color: 'var(--text-dim)', fontSize: '10px', minWidth: '60px' }}>{relativeTime(e.timestamp)}</span>
+                <ActionTypeBadge type={e.action_type} />
+                <span style={{ color: 'var(--green)', fontWeight: 600 }}>{e.agent}</span>
+                <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
+                <span style={{ color: 'var(--cyan)' }}>{e.target}</span>
+                <span style={{ color: 'var(--text-dim)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {e.details}
+                </span>
+                <ActivityStatusBadge status={e.status} />
+              </div>
+            ));
+          })()}
         </div>
       </div>
     </div>
@@ -1836,8 +1918,50 @@ function AgentsView({ sessions, summary, now, token, onViewActivity }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function SessionsView({ sessions, now, onRevoke }) {
+  const [statusFilter, setStatusFilter] = useState('ALL');
+
+  // Filter sessions by status
+  const filtered = useMemo(() => {
+    const list = (sessions || []).filter(s => {
+      if (statusFilter === 'ACTIVE') return s.status === 'active';
+      if (statusFilter === 'EXPIRED') return s.status !== 'active';
+      return true;
+    });
+    // Sort: active sessions by expires_at ascending (expiring soonest first), then expired at bottom
+    list.sort((a, b) => {
+      const aActive = a.status === 'active' ? 0 : 1;
+      const bActive = b.status === 'active' ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      if (aActive === 0) {
+        // Both active: sort by expires_at ascending (expiring first)
+        return new Date(a.expires_at || 0).getTime() - new Date(b.expires_at || 0).getTime();
+      }
+      // Both expired: sort by expires_at descending (most recently expired first)
+      return new Date(b.expires_at || 0).getTime() - new Date(a.expires_at || 0).getTime();
+    });
+    return list;
+  }, [sessions, statusFilter, now]);
+
+  const activeCount = (sessions || []).filter(s => s.status === 'active').length;
+  const expiredCount = (sessions || []).length - activeCount;
+
   return (
     <div className="panel" style={{ background: 'transparent', border: 'none' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {[
+          { key: 'ALL', label: `ALL (${(sessions || []).length})` },
+          { key: 'ACTIVE', label: `ACTIVE (${activeCount})` },
+          { key: 'EXPIRED', label: `EXPIRED (${expiredCount})` },
+        ].map(f => (
+          <button key={f.key} className={`filter-btn ${statusFilter === f.key ? 'active' : ''}`}
+            onClick={() => setStatusFilter(f.key)}>
+            {f.label}
+          </button>
+        ))}
+        <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginLeft: 'auto' }}>
+          Sorted: expiring soonest first
+        </span>
+      </div>
       <div style={{ overflowX: 'auto' }}>
         <table className="sessions-table">
           <thead>
@@ -1853,9 +1977,9 @@ function SessionsView({ sessions, now, onRevoke }) {
             </tr>
           </thead>
           <tbody>
-            {(sessions || []).length === 0 ? (
+            {filtered.length === 0 ? (
               <tr><td colSpan="8" className="empty-state">No sessions</td></tr>
-            ) : (sessions || []).map(s => {
+            ) : filtered.map(s => {
               const isActive = s.status === 'active';
               const remaining = parseTTL(s.expires_at, now);
               const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
