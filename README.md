@@ -15,23 +15,25 @@
 
 ---
 
-Clauth is an SSH certificate broker purpose-built for autonomous AI agents. Instead of scattering SSH keys and API tokens across your infrastructure, Clauth issues short-lived certificates through a policy engine -- so every agent action is scoped, time-limited, and logged.
+Clauth is an access broker for AI agents, accessed entirely through MCP (Model Context Protocol). A single MCP connection replaces N different authentication mechanisms -- SSH keys, API tokens, service credentials -- with one unified, policy-governed interface.
 
-It also provides an MCP (Model Context Protocol) server, letting AI agents like Claude request infrastructure access through the same interface they use for everything else. No custom integrations. No credential leakage. Just declare policy, point your agent at the broker, and go.
+Instead of scattering credentials across your infrastructure and hoping agents handle them responsibly, Clauth sits between agents and backends as a proxy, authenticator, and broker. The agent connects to one MCP endpoint. Clauth handles the rest: issuing ephemeral SSH certificates, injecting API tokens into HTTP requests, and forwarding calls to federated MCP servers -- all governed by declarative policy, scoped by role, time-limited by grants, and fully audited.
 
 ## Why Clauth?
 
-Static SSH keys for AI agents are a liability. They don't expire, they can't be scoped per-task, and when an agent session ends the keys remain. Clauth replaces that model entirely:
+Static credentials for AI agents are a liability. SSH keys don't expire, API tokens can't be scoped per-task, and when an agent session ends the access remains. Clauth replaces that model entirely:
 
-- **Ephemeral certificates** -- 5-minute default TTL. When the task is done, access disappears.
+- **One connection, all access** -- Agents connect to a single MCP endpoint. SSH targets, HTTP APIs, and remote MCP servers are all reachable through the broker. No direct backend access required.
+- **Ephemeral credentials** -- SSH certificates default to 5-minute TTL. Service and MCP grants auto-expire. When the task is done, access disappears.
+- **Network isolation** -- nftables blocks the agent user from reaching backends directly. All traffic flows through the broker, which enforces policy before proxying.
+- **Credential-free agents** -- The broker injects API tokens, SSH certificates, and auth headers. Agents never see passwords or keys.
 - **Declarative policy** -- YAML defines who can access what, with what role, for how long. Hot-reload with SIGHUP.
-- **MCP-native** -- Agents don't shell out to SSH. They call tools through the Model Context Protocol and get structured results.
-- **Credential-free agents** -- The HTTP proxy injects API tokens at the broker level. Agents never see passwords or keys.
-- **Full audit trail** -- Every certificate, every command, every denied request. Structured JSON, ready for your SIEM.
+- **TTL-based grants** -- Beyond SSH certificates, the broker issues time-limited access grants for HTTP services and federated MCP servers, with a configurable passthrough mode for fire-and-forget access.
+- **Full audit trail** -- Every certificate, every command, every HTTP proxy request, every denied action. Structured JSON, ready for your SIEM.
 
 ## Architecture
 
-Clauth runs as three isolated processes with strict privilege separation:
+Clauth runs as three isolated processes with strict privilege separation. The broker is the sole point of contact for agents, proxying three distinct backend types:
 
 ```
                                     +------------------------------+
@@ -46,27 +48,59 @@ Clauth runs as three isolated processes with strict privilege separation:
 |                  +-------------->|                               +-------------->|                  |
 +------------------+               |  Policy engine - Sessions     |               |  CA key holder   |
                                    |  MCP server - HTTP proxy      |               |  Signs certs     |
-+------------------+  HTTP :8554   |  Activity monitor - Audit     |               |  Never on network|
-|   Agent (MCP)    |  Bearer auth  |  MCP federation               |               +------------------+
++------------------+  HTTP :8554   |  Grant store - Activity       |               |  Never on network|
+|   Agent (MCP)    |  Bearer auth  |  MCP federation - Audit       |               +------------------+
 |  Claude, etc.    +-------------->|                               |
 +--------+---------+               +-+------------+----------+-----+
          |                           |            |          |
-         |  SSH with ephemeral cert  |            |          |  MCP JSON-RPC
-         |                           |            |          |  (tool proxying)
-         v                           v            v          v
-+------------------+  +------------------+  +------------------+
-|  Target Host     |  |  Web Services    |  |  Remote MCP      |
-|  (SSH server)    |  |  (GitHub, etc.)  |  |  Servers         |
-+------------------+  +------------------+  +------------------+
+     nftables blocks          Three proxy paths:
+     direct access            1. SSH exec     2. HTTP proxy   3. MCP federation
+                                   |            |          |
+                                   v            v          v
+                            +------------------+  +------------------+  +------------------+
+                            |  Target Hosts    |  |  Web Services    |  |  Remote MCP      |
+                            |  (SSH servers)   |  |  (GitHub, etc.)  |  |  Servers         |
+                            +------------------+  +------------------+  +------------------+
 ```
+
+### Three Proxy Paths
+
+**1. SSH Exec** -- The agent calls `exec` with a target and command. The broker generates an ephemeral Ed25519 keypair, has the signer issue a certificate via Unix socket IPC, SSHs to the target, runs the command, and returns stdout/stderr/exit_code. The agent never touches SSH keys or certificates. Persistent sessions reduce per-command latency from ~850ms to ~14ms.
+
+**2. HTTP Proxy** -- The agent calls `http_request` with a URL. The broker matches the URL to a configured service, injects stored credentials (bearer token, basic auth, custom header, or query parameter), and forwards the request. Network policy controls which destinations are reachable: RFC 1918 by default, external hostnames via allowlist.
+
+**3. MCP Federation** -- The agent calls a namespaced tool like `demo-tools.roll_dice`. The broker proxies the JSON-RPC call to the remote MCP server, injecting any configured credentials. Background discovery keeps tool catalogs fresh. From the agent's perspective, local and federated tools are indistinguishable.
+
+### Network Isolation
+
+On the broker host, nftables enforces that the agent user (UID 1000) cannot reach backend hosts directly. All output traffic from the agent to infrastructure IPs is dropped at the kernel level. The only path to backends is through the broker's Unix socket or MCP endpoint, where policy is enforced before every action. This means even a compromised agent process cannot bypass the broker.
+
+### Process Isolation
 
 **clauth-signer** holds the Ed25519 CA private key and does nothing else. It listens on a Unix socket, signs certificate requests, and runs in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. The CA key never leaves this process.
 
-**clauth-broker** is the brain. It loads policy from YAML, evaluates certificate requests through an 8-step pipeline, manages sessions and certificate lifecycle, serves the dashboard and MCP endpoint, proxies HTTP requests with credential injection, and writes structured audit logs. It communicates with the signer exclusively through Unix socket IPC.
+**clauth-broker** is the brain. It loads policy from YAML, evaluates certificate requests through an 8-step pipeline, manages sessions, grants, and certificate lifecycle, serves the dashboard and MCP endpoint, proxies HTTP requests with credential injection, federates remote MCP servers, and writes structured audit logs.
 
-**clauth** (CLI) is the agent-side tool. It creates sessions, requests certificates, opens SSH connections, and executes remote commands -- all through the broker's Unix socket API.
+**clauth** (CLI) is the agent-side tool for direct SSH operations from the broker host.
 
 ## Features
+
+### TTL-Based Access Grants
+
+Clauth extends the ephemeral access model beyond SSH certificates. When an agent accesses an HTTP service or calls a federated MCP tool, the broker issues a time-limited access grant tracking the agent, resource, and expiry. Three grant types:
+
+| Type | Default TTL | Scope |
+|------|-------------|-------|
+| `ssh_cert` | 5 min | Tracked in CertState (existing SSH CA system) |
+| `service` | 5 min | HTTP proxy service access |
+| `mcp` | 5 min | Federated MCP server access |
+
+Grants auto-expire and are cleaned up by a background goroutine. Duplicate grants for the same agent+resource pair are deduplicated (existing valid grant is returned). Each service and remote MCP server can be configured with its own grant mode:
+
+- **TTL mode** (default) -- grants are issued and validated on each request
+- **Passthrough mode** -- grant issuance is skipped entirely for fire-and-forget access patterns
+
+Grant lifecycle events (issued, expired, revoked) are recorded in the activity store and visible on the dashboard.
 
 ### SSH Certificate Authority
 
@@ -76,9 +110,9 @@ Auto-approve workflows let trusted agents get certificates instantly. For sensit
 
 ### MCP Server
 
-JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](https://modelcontextprotocol.io/) (2025-03-26). Nine tools and seven resources give agents complete infrastructure access with built-in self-discovery.
+JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](https://modelcontextprotocol.io/) (2025-03-26). Ten tools (plus federated tools from remote servers) and seven resources give agents complete infrastructure access with built-in self-discovery.
 
-**Tools:**
+**Tools (10 local + federated):**
 
 | Tool | Description |
 |------|-------------|
@@ -91,6 +125,7 @@ JSON-RPC 2.0 over Streamable HTTP, implementing the [Model Context Protocol](htt
 | `http_request` | Make an HTTP request through the authenticated proxy |
 | `list_services` | List services with automatic credential injection |
 | `list_remotes` | List federated remote MCP servers and their tools |
+| *`{server}.{tool}`* | *Federated tools from remote MCP servers (dynamic)* |
 
 **Resources** (agent self-discovery):
 
@@ -108,21 +143,19 @@ Resources let agents understand the system without external documentation. An ag
 
 API key authentication with bcrypt hashing. Drop-in integration with Claude Code, Claude Desktop, or any MCP-compatible client.
 
-Persistent SSH sessions reduce per-command latency from ~850ms (new cert + connection) to ~14ms (reuse existing connection) -- critical for agents that run dozens of commands in sequence.
-
 ### HTTP Proxy with Credential Injection
 
 A generic authenticated proxy for any web service -- internal or external. Configure a service once with its URL prefix and credentials, and agents can make requests without ever seeing the token. The broker injects authentication headers transparently.
 
-Works with internal services (Gitea, Grafana, Portainer) and external APIs (GitHub, cloud providers) alike. Network policy controls which destinations agents can reach: RFC 1918 private ranges are allowed by default, external access uses a configurable hostname allowlist. Supported auth types: Bearer token, HTTP Basic, custom header, query parameter. URL path and HTTP method restrictions available per-service.
+Works with internal services (Gitea, Grafana, Portainer) and external APIs (GitHub, cloud providers) alike. Network policy controls which destinations agents can reach: RFC 1918 private ranges are allowed by default, external access uses a configurable hostname allowlist. Supported auth types: Bearer token, HTTP Basic, custom header, query parameter. URL path and HTTP method restrictions available per-service. Services can be individually enabled/disabled via the dashboard.
 
 ### MCP Federation
 
-Clauth can aggregate tools and resources from remote MCP servers, presenting them through a single unified endpoint. Configure a remote server once, and the broker automatically discovers its tools via the MCP handshake (initialize → tools/list → resources/list), then exposes them to agents with namespace prefixing.
+Clauth can aggregate tools and resources from remote MCP servers, presenting them through a single unified endpoint. Configure a remote server once, and the broker automatically discovers its tools via the MCP handshake (initialize -> tools/list -> resources/list), then exposes them to agents with namespace prefixing.
 
 Remote tools appear as `{server}.{tool}` (e.g., `demo-tools.roll_dice`). When an agent calls a federated tool, the broker proxies the request transparently, injecting any configured credentials. Background refresh keeps the tool catalog up to date, with exponential backoff on failures.
 
-Remote servers can use any auth type (bearer, basic, header, none) and are managed via the dashboard or REST API. Each remote's connection status, tool count, and last refresh time are visible in real time.
+Remote servers can use any auth type (bearer, basic, header, none) and are managed via the dashboard or REST API. Each remote's connection status, tool count, and last refresh time are visible in real time. Remotes can be individually enabled/disabled.
 
 ### Real-time Dashboard
 
@@ -166,6 +199,7 @@ Append-only structured JSON-line logging. Every certificate operation is recorde
 - **Constant-time token comparison** -- `crypto/subtle` prevents timing attacks on dashboard and API tokens.
 - **Systemd sandboxing** -- `ProtectSystem=strict`, `NoNewPrivileges`, `MemoryDenyWriteExecute`, `PrivateDevices`, `CapabilityBoundingSet=` (empty). Full system call filtering.
 - **CA key isolation** -- the private key exists only in the signer process. The broker never reads it.
+- **Network isolation** -- nftables drops direct agent-to-backend traffic. All access is brokered.
 - **Socket permissions** -- broker socket is `0660` with group restriction.
 - **Token masking** -- dashboard tokens are logged as `first4...last4`, never in full.
 - **Session binding** -- certificate request tokens are bound to the originating UID. Stolen tokens cannot be replayed from a different process.
@@ -469,20 +503,36 @@ clauth/
 │   ├── broker/         # Core broker: server, handlers, dashboard, MCP,
 │   │                   #   proxy engine, activity store, config manager,
 │   │                   #   terminal proxy, WebSocket hub, rate limiter,
-│   │                   #   MCP federation engine
+│   │                   #   MCP federation engine, grant store
 │   ├── policy/         # Policy types, YAML loader, evaluation engine
 │   └── signer/         # Certificate signing, CA key management, IPC protocol
 ├── configs/
 │   └── policy.yaml     # Default policy configuration
 ├── dashboard/
-│   └── index.html      # React 18 SPA (~3,400 lines, CDN dependencies)
+│   └── index.html      # React 18 SPA (~3,300 lines, CDN dependencies)
 ├── deploy/
 │   └── systemd/        # clauth-broker.service, clauth-signer.service
+├── docs/               # Architecture, security, configuration, deployment,
+│                       #   API reference, MCP integration docs
 ├── CLAUDE.md           # Project instructions for Claude Code
+├── CONTRIBUTING.md     # Contributor guidelines
 ├── Makefile            # build, test, install, install-systemd, install-user
 ├── go.mod              # 3 direct dependencies
 └── go.sum
 ```
+
+## Known Issues
+
+The dashboard (~3,300 lines of React SPA) has a backlog of approximately 25 known bugs identified during a UI audit. Key issues include:
+
+- **Remote toggle enforcement** -- Toggling a remote MCP server off via the dashboard updates the UI state but federated tool calls may not be fully blocked in all code paths. The federation engine checks `Enabled` on the config struct, but the toggle path and the enforcement path use different field types (`bool` vs `*bool`).
+- **Frontend field mismatches** -- Several dashboard views display fields that don't match the API response schema (e.g., activity detail fields, session metadata). These cause undefined/null values in the UI.
+- **Overview stat card drift** -- Some stat cards on the Overview page show stale counts when hosts/services/remotes are toggled, until the next WebSocket push cycle.
+- **Terminal view edge cases** -- WebSocket SSH terminal sessions can leak if the browser tab is closed without explicit disconnect.
+- **Service config panel** -- The slide-out config panel for services does not validate all fields before submission (e.g., empty URL prefix is accepted).
+- **Activity filters** -- Time-range filters on the Activity view do not persist across view switches.
+
+These are tracked internally. Contributions welcome -- see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Requirements
 
@@ -490,6 +540,7 @@ clauth/
 - **Linux** -- `SO_PEERCRED` for Unix socket peer authentication is Linux-specific
 - **systemd** -- optional but recommended for production (sandboxing, restart, journal logging)
 - **OpenSSH** -- target hosts need `TrustedUserCAKeys` configured
+- **nftables** -- recommended for network isolation (blocking agent direct access to backends)
 
 ## Dependencies
 
@@ -507,8 +558,10 @@ No external databases. No message queues. No container runtime. State lives in m
 
 Planned features, roughly prioritized:
 
+- **RBAC redesign** -- Replace the current global role model with per-agent-per-target permissions. Define role templates (e.g., "monitoring-read", "deploy-operator") that can be assigned to specific agent+target pairs. This enables fine-grained access control like "agent A gets read on hosts 1-3 but operator only on host 2" without duplicating role definitions.
 - **Prometheus metrics + ntfy alerts** -- Export cert counts, request rates, error rates. Push alerts on denied requests or anomalous activity.
-- **Sub-agent tracking** -- Accept an optional context/session ID from MCP clients to distinguish parallel sub-agents (e.g. Claude Code's Agent tool). Track and display as a tree: parent agent → sub-agents → their actions. Requires a custom MCP extension since the protocol has no sub-session concept.
+- **Dashboard bug fixes** -- Address the ~25 known UI issues from the audit, prioritizing remote toggle enforcement and field mismatches.
+- **Sub-agent tracking** -- Accept an optional context/session ID from MCP clients to distinguish parallel sub-agents (e.g. Claude Code's Agent tool). Track and display as a tree: parent agent -> sub-agents -> their actions. Requires a custom MCP extension since the protocol has no sub-session concept.
 - **OIDC / JWT agent auth** -- Alternative to API key auth for multi-tenant deployments.
 - **Certificate pinning to source IP** -- Bind certs to the requesting agent's IP for defense-in-depth.
 - **Target health checks** -- Periodic SSH connectivity probes with dashboard status.
@@ -518,7 +571,7 @@ Planned features, roughly prioritized:
 
 Clauth started as a homelab project to solve a real problem: giving Claude Code safe, auditable access to infrastructure without scattering SSH keys everywhere. It turns out this is a problem a lot of people have.
 
-Contributions welcome. The codebase is ~12,000 lines of Go with no code generation and no frameworks -- just the standard library plus three dependencies. If you can read Go, you can contribute.
+Contributions welcome. The codebase is ~16,000 lines of Go + HTML with no code generation and no frameworks -- just the standard library plus three dependencies. If you can read Go, you can contribute.
 
 To run the tests:
 
@@ -535,5 +588,5 @@ Apache License 2.0. See [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <code>~12,000 lines of Go | 3 external dependencies | Zero external databases | Production-ready</code>
+  <code>~16,000 lines of Go + HTML | 3 external dependencies | Zero external databases | Production-ready</code>
 </p>
