@@ -260,13 +260,22 @@ func (bs *BrokerServer) handleDashboardSummary(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	// Include active grants in the session and agent counts.
+	grantCount := 0
+	if bs.grantStore != nil {
+		for _, g := range bs.grantStore.ListActive() {
+			grantCount++
+			agentSet[g.Agent] = struct{}{}
+		}
+	}
+
 	resp := DashboardSummary{
 		Hostname:        hostname,
 		IP:              localIP,
 		Uptime:          uptimeStr,
 		BrokerStatus:    "healthy",
 		CAKeyStatus:     caStatus,
-		ActiveCerts:     len(certs),
+		ActiveCerts:     len(certs) + grantCount,
 		PendingRequests: len(bs.state.ListPending()),
 		TotalGranted:    atomic.LoadUint64(&bs.grantCount),
 		TotalDenied:     atomic.LoadUint64(&bs.denyCount),
