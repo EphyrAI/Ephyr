@@ -814,7 +814,7 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 16px; border-bottom: 1px solid var(--border);
   }
-  .overview-activity-body { padding: 8px; }
+  .overview-activity-body { padding: 8px; max-height: 300px; overflow-y: auto; }
   .overview-activity-stats {
     display: flex; gap: 16px; padding: 0 16px 12px; font-size: 11px; color: var(--text-dim);
   }
@@ -1237,7 +1237,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
     const fetchOvActivity = async () => {
       try {
         const [entries, sumData] = await Promise.all([
-          api('GET', '/v1/dashboard/activity?limit=5', null, token),
+          api('GET', '/v1/dashboard/activity?limit=50', null, token),
           api('GET', '/v1/dashboard/activity/summary', null, token),
         ]);
         setRecentActivity(entries || []);
@@ -1400,7 +1400,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         </div>
         <div className="panel-body" style={{ maxHeight: '320px', overflowY: 'auto' }}>
           {(() => {
-            if (activeSessions.length === 0 && recentActivity.filter(a => a.action_type === 'http_proxy' || a.action_type === 'mcp_call').length === 0) {
+            if (activeSessions.length === 0 && recentActivity.filter(a => (a.type || a.action_type) === 'http_proxy' || (a.type || a.action_type) === 'mcp_call').length === 0) {
               return <div className="empty-state">No active sessions</div>;
             }
             // Group active sessions by agent+target
@@ -1417,7 +1417,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
               return aMin - bMin;
             });
             // Recent proxy & MCP activity
-            const proxyMcpActivity = (recentActivity || []).filter(a => a.action_type === 'http_proxy' || a.action_type === 'mcp_call').slice(0, 5);
+            const proxyMcpActivity = (recentActivity || []).filter(a => (a.type || a.action_type) === 'http_proxy' || (a.type || a.action_type) === 'mcp_call').slice(0, 5);
             return (
               <>
                 {sortedGroups.map(group => (
@@ -1470,9 +1470,9 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
             <span>Live Event Feed</span>
           </span>
           <div className="overview-activity-stats">
-            <span>Rate: <span style={{ color: 'var(--green)', fontWeight: 600 }}>{actSummary.actions_per_minute || 0}/min</span></span>
-            <span>Total: <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{actSummary.total_actions || 0}</span></span>
-            <span>Errors: <span style={{ color: 'var(--red)', fontWeight: 600 }}>{actSummary.error_count || 0}</span></span>
+            <span>Exec: <span style={{ color: 'var(--green)', fontWeight: 600 }}>{actSummary.total_exec || 0}</span></span>
+            <span>Proxy: <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{actSummary.total_proxy || 0}</span></span>
+            <span>Errors: <span style={{ color: 'var(--red)', fontWeight: 600 }}>{actSummary.total_errors || 0}</span></span>
           </div>
         </div>
         <div className="overview-activity-body">
@@ -1517,7 +1517,9 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
             });
             // Sort descending by timestamp, take top 8
             all.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
-            const merged = all.slice(0, 8);
+            // Filter to last 5 minutes
+            const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+            const merged = all.filter(e => new Date(e.timestamp || 0).getTime() > fiveMinAgo);
             if (merged.length === 0) {
               return <div className="empty-state" style={{ padding: '16px' }}>No recent activity</div>;
             }
@@ -1831,7 +1833,7 @@ function AgentsView({ sessions, summary, now, token, onViewActivity }) {
         const agentStatus = hasActive ? 'active' : 'offline';
         const act = agentActivity[a.name] || {};
         const recentActions = act.recent_actions || [];
-        const errorRate = act.total_actions > 0 ? ((act.error_count || 0) / act.total_actions * 100).toFixed(1) : '0.0';
+        const errorRate = act.total_actions > 0 ? ((act.total_errors || 0) / act.total_actions * 100).toFixed(1) : '0.0';
         return (
           <div key={a.name} className="agent-card">
             <div className="agent-card-header">
@@ -2160,17 +2162,17 @@ function ActivityView({ token, initialAgent }) {
         </div>
         <div className="stat-card cyan">
           <div className="stat-label">SSH Exec</div>
-          <div className="stat-value cyan">{actSummary.ssh_exec_count || 0}</div>
+          <div className="stat-value cyan">{actSummary.total_exec || 0}</div>
           <div className="stat-sub">commands</div>
         </div>
         <div className="stat-card purple">
           <div className="stat-label">HTTP Proxy</div>
-          <div className="stat-value purple">{actSummary.http_proxy_count || 0}</div>
+          <div className="stat-value purple">{actSummary.total_proxy || 0}</div>
           <div className="stat-sub">requests</div>
         </div>
         <div className="stat-card red">
           <div className="stat-label">Errors</div>
-          <div className="stat-value red">{actSummary.error_count || 0}</div>
+          <div className="stat-value red">{actSummary.total_errors || 0}</div>
           <div className="stat-sub">failures</div>
         </div>
         <div className="stat-card amber">
