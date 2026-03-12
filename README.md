@@ -702,6 +702,11 @@ Roughly prioritized:
 - **Certificate pinning to source IP** -- Bind certs to the requesting agent's IP for defense-in-depth.
 - **Target health checks** -- Periodic SSH connectivity probes with dashboard status.
 - **Audit log export** -- Ship structured logs to external SIEM (syslog, webhook, S3).
+- **Broker-level command policy** -- Command filtering at the broker before cert signing, adding a second enforcement layer above the host OS boundary. Two planned modes:
+  - *Allowlist mode* -- Only pre-approved command patterns pass (e.g., `cat *`, `docker ps *`, `systemctl status *`). Strictest security but most restrictive.
+  - *Denylist mode* -- Block known-dangerous patterns (e.g., `rm -rf /*`, `dd if=*`, `mkfs.*`, `shutdown*`). More flexible but requires careful pattern maintenance.
+  - Long-term goal: capability-based roles that map to curated command templates rather than raw shell pattern matching, avoiding the inherent complexity of bash command parsing (escapes, subshells, globs, quoting).
+  - Current architecture already supports this -- all agent commands flow through the broker via nftables isolation, so the broker is already a chokepoint. Today RBAC controls *which role* an agent gets; command policy would control *what they can do with it*.
 
 ## Contributing
 
