@@ -1395,7 +1395,7 @@ function SidebarStats({ summary }) {
 
   return (
     <div className="sidebar-stats">
-      <div className="sidebar-stats-title">Command VM</div>
+      <div className="sidebar-stats-title">System</div>
       {[
         { label: 'CPU', val: cpu },
         { label: 'MEM', val: mem },
@@ -1543,7 +1543,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                   <div>
                     <div className="host-name">{h.name}</div>
                     <div className="host-meta">
-                      <span className={getVlanClass(h.vlan)}>V{h.vlan}</span>
+                      {h.vlan > 0 && <span className={getVlanClass(h.vlan)}>V{h.vlan}</span>}
                       {' \u00b7 '}
                       <span style={{ color: 'var(--cyan)' }}>{h.host}</span>
                     </div>
@@ -1891,7 +1891,7 @@ function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
 
               <div className="form-section-title">Roles</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-                {(roles || ['read', 'operator', 'admin']).map(r => (
+                {(roles || []).map(r => (
                   <label key={r} className="form-checkbox">
                     <input type="checkbox" checked={(config.allowed_roles || []).includes(r)} onChange={() => handleRoleToggle(r)} />
                     {r}
@@ -1932,7 +1932,7 @@ function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
 
 function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
   const [configHost, setConfigHost] = useState(null);
-  const [roles, setRoles] = useState(['read', 'operator', 'admin']);
+  const [roles, setRoles] = useState([]);
   const [permissions, setPermissions] = useState(null);
 
   useEffect(() => {
@@ -1988,7 +1988,7 @@ function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
               </div>
               {h.description && <div className="host-card-desc">{h.description}</div>}
               <div className="host-card-meta">
-                <span><span className={getVlanClass(h.vlan)}>VLAN {h.vlan}</span></span>
+                {h.vlan > 0 && <span><span className={getVlanClass(h.vlan)}>VLAN {h.vlan}</span></span>}
                 <span><span style={{ color: 'var(--cyan)' }}>{h.host}:{h.port || 22}</span></span>
                 {h.os && <span>{h.os}</span>}
                 {h.allowed_roles && <span>{h.allowed_roles.map(r => <RoleBadge key={r} role={r} />)}</span>}
@@ -3784,7 +3784,7 @@ function TokenModal({ onSubmit, error }) {
     <div className="modal-overlay">
       <div className="modal-box">
         <h2>CLAUTH</h2>
-        <div className="modal-sub">THE SPRAWL &mdash; PRIVILEGED ACCESS BROKER</div>
+        <div className="modal-sub">SSH CERTIFICATE BROKER</div>
         {error && <div className="modal-error">{error}</div>}
         <form onSubmit={handleSubmit}>
           <input ref={inputRef} type="password" placeholder="Enter API Token"
@@ -4015,7 +4015,7 @@ function App() {
       <div className="sidebar">
         <div className="sidebar-brand">
           <h1>CLAUTH</h1>
-          <div className="subtitle">THE SPRAWL &mdash; PRIVILEGED ACCESS BROKER</div>
+          <div className="subtitle">SSH CERTIFICATE BROKER</div>
         </div>
         <div className="sidebar-nav">
           {(() => {
