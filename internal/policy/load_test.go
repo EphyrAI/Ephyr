@@ -29,11 +29,11 @@ func TestLoadPolicy(t *testing.T) {
 	}
 
 	// Verify target max_ttl resolution.
-	if rc.TargetMaxTTLs["mandrake-rack"].Minutes() != 15 {
-		t.Errorf("mandrake-rack max_ttl: expected 15m, got %s", rc.TargetMaxTTLs["mandrake-rack"])
+	if rc.TargetMaxTTLs["webserver"].Minutes() != 10 {
+		t.Errorf("webserver max_ttl: expected 15m, got %s", rc.TargetMaxTTLs["webserver"])
 	}
-	if rc.TargetMaxTTLs["docker-host"].Minutes() != 10 {
-		t.Errorf("docker-host max_ttl: expected 10m, got %s", rc.TargetMaxTTLs["docker-host"])
+	if rc.TargetMaxTTLs["database"].Minutes() != 10 {
+		t.Errorf("database max_ttl: expected 10m, got %s", rc.TargetMaxTTLs["database"])
 	}
 
 	t.Logf("Policy loaded: %d agents, %d targets, %d roles",

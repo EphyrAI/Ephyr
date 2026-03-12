@@ -7,6 +7,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/ben-spanswick/Clauth/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ben-spanswick/Clauth/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="#quick-start"><img alt="Go 1.24+" src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" /></a>
   <a href="#license"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue" /></a>
   <img alt="Brokered Access" src="https://img.shields.io/badge/Brokered-Least_Privilege-8B5CF6" />

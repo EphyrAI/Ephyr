@@ -1,4 +1,4 @@
-.PHONY: build test clean install install-user install-systemd
+.PHONY: build test lint cover clean install install-user install-systemd uninstall
 
 BINDIR := bin
 GOFLAGS := -trimpath
@@ -11,10 +11,18 @@ build:
 	@echo "Built: $(BINDIR)/clauth-broker  $(BINDIR)/clauth-signer  $(BINDIR)/clauth"
 
 test:
-	go test ./...
+	go test -race -coverprofile=coverage.out ./...
+
+lint:
+	golangci-lint run ./...
+
+cover:
+	go test -race -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
 
 clean:
-	rm -rf $(BINDIR)
+	rm -rf $(BINDIR) coverage.out coverage.html
 
 install: build
 	install -m 0755 $(BINDIR)/clauth-broker /usr/local/bin/

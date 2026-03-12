@@ -9,3 +9,6 @@ bin/
 policy.yaml
 *.env
 credentials*
+
+coverage.out
+coverage.html

@@ -183,7 +183,7 @@ func TestConcurrencyLimit(t *testing.T) {
 	}
 }
 
-func TestDuplicateCertDenied(t *testing.T) {
+func TestDuplicateCertAutoRevoke(t *testing.T) {
 	path := writeTestPolicy(t, testPolicy)
 	loader, rc, err := LoadFromFile(path)
 	if err != nil {
@@ -193,14 +193,20 @@ func TestDuplicateCertDenied(t *testing.T) {
 
 	eng.TrackCert(1, 1000, "server-a", "read", time.Now().Add(10*time.Minute))
 
+	// Duplicate cert for same agent+target+role should auto-revoke the old one
+	// and approve the new request (not deny it).
 	res := eng.Evaluate(EvalRequest{
 		AgentUID:   1000,
 		TargetName: "server-a",
 		RoleName:   "read",
 		Duration:   5 * time.Minute,
 	})
-	if res.Decision != Deny {
-		t.Errorf("expected Deny for duplicate cert, got %s: %s", res.Decision, res.Reason)
+	if res.Decision != Approve {
+		t.Errorf("expected Approve (auto-revoke duplicate), got %s: %s", res.Decision, res.Reason)
+	}
+	// Old cert should have been removed.
+	if eng.ActiveCertsForAgent(1000) != 0 {
+		t.Errorf("expected 0 certs after auto-revoke (new not yet tracked), got %d", eng.ActiveCertsForAgent(1000))
 	}
 }
 
