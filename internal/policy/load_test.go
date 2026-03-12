@@ -5,7 +5,7 @@ import (
 )
 
 func TestLoadPolicy(t *testing.T) {
-	_, rc, err := LoadFromFile("../../configs/policy.yaml")
+	_, rc, err := LoadFromFile("testdata/policy.yaml")
 	if err != nil {
 		t.Fatalf("failed to load policy: %v", err)
 	}

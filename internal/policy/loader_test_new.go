@@ -457,8 +457,8 @@ targets:
 	if len(rc2.Raw.Agents) != 2 {
 		t.Errorf("reloaded agents: got %d, want 2", len(rc2.Raw.Agents))
 	}
-	if rc2.Raw.Targets["s"].AutoApprove != false {
-		t.Error("expected auto_approve=false after reload")
+	if rc2.Raw.Targets["s"].AutoApprove {
+		t.Error("expected auto_approve false after reload")
 	}
 
 	// Loader.Resolved() should return the new config.

@@ -1,0 +1,47 @@
+# Clauth policy configuration
+# Loaded by the policy engine at startup; supports hot-reload (SIGHUP).
+
+global:
+  max_active_certs: 10
+  default_ttl: "5m"
+  max_ttl: "30m"
+  rate_limit:
+    requests_per_window: 10
+    window_seconds: 60
+
+agents:
+  claude:
+    uid: 1000
+    max_concurrent_certs: 3
+    description: "Claude Code agent"
+
+roles:
+  read:
+    principal: "agent-read"
+    description: "Read-only access — inspect configs, logs, status"
+  operator:
+    principal: "agent-op"
+    description: "Operator access — restart services, deploy updates"
+  admin:
+    principal: "agent-admin"
+    description: "Full administrative access — use sparingly"
+
+targets:
+  webserver:
+    host: "10.0.1.10"
+    port: 22
+    allowed_roles:
+      - read
+      - operator
+    max_ttl: "10m"
+    auto_approve: true
+    description: "Production web server"
+
+  database:
+    host: "10.0.1.20"
+    port: 22
+    allowed_roles:
+      - read
+    max_ttl: "10m"
+    auto_approve: true
+    description: "Database server"
