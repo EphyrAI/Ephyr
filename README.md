@@ -840,7 +840,6 @@ clauth/
 ├── docs/               # Architecture, security, configuration, deployment,
 │                       #   API reference, MCP integration docs
 ├── CLAUTH.md           # Agent reference (framework-agnostic)
-├── CLAUDE.md           # Developer reference for contributors
 ├── CONTRIBUTING.md     # Contributor guidelines
 ├── Makefile            # build, test, install, install-systemd, install-user
 ├── go.mod              # 3 direct dependencies

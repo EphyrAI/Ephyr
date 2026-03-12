@@ -1,6 +1,6 @@
 # CLAUTH.md -- Agent Reference
 
-This file tells AI agents how to interact with Clauth. Point your agent framework's context file here (Claude Code's `CLAUDE.md`, Cline's `RULES.md`, OpenClaw's `SOUL.md`, Cursor's `.cursorrules`, etc.).
+This file tells AI agents how to interact with Clauth. Point your agent framework's context file here (Cline's `RULES.md`, OpenClaw's `SOUL.md`, Cursor's `.cursorrules`, etc.).
 
 ## What is Clauth?
 
