@@ -514,7 +514,8 @@ clauth/
 │   └── systemd/        # clauth-broker.service, clauth-signer.service
 ├── docs/               # Architecture, security, configuration, deployment,
 │                       #   API reference, MCP integration docs
-├── CLAUDE.md           # Project instructions for Claude Code
+├── CLAUTH.md           # Agent reference (framework-agnostic)
+├── CLAUDE.md           # Developer reference for contributors
 ├── CONTRIBUTING.md     # Contributor guidelines
 ├── Makefile            # build, test, install, install-systemd, install-user
 ├── go.mod              # 3 direct dependencies

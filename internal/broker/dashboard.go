@@ -79,7 +79,7 @@ type DashboardSummary struct {
 type DashboardHost struct {
 	Name           string   `json:"name"`
 	Host           string   `json:"host"`
-	VLAN           int      `json:"vlan"`
+	VLAN           int      `json:"vlan,omitempty"`
 	Status         string   `json:"status"`
 	Role           string   `json:"role"`
 	AccessEnabled  bool     `json:"access_enabled"`
@@ -257,7 +257,7 @@ func (bs *BrokerServer) handleDashboardSummary(w http.ResponseWriter, r *http.Re
 
 	hostname, _ := os.Hostname()
 
-	localIP := "192.168.100.75"
+	localIP := "127.0.0.1"
 	if addrs, err := net.InterfaceAddrs(); err == nil {
 		for _, addr := range addrs {
 			if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() && ipNet.IP.To4() != nil {
@@ -551,8 +551,11 @@ func (bs *BrokerServer) handleDashboardToggleHost(w http.ResponseWriter, r *http
 		Severity:  audit.SeverityWarn,
 		EventType: "host_toggle",
 		Target:    name,
-		Reason:    fmt.Sprintf("Host %s toggled via dashboard from %s", name, r.RemoteAddr),
-		Details:   map[string]string{"state": stateLabel, "source_ip": r.RemoteAddr},
+		Reason:    fmt.Sprintf("Host %s %s via dashboard from %s", name, stateLabel, r.RemoteAddr),
+		Details: map[string]string{
+			"host":   name,
+			"action": stateLabel,
+		},
 	})
 
 	bs.eventHub.Broadcast(Event{
@@ -855,13 +858,18 @@ func (bs *BrokerServer) handleToggleService(w http.ResponseWriter, r *http.Reque
 	svc.Enabled = &newEnabled
 	bs.proxyEngine.SaveServices()
 
+	svcAction := "disabled"
+	if newEnabled {
+		svcAction = "enabled"
+	}
 	bs.auditLog.LogEvent(audit.AuditEvent{
 		Severity:  audit.SeverityWarn,
 		EventType: "service_toggle",
 		Target:    name,
+		Reason:    fmt.Sprintf("Service %s %s via dashboard", name, svcAction),
 		Details: map[string]string{
-			"enabled": fmt.Sprintf("%v", newEnabled),
-			"remote":  r.RemoteAddr,
+			"service": name,
+			"action":  svcAction,
 		},
 	})
 
@@ -898,13 +906,18 @@ func (bs *BrokerServer) handleToggleRemote(w http.ResponseWriter, r *http.Reques
 	state.mu.Unlock()
 	bs.federator.save()
 
+	remoteAction := "disabled"
+	if newEnabled {
+		remoteAction = "enabled"
+	}
 	bs.auditLog.LogEvent(audit.AuditEvent{
 		Severity:  audit.SeverityWarn,
 		EventType: "remote_toggle",
 		Target:    name,
+		Reason:    fmt.Sprintf("Remote %s %s via dashboard", name, remoteAction),
 		Details: map[string]string{
-			"enabled": fmt.Sprintf("%v", newEnabled),
-			"remote":  r.RemoteAddr,
+			"remote": name,
+			"action": remoteAction,
 		},
 	})
 

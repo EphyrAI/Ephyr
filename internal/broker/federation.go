@@ -506,7 +506,7 @@ func (f *MCPFederator) backoffDuration(errorCount int) time.Duration {
 }
 
 // buildHTTPClient creates an http.Client configured for the given remote,
-// with the specified timeout and TLS skip verify for homelab self-signed certs.
+// with the specified timeout and TLS skip-verify for self-signed certificates.
 func (f *MCPFederator) buildHTTPClient(cfg *RemoteMCPConfig) *http.Client {
 	timeout := cfg.Timeout
 	if timeout <= 0 {

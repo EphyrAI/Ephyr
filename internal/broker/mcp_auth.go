@@ -57,7 +57,7 @@ func (a *MCPAuthenticator) RemoveAgent(name string) {
 //
 // Note: bcrypt comparison is intentionally expensive (by design), so this
 // scales linearly with the number of registered agents. For the expected
-// small number of agents in a homelab context, this is acceptable.
+// small number of agents in a typical deployment, this is acceptable.
 func (a *MCPAuthenticator) Authenticate(apiKey string) (*MCPAgent, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()

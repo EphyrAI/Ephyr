@@ -1,6 +1,6 @@
-# Clauth -- Agent Access Broker
+# Clauth -- Developer Reference
 
-Clauth is an access broker for AI agents, accessed entirely through MCP. A single MCP connection replaces N different auth mechanisms. The broker sits between agents and backends, proxying three types of access: SSH exec, HTTP proxy, and MCP federation.
+> **For agent-facing docs, see [`CLAUTH.md`](CLAUTH.md).** That file is framework-agnostic and designed to be referenced by any AI agent system (Claude Code, Cline, Cursor, etc.). This file (`CLAUDE.md`) contains development internals for contributors working on the Clauth codebase.
 
 ## Architecture Overview
 

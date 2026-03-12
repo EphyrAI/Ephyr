@@ -252,7 +252,7 @@ type mcpTargetInfo struct {
 	Name        string   `json:"name"`
 	Host        string   `json:"host"`
 	Port        int      `json:"port"`
-	VLAN        int      `json:"vlan"`
+	VLAN        int      `json:"vlan,omitempty"`
 	Roles       []string `json:"roles"`
 	Description string   `json:"description"`
 	Enabled     bool     `json:"enabled"`

@@ -4,10 +4,10 @@ import (
 	"testing"
 )
 
-func TestLoadSprawlPolicy(t *testing.T) {
+func TestLoadPolicy(t *testing.T) {
 	_, rc, err := LoadFromFile("/opt/clauth/configs/policy.yaml")
 	if err != nil {
-		t.Fatalf("failed to load sprawl policy: %v", err)
+		t.Fatalf("failed to load policy: %v", err)
 	}
 	if len(rc.Raw.Agents) != 1 {
 		t.Errorf("expected 1 agent, got %d", len(rc.Raw.Agents))
@@ -36,6 +36,6 @@ func TestLoadSprawlPolicy(t *testing.T) {
 		t.Errorf("docker-host max_ttl: expected 10m, got %s", rc.TargetMaxTTLs["docker-host"])
 	}
 
-	t.Logf("Sprawl policy loaded: %d agents, %d targets, %d roles",
+	t.Logf("Policy loaded: %d agents, %d targets, %d roles",
 		len(rc.Raw.Agents), len(rc.Raw.Targets), len(rc.Raw.Roles))
 }
