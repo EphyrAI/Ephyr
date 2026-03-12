@@ -164,17 +164,21 @@ func (gs *GrantStore) Validate(grantType GrantType, agent, target string) *Acces
 	return nil
 }
 
-// Revoke invalidates a grant by ID. Returns true if found and revoked.
-func (gs *GrantStore) Revoke(id string) bool {
+// Revoke invalidates a grant by ID. Returns true if found and revoked,
+// or false with a reason string ("not found" or "already revoked").
+func (gs *GrantStore) Revoke(id string) (bool, string) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 	g, ok := gs.grants[id]
 	if !ok {
-		return false
+		return false, "grant not found"
+	}
+	if g.Status == "revoked" {
+		return false, "grant already revoked"
 	}
 	g.Status = "revoked"
 	log.Printf("[grants] revoked %s grant %s: agent=%s target=%s", g.Type, id[:12], g.Agent, g.Target)
-	return true
+	return true, ""
 }
 
 // Get retrieves a grant by ID.

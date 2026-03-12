@@ -1131,39 +1131,6 @@ function ToggleSwitch({ checked, onChange }) {
 // ANTI-SCREEN-CAPTURE COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function SensitiveField({ value, label }) {
-  const [revealed, setRevealed] = useState(false);
-  const timerRef = useRef(null);
-
-  const reveal = () => {
-    setRevealed(true);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setRevealed(false), 5000);
-  };
-
-  useEffect(() => { return () => clearTimeout(timerRef.current); }, []);
-
-  if (!value) return (
-    <div className="sensitive-field">
-      {label && <span className="sensitive-label">{label}</span>}
-      <span className="sensitive-masked" style={{ color: 'var(--text-dim)', cursor: 'default' }}>not set</span>
-    </div>
-  );
-
-  return (
-    <div className="sensitive-field">
-      {label && <span className="sensitive-label">{label}</span>}
-      {revealed ? (
-        <span className="sensitive-revealed" onClick={() => setRevealed(false)}>{value}</span>
-      ) : (
-        <span className="sensitive-masked" onClick={reveal}>
-          {'\u2022'.repeat(Math.min(value.length, 20))} [click to reveal]
-        </span>
-      )}
-    </div>
-  );
-}
-
 function CanvasSecret({ value, width = 300, height = 20 }) {
   const canvasRef = useRef(null);
   const [show, setShow] = useState(false);
@@ -1280,51 +1247,6 @@ function SidebarStats({ summary }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // EVENT TERMINAL
 // ═══════════════════════════════════════════════════════════════════════════════
-
-function EventTerminal({ events }) {
-  const bodyRef = useRef(null);
-
-  useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [events.length]);
-
-  return (
-    <div className="event-terminal">
-      <div className="terminal-header">
-        <span className="terminal-title">Broker Event Stream</span>
-        <div className="terminal-status">
-          <span className="status-dot online" style={{ width: '6px', height: '6px' }} />
-          STREAMING
-        </div>
-      </div>
-      <div className="terminal-body" ref={bodyRef}>
-        {events.length === 0 ? (
-          <div className="empty-state" style={{ padding: '16px' }}>Waiting for events...</div>
-        ) : events.map((e, i) => {
-          const type = e.type || e.event_type || 'info';
-          const data = e.data || e;
-          return (
-            <div key={i} className="event-line">
-              <span className="event-time">{relativeTime(e.timestamp)}</span>
-              <span className="event-type"><EventTypeBadge type={type} /></span>
-              <span className="event-detail">
-                {data.agent && <span className="agent-name">{data.agent}</span>}
-                {data.agent && data.target && ' \u2192 '}
-                {data.target && <span className="target-name">{data.target}</span>}
-                {data.role && <> as <span className="role-name">{data.role}</span></>}
-                {data.reason && <> &mdash; {data.reason}</>}
-                {data.message && <> {data.message}</>}
-                {!data.agent && !data.target && !data.reason && !data.message && (
-                  <span>{JSON.stringify(data).substring(0, 120)}</span>
-                )}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 1. OVERVIEW VIEW
@@ -2350,7 +2272,7 @@ function AuditView({ token, events }) {
               <th>Agent</th>
               <th>Target</th>
               <th>Role</th>
-              <th>TTL</th>
+              <th>Duration</th>
               <th>Detail</th>
             </tr>
           </thead>
@@ -3326,8 +3248,12 @@ function TerminalView({ hosts, token }) {
                     setFormData(prev => ({
                       ...prev, host: h ? h.host : e.target.value,
                       port: h ? (h.port || 22) : prev.port,
-                      user: h ? (h.user || '') : prev.user,
                     }));
+                    if (h) {
+                      api('GET', `/v1/dashboard/config/hosts/${encodeURIComponent(h.name)}`, null, token)
+                        .then(cfg => { if (cfg && cfg.ssh_user) setFormData(prev => ({ ...prev, user: cfg.ssh_user })); })
+                        .catch(() => {});
+                    }
                   }}>
                   <option value="">Select a host...</option>
                   {(hosts || []).map(h => (

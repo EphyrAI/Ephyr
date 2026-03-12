@@ -891,6 +891,10 @@ func (bs *BrokerServer) handleToggleRemote(w http.ResponseWriter, r *http.Reques
 	state.mu.Lock()
 	state.Config.Enabled = !state.Config.Enabled
 	newEnabled := state.Config.Enabled
+	if !newEnabled {
+		state.Status = RemoteStatusDisconnected
+		state.StatusMessage = "disabled by dashboard"
+	}
 	state.mu.Unlock()
 	bs.federator.save()
 
@@ -923,8 +927,13 @@ func (bs *BrokerServer) handleRevokeGrant(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "grants not configured"})
 		return
 	}
-	if !bs.grantStore.Revoke(id) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "grant not found"})
+	ok, reason := bs.grantStore.Revoke(id)
+	if !ok {
+		status := http.StatusNotFound
+		if reason == "grant already revoked" {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]string{"error": reason})
 		return
 	}
 	bs.eventHub.Broadcast(Event{
