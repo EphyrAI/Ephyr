@@ -79,7 +79,6 @@ type TargetPolicy struct {
 type RoleDefinition struct {
 	Principal   string `yaml:"principal"`   // SSH principal name, e.g. "agent-read"
 	Description string `yaml:"description"`
-	APIKeyHash         string `yaml:"api_key_hash"`
 }
 
 // ResolvedConfig holds the parsed Config alongside pre-resolved durations

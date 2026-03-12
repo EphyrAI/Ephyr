@@ -495,7 +495,7 @@ agents:
   claude:
     uid: 1000
     max_concurrent_certs: 5
-    api_key_hash: "$2a$10$hBvBDSpWdT7St3QkKTD64utG2U0K5WpGwY4Oia2QOyoZELUgmAGYu"
+    api_key_hash: "$2a$10$..."  # bcrypt hash of your MCP API key
     description: "Claude Code agent"
 ```
 

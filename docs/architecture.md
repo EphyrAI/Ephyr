@@ -3,7 +3,7 @@
 ## Overview
 
 Clauth is a three-tier SSH certificate authority designed for privileged access
-management in homelab environments. It issues short-lived OpenSSH user
+management in infrastructure environments. It issues short-lived OpenSSH user
 certificates to LLM agents, replacing static SSH keys with ephemeral,
 policy-governed credentials.
 
@@ -52,7 +52,7 @@ one-shot protocol).
 
 ```json
 {"action":"sign","public_key":"ssh-ed25519 AAAA...","principals":["agent-read"],
- "duration":"5m","key_id":"claude@docker-host/read","force_command":""}
+ "duration":"5m","key_id":"claude@webserver/read","force_command":""}
 ```
 
 Response: `{"certificate":"<base64>","serial":"a1b2c3d4e5f60718","expires_at":"2026-03-10T14:35:00Z"}`
@@ -118,7 +118,7 @@ Central orchestrator running multiple listeners and thirteen subsystems.
 | Activity Store | `broker/activity.go` | 10,000-entry ring buffer for analytics |
 | Exec Pool | `broker/mcp_exec.go` | SSH session management (persistent + one-shot) |
 | Proxy Engine | `broker/proxy.go` | HTTP proxy with credential injection |
-| MCP Server | `broker/mcp.go`, `broker/mcp_resources.go` | Model Context Protocol with 8 tools and 6 resources |
+| MCP Server | `broker/mcp.go`, `broker/mcp_resources.go` | Model Context Protocol with 10 tools and 7 resources |
 
 ### Certificate Request Flow
 
@@ -186,11 +186,12 @@ audit log, host toggle (revokes certs on disable), host config CRUD, role
 listing, WebSocket terminal, activity queries, service config CRUD,
 WebSocket event stream.
 
-**MCP** (`:8554`) -- Single `POST /mcp` endpoint. Eight tools: `list_targets`,
+**MCP** (`:8554`) -- Single `POST /mcp` endpoint. Ten tools: `list_targets`,
 `exec`, `session_create`, `session_close`, `list_sessions`, `list_certs`,
-`http_request`, `list_services`. Six resources for agent self-discovery:
+`http_request`, `list_services`, `list_remotes`, plus federated `{server}.{tool}`
+calls. Seven resources for agent self-discovery:
 `clauth://overview`, `clauth://targets`, `clauth://services`,
-`clauth://roles`, `clauth://status`, `clauth://tools`.
+`clauth://roles`, `clauth://status`, `clauth://tools`, `clauth://remotes`.
 
 ---
 
@@ -217,7 +218,7 @@ because the signer socket is UID-restricted via SO_PEERCRED.
 
 **Why no database?** Audit log is append-only JSON lines (jq/SIEM-friendly).
 Cert state is in-memory maps with 60-second cleanup. Activity uses a ring
-buffer. For a homelab scale, this avoids database operational burden.
+buffer. At this scale, this avoids database operational burden.
 
 **Why ring buffer for activity?** Fixed-size (10,000 entries), O(1) insert,
 bounded memory. Oldest entries silently overwritten on wrap.

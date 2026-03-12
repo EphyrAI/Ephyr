@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -99,7 +100,7 @@ func (h *EventHub) HandleWebSocket(token string) http.HandlerFunc {
 		// Authenticate via query param token.
 		if token != "" {
 			t := r.URL.Query().Get("token")
-			if t != token {
+			if subtle.ConstantTimeCompare([]byte(t), []byte(token)) != 1 {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}

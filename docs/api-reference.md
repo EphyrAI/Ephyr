@@ -204,7 +204,7 @@ host access controller, and returns one of three outcomes:
 
 ```json
 {
-  "target": "docker-host",
+  "target": "webserver",
   "role": "operator",
   "duration": "5m",
   "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
@@ -213,7 +213,7 @@ host access controller, and returns one of three outcomes:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `target` | string | Yes | Target name from policy (e.g., `docker-host`) |
+| `target` | string | Yes | Target name from policy (e.g., `webserver`) |
 | `role` | string | Yes | Role to request (e.g., `read`, `operator`, `admin`) |
 | `duration` | string | No | Go duration (e.g., `5m`, `10m`). Clamped to target max_ttl. Uses policy default if omitted |
 | `public_key` | string | Yes | SSH public key in authorized_keys format |
@@ -267,7 +267,7 @@ curl --unix-socket /run/clauth/broker.sock \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"target":"docker-host","role":"read","duration":"5m","public_key":"ssh-ed25519 AAAA..."}' \
+  -d '{"target":"webserver","role":"read","duration":"5m","public_key":"ssh-ed25519 AAAA..."}' \
   http://localhost/v1/request
 ```
 
@@ -287,7 +287,7 @@ On Dashboard TCP connections (no Unix peer credential), all certs are returned.
     "serial": "a1b2c3d4",
     "agent_name": "claude",
     "agent_uid": 1000,
-    "target": "docker-host",
+    "target": "webserver",
     "role": "operator",
     "principal": "agent-op",
     "issued_at": "2026-03-10T12:00:00Z",
@@ -352,7 +352,7 @@ is handled by the dashboard token middleware.
 ```json
 [
   {
-    "name": "docker-host",
+    "name": "webserver",
     "host": "TARGET_HOST",
     "port": 22,
     "allowed_roles": ["read", "operator"],
@@ -441,7 +441,7 @@ HostController (defaults to enabled on startup).
 
 ```json
 {
-  "host": "docker-host",
+  "host": "webserver",
   "access_enabled": false
 }
 ```
@@ -458,7 +458,7 @@ HostController (defaults to enabled on startup).
 
 ```bash
 curl --unix-socket /run/clauth/broker.sock \
-  -X POST http://localhost/v1/admin/hosts/docker-host/toggle
+  -X POST http://localhost/v1/admin/hosts/webserver/toggle
 ```
 
 ---
@@ -522,7 +522,7 @@ List all policy targets with access status, VLAN, and active session counts.
 ```json
 [
   {
-    "name": "docker-host",
+    "name": "webserver",
     "host": "TARGET_HOST",
     "vlan": 100,
     "status": "online",
@@ -546,7 +546,7 @@ List active certificate sessions with real-time TTL countdown.
   {
     "serial": "a1b2c3d4",
     "agent": "claude",
-    "target": "docker-host",
+    "target": "webserver",
     "role": "operator",
     "principal": "agent-op",
     "cert_ttl": 280,
@@ -593,7 +593,7 @@ when toggled off. Audit trail includes the HTTP `source_ip`.
 **Response** `200 OK`:
 
 ```json
-{"host": "docker-host", "access_enabled": false}
+{"host": "webserver", "access_enabled": false}
 ```
 
 ---
@@ -644,9 +644,9 @@ Aggregated activity statistics: totals, per-agent stats, top 10 targets, top 10 
   "total_proxy": 65,
   "total_errors": 5,
   "active_agents": 1,
-  "agent_stats": {"claude": {"total_actions": 320, "last_active": "...", "last_target": "docker-host"}},
+  "agent_stats": {"claude": {"total_actions": 320, "last_active": "...", "last_target": "webserver"}},
   "recent_entries": [],
-  "top_targets": [{"name": "docker-host", "count": 180}],
+  "top_targets": [{"name": "webserver", "count": 180}],
   "top_services": [{"name": "grafana", "count": 40}]
 }
 ```
@@ -714,7 +714,7 @@ Delete a host configuration.
 **Response** `200 OK`:
 
 ```json
-{"status": "deleted", "host": "docker-host"}
+{"status": "deleted", "host": "webserver"}
 ```
 
 ---
@@ -874,9 +874,9 @@ Single endpoint handling all MCP JSON-RPC 2.0 methods.
 |--------|-------------|
 | `initialize` | Protocol handshake -- returns server capabilities (tools, resources) |
 | `notifications/initialized` | Client acknowledgment (no response) |
-| `tools/list` | List all 8 available tools with JSON Schema parameters |
+| `tools/list` | List all 10 available tools with JSON Schema parameters |
 | `tools/call` | Execute a tool by name with arguments |
-| `resources/list` | List all 6 available resources with URIs and descriptions |
+| `resources/list` | List all 7 available resources with URIs and descriptions |
 | `resources/read` | Read a specific resource by URI, returns Markdown content |
 
 **Initialize example:**
@@ -996,7 +996,8 @@ curl -s -X POST http://BROKER:8554/mcp \
 | `clauth://services` | HTTP Proxy Services | Per-service details: URL prefix, auth type, allowed methods/paths, usage examples |
 | `clauth://roles` | Roles & Permissions | Role-to-principal mappings, per-role capabilities, role selection guide |
 | `clauth://status` | Agent Status | Agent's active certs (count), active sessions (list), last 10 activity entries |
-| `clauth://tools` | Tools Reference | All 8 tools with parameters, return types, and usage hints |
+| `clauth://tools` | Tools Reference | All 10 tools with parameters, return types, and usage hints |
+| `clauth://remotes` | Federated Servers | Configured MCP federation servers, status, and available tools |
 
 Resources return dynamically generated Markdown content reflecting the current policy
 configuration and live broker state. The `status` resource is personalized to the

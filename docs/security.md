@@ -211,7 +211,7 @@ External modes: `deny` (block all public), `restricted` (allow-list only),
 
 ### Host Firewall (nftables)
 
-Default-drop input policy on the Clauth LXC:
+Default-drop input policy on the Clauth broker host:
 - Allow SSH + dashboard (8553) + MCP (8554) from `192.168.0.0/16`
 - Allow established/related + loopback
 - Drop everything else
@@ -292,4 +292,4 @@ target requests, rate-limit spikes, off-hours activity, and repeated denials.
 **Operations:** Review the activity dashboard regularly. Use host toggles
 during maintenance. Hot-reload policy via SIGHUP (`systemctl reload
 clauth-broker`). Test policy changes with the unit tests (`engine_test.go`,
-`sprawl_test.go`) before production.
+`load_test.go`) before production.

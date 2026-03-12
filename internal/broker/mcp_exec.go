@@ -412,13 +412,18 @@ func (p *ExecSessionPool) execCommand(client *ssh.Client, target, role, command 
 // ExecInSession runs a command on an existing persistent SSH session.
 // The session is looked up by ID and must not be closed. A new ssh.Session
 // is opened on the existing SSH client (SSH multiplexing).
-func (p *ExecSessionPool) ExecInSession(sessionID, command string, timeout int) (*ExecResult, error) {
+func (p *ExecSessionPool) ExecInSession(agentName, sessionID, command string, timeout int) (*ExecResult, error) {
 	p.mu.RLock()
 	session, exists := p.sessions[sessionID]
 	p.mu.RUnlock()
 
 	if !exists {
 		return nil, fmt.Errorf("session %q not found", sessionID)
+	}
+
+	// Verify the calling agent owns this session.
+	if session.AgentName != agentName {
+		return nil, fmt.Errorf("session %q is owned by a different agent", sessionID)
 	}
 
 	session.mu.Lock()
@@ -429,7 +434,6 @@ func (p *ExecSessionPool) ExecInSession(sessionID, command string, timeout int) 
 	client := session.SSHClient
 	target := session.Target
 	role := session.Role
-	agentName := session.AgentName
 	session.mu.Unlock()
 
 	result, err := p.execCommand(client, target, role, command, timeout)
@@ -596,12 +600,17 @@ func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, t
 }
 
 // CloseSession tears down a persistent SSH session and removes it from the pool.
-func (p *ExecSessionPool) CloseSession(sessionID string) error {
+func (p *ExecSessionPool) CloseSession(agentName, sessionID string) error {
 	p.mu.Lock()
 	session, exists := p.sessions[sessionID]
 	if !exists {
 		p.mu.Unlock()
 		return fmt.Errorf("session %q not found", sessionID)
+	}
+	// Verify the calling agent owns this session.
+	if session.AgentName != agentName {
+		p.mu.Unlock()
+		return fmt.Errorf("session %q is owned by a different agent", sessionID)
 	}
 	delete(p.sessions, sessionID)
 	p.mu.Unlock()
@@ -609,7 +618,6 @@ func (p *ExecSessionPool) CloseSession(sessionID string) error {
 	session.mu.Lock()
 	client := session.SSHClient
 	session.SSHClient = nil
-	agentName := session.AgentName
 	target := session.Target
 	role := session.Role
 	certSerial := session.CertSerial
@@ -696,21 +704,26 @@ func (p *ExecSessionPool) cleanup() {
 
 	for range ticker.C {
 		p.mu.RLock()
-		var expired []string
+		type expiredSession struct {
+			id        string
+			agentName string
+		}
+		var expired []expiredSession
 		for id, s := range p.sessions {
 			s.mu.Lock()
 			idle := time.Since(s.LastUsed)
+			agent := s.AgentName
 			s.mu.Unlock()
 			if idle > maxIdleDuration {
-				expired = append(expired, id)
+				expired = append(expired, expiredSession{id: id, agentName: agent})
 			}
 		}
 		p.mu.RUnlock()
 
-		for _, id := range expired {
-			log.Printf("[mcp-exec] closing idle session %s (idle > %s)", id, maxIdleDuration)
-			if err := p.CloseSession(id); err != nil {
-				log.Printf("[mcp-exec] error closing idle session %s: %v", id, err)
+		for _, es := range expired {
+			log.Printf("[mcp-exec] closing idle session %s (idle > %s)", es.id, maxIdleDuration)
+			if err := p.CloseSession(es.agentName, es.id); err != nil {
+				log.Printf("[mcp-exec] error closing idle session %s: %v", es.id, err)
 			}
 		}
 	}

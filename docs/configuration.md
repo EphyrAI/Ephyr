@@ -114,7 +114,7 @@ Role names are referenced by targets in their allowed_roles lists.
 
 ### targets Section
 
-Each key under targets is the target's logical name (e.g., "docker-host").
+Each key under targets is the target's logical name (e.g., "webserver").
 This name is used in CLI commands, MCP tool calls, and audit logs.
 
 | Field | Type | Default | Required | Description |
@@ -220,7 +220,7 @@ agents:
     api_key_hash: "$2a$10$..."
     inherits: [full-ops]
     ssh:
-      docker-host:
+      webserver:
         roles: [read, operator, admin]
         auto_approve: true
     services:
@@ -819,8 +819,13 @@ TCP address configured by CLAUTH_MCP_LISTEN (default :8554):
 | list_certs | List active SSH certificates for the authenticated agent. | (none) |
 | http_request | Make an HTTP request through the authenticated proxy. | url |
 | list_services | List configured proxy services with credential injection info. | (none) |
+| list_remotes | List federated MCP servers and their available tools. | (none) |
 
 MCP protocol version: 2025-03-26 (Streamable HTTP transport).
+
+Federated tools from remote MCP servers appear as `{server}.{tool}` (e.g.,
+`demo-tools.roll_dice`). These are discovered automatically via `list_remotes`
+and proxied transparently by the broker.
 
 Authentication: Authorization: Bearer <api-key> header on every request.
 The API key is validated against bcrypt hashes in the policy file's

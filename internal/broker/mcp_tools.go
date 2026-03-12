@@ -398,7 +398,7 @@ func (s *MCPServer) toolExec(ctx context.Context, agent *MCPAgent, args map[stri
 	var result *ExecResult
 	var err error
 	if sessionID != "" {
-		result, err = s.execPool.ExecInSession(sessionID, command, timeout)
+		result, err = s.execPool.ExecInSession(agent.Name, sessionID, command, timeout)
 	} else {
 		result, err = s.execPool.ExecOneShot(agent.Name, target, role, command, timeout)
 	}
@@ -513,7 +513,7 @@ func (s *MCPServer) toolSessionClose(ctx context.Context, agent *MCPAgent, args 
 		return errorResult("exec subsystem is not available"), nil
 	}
 
-	if err := s.execPool.CloseSession(sessionID); err != nil {
+	if err := s.execPool.CloseSession(agent.Name, sessionID); err != nil {
 		return errorResult(fmt.Sprintf("failed to close session: %s", err.Error())), nil
 	}
 

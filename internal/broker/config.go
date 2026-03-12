@@ -390,7 +390,13 @@ func (bs *BrokerServer) handleGetHostConfig(w http.ResponseWriter, r *http.Reque
 
 // handleUpdateHostConfig serves PUT /v1/dashboard/config/hosts/{name}.
 // Creates or updates a host config.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleUpdateHostConfig(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if bs.configMgr == nil {
 		writeError(w, http.StatusServiceUnavailable, "config manager not initialized")
 		return
@@ -436,7 +442,13 @@ func (bs *BrokerServer) handleUpdateHostConfig(w http.ResponseWriter, r *http.Re
 }
 
 // handleDeleteHostConfig serves DELETE /v1/dashboard/config/hosts/{name}.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleDeleteHostConfig(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if bs.configMgr == nil {
 		writeError(w, http.StatusServiceUnavailable, "config manager not initialized")
 		return

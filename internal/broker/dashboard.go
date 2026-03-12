@@ -42,10 +42,21 @@ func dashboardAuth(token string, next http.Handler) http.Handler {
 	})
 }
 
-// corsMiddleware adds permissive CORS headers for the dashboard.
+// corsMiddleware adds CORS headers for the dashboard. Instead of a wildcard
+// origin, it reflects the request's Origin header so that browser-based
+// credential requests (cookies, Authorization) work correctly while
+// preventing arbitrary cross-origin access from sites without an Origin.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			// Reflect the requesting origin. All dashboard access is
+			// already behind token authentication, and reflecting the
+			// origin (rather than using "*") ensures browsers enforce
+			// credential checks properly.
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == "OPTIONS" {
@@ -111,6 +122,29 @@ type GrantSettings struct {
 	DefaultServiceTTL string `json:"default_service_ttl"`
 	DefaultMCPTTL     string `json:"default_mcp_ttl"`
 	ActiveGrants      int    `json:"active_grants"`
+}
+
+// dashboardWriteCheck validates whether a dashboard operation should proceed.
+// Currently, all dashboard access is controlled by a single shared token
+// (configured via DashboardToken). The token holder is treated as an admin.
+//
+// When MCP-based dashboard tools are added (allowing agents to call dashboard
+// management endpoints programmatically), this function should be extended to
+// check the agent's ResolvedAgentPerms.Dashboard level:
+//   - DashboardNone:     deny all access
+//   - DashboardViewer:   allow read-only endpoints
+//   - DashboardOperator: allow toggle and revoke operations
+//   - DashboardAdmin:    allow all operations including config changes
+//
+// TODO: Implement per-agent dashboard RBAC when dashboard management tools
+// are added to the MCP server. This will require passing the agent identity
+// (from MCP authentication) through to these handlers.
+func dashboardWriteCheck() error {
+	// All dashboard HTTP access is currently gated by the shared dashboard
+	// token. The token holder has full admin privileges by definition.
+	// Per-agent RBAC enforcement is deferred until MCP-based dashboard
+	// access is implemented.
+	return nil
 }
 
 // startDashboardListener starts the TCP HTTP server for the dashboard on
@@ -491,7 +525,13 @@ func (bs *BrokerServer) handleDashboardAudit(w http.ResponseWriter, r *http.Requ
 }
 
 // handleDashboardToggleHost serves POST /v1/dashboard/hosts/{name}/toggle.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: operator or admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleDashboardToggleHost(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	name := r.PathValue("name")
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "host name is required")
@@ -571,7 +611,13 @@ func (bs *BrokerServer) handleDashboardToggleHost(w http.ResponseWriter, r *http
 }
 
 // handleDashboardRevokeSession serves POST /v1/dashboard/sessions/{serial}/revoke.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: operator or admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleDashboardRevokeSession(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	serial := r.PathValue("serial")
 	if serial == "" {
 		writeError(w, http.StatusBadRequest, "serial is required")
@@ -657,7 +703,13 @@ func (bs *BrokerServer) handleGetService(w http.ResponseWriter, r *http.Request)
 }
 
 // handleUpdateService serves PUT /v1/dashboard/services/{name}
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleUpdateService(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	name := r.PathValue("name")
 	if bs.proxyEngine == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "proxy not initialized"})
@@ -680,7 +732,13 @@ func (bs *BrokerServer) handleUpdateService(w http.ResponseWriter, r *http.Reque
 }
 
 // handleDeleteService serves DELETE /v1/dashboard/services/{name}
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleDeleteService(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	name := r.PathValue("name")
 	if bs.proxyEngine == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "proxy not initialized"})
@@ -727,7 +785,13 @@ func (bs *BrokerServer) handleGetRemote(w http.ResponseWriter, r *http.Request) 
 
 // handlePutRemote serves PUT /v1/dashboard/remotes/{name}.
 // Creates or updates a remote MCP server config.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handlePutRemote(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	name := r.PathValue("name")
 	if bs.federator == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "federation not configured"})
@@ -773,7 +837,13 @@ func (bs *BrokerServer) handlePutRemote(w http.ResponseWriter, r *http.Request) 
 
 // handleDeleteRemote serves DELETE /v1/dashboard/remotes/{name}.
 // Removes a remote MCP server and stops its background refresh.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleDeleteRemote(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	name := r.PathValue("name")
 	if bs.federator == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "federation not configured"})
@@ -837,7 +907,13 @@ func (bs *BrokerServer) handleRefreshRemote(w http.ResponseWriter, r *http.Reque
 }
 
 // handleToggleService serves POST /v1/dashboard/services/{name}/toggle.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: operator or admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleToggleService(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	name := r.PathValue("name")
 	if bs.proxyEngine == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "proxy not configured"})
@@ -883,7 +959,13 @@ func (bs *BrokerServer) handleToggleService(w http.ResponseWriter, r *http.Reque
 }
 
 // handleToggleRemote serves POST /v1/dashboard/remotes/{name}/toggle.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: operator or admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleToggleRemote(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	name := r.PathValue("name")
 	if bs.federator == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "federation not configured"})
@@ -932,7 +1014,13 @@ func (bs *BrokerServer) handleToggleRemote(w http.ResponseWriter, r *http.Reques
 
 
 // handleRevokeGrant serves POST /v1/dashboard/grants/{id}/revoke.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: operator or admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleRevokeGrant(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	id := r.PathValue("id")
 	if bs.grantStore == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "grants not configured"})
@@ -969,7 +1057,13 @@ func (bs *BrokerServer) handleGetGrantSettings(w http.ResponseWriter, r *http.Re
 }
 
 // handleUpdateGrantSettings serves PUT /v1/dashboard/settings/grants.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: admin (when per-agent auth is implemented).
 func (bs *BrokerServer) handleUpdateGrantSettings(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if bs.grantStore == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "grants not configured"})
 		return

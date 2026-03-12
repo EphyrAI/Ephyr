@@ -10,7 +10,7 @@ Protocol (MCP).
 The Model Context Protocol (MCP) is a structured tool interface for large language
 models. It uses JSON-RPC 2.0 over HTTP to expose server-side "tools" that any
 compatible AI agent can discover and call. Clauth implements MCP Streamable HTTP
-transport (protocol version `2025-03-26`), exposing homelab infrastructure
+transport (protocol version `2025-03-26`), exposing infrastructure
 operations -- SSH command execution, session management, and authenticated HTTP
 proxying -- as tools that agents can invoke programmatically.
 
@@ -98,7 +98,7 @@ injection, and audit logging transparently.
 
 ### 1. Generate API Key
 
-On the Clauth LXC, generate a bcrypt hash for the agent's API key:
+On the Clauth broker host, generate a bcrypt hash for the agent's API key:
 
 ```bash
 # Generate a random key
@@ -114,23 +114,39 @@ Add the API key hash and MCP settings to `/etc/clauth/policy.yaml`:
 
 ```yaml
 agents:
-  - name: claude
-    api_key_hash: "$2y$10$..."   # bcrypt hash from step 1
-    max_certs: 5
-    roles:
-      - read
-      - operator
-      - admin
-    targets:
-      - app-server
-      - web-server
-      - blog-server
-    auto_approve: true
+  claude:
+    uid: 1000
+    api_key_hash: "$2a$10$..."   # bcrypt hash from step 1
+    max_concurrent_certs: 5
+    description: "Claude Code agent"
 
-mcp:
-  enabled: true
-  port: 8554
-  protocol_version: "2025-03-26"
+roles:
+  read:
+    principal: "agent-read"
+    description: "Read-only access"
+  operator:
+    principal: "agent-op"
+    description: "Operational commands"
+  admin:
+    principal: "agent-admin"
+    description: "Administrative access"
+
+targets:
+  app-server:
+    host: "10.0.1.10"
+    port: 22
+    allowed_roles: [read, operator, admin]
+    auto_approve: true
+  web-server:
+    host: "10.0.1.20"
+    port: 22
+    allowed_roles: [read, operator]
+    auto_approve: true
+  blog-server:
+    host: "10.0.1.30"
+    port: 22
+    allowed_roles: [read, operator]
+    auto_approve: true
 ```
 
 Reload the broker to apply:
@@ -261,7 +277,7 @@ the lifetime of the connection.
 }
 ```
 
-**Response:** Returns array of 8 tool definitions with names, descriptions, and
+**Response:** Returns array of 10 tool definitions with names, descriptions, and
 JSON Schema for input parameters. See "Available Tools" below for details.
 
 ### Call Tool
@@ -314,7 +330,7 @@ JSON Schema for input parameters. See "Available Tools" below for details.
 }
 ```
 
-**Response** (showing 2 of 6 resources):
+**Response** (showing 2 of 7 resources):
 
 ```json
 {
@@ -339,7 +355,7 @@ JSON Schema for input parameters. See "Available Tools" below for details.
 }
 ```
 
-All 6 resources are documented in the "MCP Resources" section below.
+All 7 resources are documented in the "MCP Resources" section below.
 
 ### Read Resource
 
@@ -745,7 +761,7 @@ are available for proxying.
   "content": [
     {
       "type": "text",
-      "text": "[{\"name\": \"github\", \"url_prefix\": \"https://api.github.com\", \"auth_type\": \"bearer\"}, {\"name\": \"gitea\", \"url_prefix\": \"http://GITEA_HOST:3000\", \"auth_type\": \"header\"}, {\"name\": \"portainer\", \"url_prefix\": \"https://PORTAINER_HOST:9443\", \"auth_type\": \"bearer\"}, {\"name\": \"grafana\", \"url_prefix\": \"http://GRAFANA_HOST:3030\", \"auth_type\": \"bearer\"}, {\"name\": \"uptime-kuma\", \"url_prefix\": \"http://UPTIME_KUMA_HOST:3001\", \"auth_type\": \"none\"}, {\"name\": \"homepage\", \"url_prefix\": \"http://HOMEPAGE_HOST:3000\", \"auth_type\": \"none\"}, {\"name\": \"command-center\", \"url_prefix\": \"http://COMMAND_CENTER_HOST:8550\", \"auth_type\": \"none\"}]"
+      "text": "[{\"name\": \"github\", \"url_prefix\": \"https://api.github.com\", \"auth_type\": \"bearer\"}, {\"name\": \"gitea\", \"url_prefix\": \"http://GITEA_HOST:3000\", \"auth_type\": \"header\"}, {\"name\": \"portainer\", \"url_prefix\": \"https://PORTAINER_HOST:9443\", \"auth_type\": \"bearer\"}, {\"name\": \"grafana\", \"url_prefix\": \"http://GRAFANA_HOST:3030\", \"auth_type\": \"bearer\"}, {\"name\": \"uptime-kuma\", \"url_prefix\": \"http://UPTIME_KUMA_HOST:3001\", \"auth_type\": \"none\"}, {\"name\": \"homepage\", \"url_prefix\": \"http://HOMEPAGE_HOST:3000\", \"auth_type\": \"none\"}, {\"name\": \"broker-api\", \"url_prefix\": \"http://BROKER_API_HOST:8550\", \"auth_type\": \"none\"}]"
     }
   ]
 }
@@ -758,11 +774,62 @@ are available for proxying.
 
 ---
 
+### 9. `list_remotes`
+
+Lists federated MCP servers configured in the broker, showing available
+remote servers and their tools.
+
+**Parameters:** None
+
+**Example call:**
+
+```json
+{
+  "name": "list_remotes",
+  "arguments": {}
+}
+```
+
+**Response:**
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[{\"name\": \"demo-tools\", \"url\": \"http://REMOTE_HOST:8560/mcp\", \"status\": \"connected\", \"tools\": 5}]"
+    }
+  ]
+}
+```
+
+**Notes:**
+- Returns only remotes the authenticated agent is allowed to access per RBAC policy.
+- Federated tools from remotes appear as `{server}.{tool}` (e.g., `demo-tools.roll_dice`).
+- Remote configuration is managed via `/var/lib/clauth/remotes.json` or
+  the dashboard's MCP Servers view.
+
+---
+
+### 10. `{server}.{tool}` (Federated Tools)
+
+Calls a tool on a federated remote MCP server. The broker proxies the call
+transparently, injecting credentials if configured.
+
+**Parameters:** Vary by remote tool (discovered via `list_remotes` or `tools/list`).
+
+**Notes:**
+- Federated tools are namespaced: `{remote_name}.{tool_name}`.
+- All federated calls are audited and tracked in the activity log.
+- The agent never communicates directly with the remote server.
+
+---
+
 ## MCP Resources
 
 Resources are a read-only discovery mechanism in MCP. Unlike tools, which perform
 actions, resources provide structured information that agents can read to understand
-the system they are connected to. Clauth exposes 6 resources under the `clauth://`
+the system they are connected to. Clauth exposes 7 resources under the `clauth://`
 URI scheme.
 
 ### Why Resources Matter
@@ -801,7 +868,7 @@ resource for any agent to read after initialization.
 | app-server | TARGET_HOST:22 | read, operator | 5m | yes |
 | blog-server | TARGET_HOST:22 | read, operator | 5m | yes |
 ## HTTP Proxy Services (7)
-github, gitea, portainer, grafana, uptime-kuma, homepage, command-center
+github, gitea, portainer, grafana, uptime-kuma, homepage, broker-api
 ## Your Permissions
 Agent: claude | Roles: read, operator, admin | Max certs: 5 | Auto-approve: yes
 ## Quick Start
@@ -858,7 +925,7 @@ Credentials injected automatically -- never provide tokens or API keys.
 | grafana | http://GRAFANA_HOST:3030 | bearer |
 | uptime-kuma | http://UPTIME_KUMA_HOST:3001 | none |
 | homepage | http://HOMEPAGE_HOST:3000 | none |
-| command-center | http://COMMAND_CENTER_HOST:8550 | none |
+| broker-api | http://BROKER_API_HOST:8550 | none |
 ```
 
 ---
@@ -919,7 +986,7 @@ sees only its own data.
 
 #### `clauth://tools` -- Tools Reference
 
-Quick-reference card for all 8 MCP tools. Designed for agents that want a
+Quick-reference card for all 10 MCP tools. Designed for agents that want a
 compact cheat-sheet without reading full documentation.
 
 **Content includes:**
@@ -940,6 +1007,30 @@ compact cheat-sheet without reading full documentation.
 | list_certs | (none) | | List active certificates |
 | http_request | url | method, headers, body | Proxied HTTP request |
 | list_services | (none) | | List proxy services |
+| list_remotes | (none) | | List federated MCP servers |
+```
+
+---
+
+#### `clauth://remotes` -- Federated MCP Servers
+
+Lists configured federated MCP servers, their connection status, and
+available tools.
+
+**Content includes:**
+- Remote server name and URL
+- Connection status and tool count
+- Available tools from each remote
+- Usage examples for federated tool calls
+
+**Example content** (abbreviated):
+
+```markdown
+# Federated MCP Servers
+## demo-tools
+URL: http://REMOTE_HOST:8560/mcp | Status: connected | Tools: 5
+Available tools: roll_dice, get_time, reverse_text, word_count, base_convert
+Usage: Call as demo-tools.roll_dice, demo-tools.get_time, etc.
 ```
 
 ---
@@ -1094,30 +1185,30 @@ Agent investigates an unhealthy container using a persistent session:
 }}}
 ```
 
-### Workflow 3: Blog Deployment
+### Workflow 3: Application Deployment
 
-Agent builds and deploys a Hugo blog post:
+Agent builds and deploys an application:
 
 ```json
-// Step 1: Build the site
+// Step 1: Pull latest code
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "blog-server", "role": "operator",
-  "command": "cd /mnt/blog && hugo"
+  "target": "web-server", "role": "operator",
+  "command": "cd /opt/app && git pull origin main"
 }}}
 
-// Step 2: Check for errors
+// Step 2: Build the application
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "blog-server", "role": "operator",
-  "command": "cd /mnt/blog && git status"
+  "target": "web-server", "role": "operator",
+  "command": "cd /opt/app && make build"
 }}}
 
-// Step 3: Push to deploy (triggers Cloudflare Pages)
+// Step 3: Restart the service
 {"method": "tools/call", "params": {"name": "exec", "arguments": {
-  "target": "blog-server", "role": "operator",
-  "command": "cd /mnt/blog && git add -A && git commit -m 'New post' && git push origin main"
+  "target": "web-server", "role": "operator",
+  "command": "sudo systemctl restart myapp"
 }}}
 
-// Step 4: Verify via GitHub API through proxy
+// Step 4: Verify deployment via HTTP proxy
 {"method": "tools/call", "params": {"name": "http_request", "arguments": {
   "url": "https://api.github.com/repos/YOUR_ORG/YOUR_REPO/commits?per_page=1"
 }}}
@@ -1143,9 +1234,9 @@ Agent correlates data from multiple services via HTTP proxy:
   "url": "https://PORTAINER_HOST:9443/api/endpoints"
 }}}
 
-// Step 4: Check Command Center for lab status
+// Step 4: Check Broker API for lab status
 {"method": "tools/call", "params": {"name": "http_request", "arguments": {
-  "url": "http://COMMAND_CENTER_HOST:8550/api/status"
+  "url": "http://BROKER_API_HOST:8550/api/status"
 }}}
 ```
 
@@ -1164,7 +1255,7 @@ before performing any operations:
 
 // Step 2: Discover available resources
 {"method": "resources/list", "params": {}}
-// Returns: 6 resources with clauth:// URIs
+// Returns: 7 resources with clauth:// URIs
 
 // Step 3: Read the system overview to understand what's available
 {"method": "resources/read", "params": {"uri": "clauth://overview"}}
