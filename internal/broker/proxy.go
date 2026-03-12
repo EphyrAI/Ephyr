@@ -33,7 +33,7 @@ type ProxyEngine struct {
 // ServiceConfig defines a configured service with its credentials and access rules.
 type ServiceConfig struct {
 	Name           string            `json:"name"`
-	URLPrefix      string            `json:"url_prefix"`       // e.g. "http://192.168.100.54:3000"
+	URLPrefix      string            `json:"url_prefix"`       // e.g. "http://gitea.internal:3000"
 	AuthType       string            `json:"auth_type"`        // "bearer", "basic", "header", "query", "none"
 	TokenHeader    string            `json:"token_header"`     // custom header name (default: "Authorization")
 	TokenPrefix    string            `json:"token_prefix"`     // e.g. "token ", "Bearer "
@@ -51,7 +51,7 @@ type ServiceConfig struct {
 
 // NetworkPolicy controls which hosts/networks the proxy may reach.
 type NetworkPolicy struct {
-	AllowCIDRs    []string `json:"allow_cidrs"`     // e.g. ["192.168.100.0/24"]
+	AllowCIDRs    []string `json:"allow_cidrs"`     // e.g. ["10.0.0.0/8"]
 	DenyCIDRs     []string `json:"deny_cidrs"`      // e.g. ["192.168.10.0/24"]
 	External      string   `json:"external"`         // "open", "restricted", "deny"
 	ExternalAllow []string `json:"external_allow"`   // hostname glob patterns for restricted mode

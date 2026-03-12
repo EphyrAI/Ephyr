@@ -2729,7 +2729,7 @@ function ServiceConfigPanel({ service, open, onClose, onSave, onDelete, token })
             <label className="form-label">URL Prefix</label>
             <input className="form-input" value={config.url_prefix || ''}
               onChange={e => handleFieldChange('url_prefix', e.target.value)}
-              placeholder="e.g. http://192.168.100.100:3030" />
+              placeholder="e.g. http://grafana.internal:3030" />
           </div>
           <div className="form-group">
             <label className="form-label">Description</label>

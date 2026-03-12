@@ -357,7 +357,7 @@ is handled by the dashboard token middleware.
     "port": 22,
     "allowed_roles": ["read", "operator"],
     "auto_approve": true,
-    "description": "DockerHost -- production Docker services (VLAN 100 Mandrake)"
+    "description": "Production Docker host"
   }
 ]
 ```
@@ -526,7 +526,7 @@ List all policy targets with access status, VLAN, and active session counts.
     "host": "TARGET_HOST",
     "vlan": 100,
     "status": "online",
-    "role": "DockerHost -- production Docker services (VLAN 100 Mandrake)",
+    "role": "Production Docker host",
     "access_enabled": true,
     "active_sessions": 1
   }
@@ -695,7 +695,7 @@ only non-zero fields are applied. New configs are created with all provided fiel
   "max_ttl": "10m",
   "default_ttl": "5m",
   "auto_approve": true,
-  "description": "DockerHost",
+  "description": "Production Docker host",
   "os": "Debian 12"
 }
 ```

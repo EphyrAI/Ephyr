@@ -2,34 +2,54 @@
   <h1 align="center">Clauth</h1>
   <p align="center"><i>pronounced "klawth"</i></p>
   <p align="center">
-    <strong>Zero-trust infrastructure access for AI agents.<br>Every connection authenticated, authorized, audited.</strong>
+    <strong>A broker that gives AI agents ephemeral, auditable, policy-controlled access<br>to infrastructure -- without standing credentials.</strong>
   </p>
 </p>
 
 <p align="center">
   <a href="#quick-start"><img alt="Go 1.24+" src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" /></a>
   <a href="#license"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue" /></a>
-  <img alt="Zero Trust" src="https://img.shields.io/badge/Zero_Trust-Agent_Auth-8B5CF6" />
+  <img alt="Brokered Access" src="https://img.shields.io/badge/Brokered-Least_Privilege-8B5CF6" />
   <img alt="MCP" src="https://img.shields.io/badge/MCP-2025--03--26-10B981" />
 </p>
 
 ---
 
-Clauth is an access broker for AI agents, accessed entirely through MCP (Model Context Protocol). A single MCP connection replaces N different authentication mechanisms -- SSH keys, API tokens, service credentials -- with one unified, policy-governed interface.
+## What is Clauth?
 
-Instead of scattering credentials across your infrastructure and hoping agents handle them responsibly, Clauth sits between agents and backends as a proxy, authenticator, and broker. The agent connects to one MCP endpoint. Clauth handles the rest: issuing ephemeral SSH certificates, injecting API tokens into HTTP requests, and forwarding calls to federated MCP servers -- all governed by declarative policy, scoped by role, time-limited by grants, and fully audited.
+Clauth is an access broker for AI agents. It sits between agents and your infrastructure, issuing ephemeral credentials, enforcing policy, and auditing every action. Agents never hold long-lived infrastructure secrets -- credentials stay in the broker, not the agent runtime.
+
+A single MCP connection replaces N different authentication mechanisms -- SSH keys, API tokens, service credentials -- with one unified, policy-governed interface.
+
+Instead of scattering credentials across your infrastructure and hoping agents handle them responsibly, Clauth centralizes access control in a single broker process. The agent connects to one MCP endpoint. Clauth handles the rest.
+
+### Hierarchy
+
+- **Core:** Brokered, least-privilege access for AI agents
+- **Access types:** SSH (ephemeral certificates), HTTP (credential-injecting proxy), federated MCP
+- **Control plane:** Declarative policy, time-limited grants, structured audit
+- **Admin UI:** Optional operational dashboard for policy inspection, emergency revocation, and audit search
+
+## Intended Deployment Model
+
+Clauth is designed for:
+
+- **Homelabs and power users** who give AI agents (Claude Code, etc.) access to their infrastructure
+- **Internal engineering teams** managing dev/staging/prod environments with AI-assisted operations
+- **Single-tenant environments** where a small number of trusted operators control the broker
+
+Clauth is **not** designed for multi-tenant SaaS, public-facing agent platforms, or environments where the broker operator is untrusted. It assumes a trusted administrator who defines policy and manages the broker.
 
 ## Why Clauth?
 
-Static credentials for AI agents are a liability. SSH keys don't expire, API tokens can't be scoped per-task, and when an agent session ends the access remains. Clauth replaces that model entirely:
+Static credentials for AI agents are a liability. SSH keys don't expire, API tokens can't be scoped per-task, and when an agent session ends the access remains. Clauth replaces that model:
 
 - **One connection, all access** -- Agents connect to a single MCP endpoint. SSH targets, HTTP APIs, and remote MCP servers are all reachable through the broker. No direct backend access required.
 - **Ephemeral credentials** -- SSH certificates default to 5-minute TTL. Service and MCP grants auto-expire. When the task is done, access disappears.
-- **Network isolation** -- nftables blocks the agent user from reaching backends directly. All traffic flows through the broker, which enforces policy before proxying.
-- **Credential-free agents** -- The broker injects API tokens, SSH certificates, and auth headers. Agents never see passwords or keys.
+- **No standing backend credentials** -- The broker injects API tokens, SSH certificates, and auth headers. Agents never handle long-lived backend secrets directly.
 - **Declarative policy** -- YAML defines who can access what, with what role, for how long. Hot-reload with SIGHUP.
-- **TTL-based grants** -- Beyond SSH certificates, the broker issues time-limited access grants for HTTP services and federated MCP servers, with a configurable passthrough mode for fire-and-forget access.
 - **Full audit trail** -- Every certificate, every command, every HTTP proxy request, every denied action. Structured JSON, ready for your SIEM.
+- **Network isolation** -- Optional nftables rules block the agent user from reaching backends directly. All traffic flows through the broker, which enforces policy before proxying.
 
 ## Architecture
 
@@ -38,7 +58,7 @@ Clauth runs as three isolated processes with strict privilege separation. The br
 ```
                                     +------------------------------+
                                     |         Dashboard            |
-                                    |  React SPA - WebSocket - TCP |
+                                    |  (optional admin UI)         |
                                     +-------------+----------------+
                                                   | :8553
                                                   |
@@ -47,43 +67,84 @@ Clauth runs as three isolated processes with strict privilege separation. The br
 |   Agent (CLI)    |  broker.sock  |         clauth-broker         |  signer.sock  |  clauth-signer   |
 |                  +-------------->|                               +-------------->|                  |
 +------------------+               |  Policy engine - Sessions     |               |  CA key holder   |
-                                   |  MCP server - HTTP proxy      |               |  Signs certs     |
-+------------------+  HTTP :8554   |  Grant store - Activity       |               |  Never on network|
-|   Agent (MCP)    |  Bearer auth  |  MCP federation - Audit       |               +------------------+
+                                   |  MCP server - Grant store     |               |  Signs certs     |
++------------------+  HTTP :8554   |  Activity store - Audit       |               |  Never on network|
+|   Agent (MCP)    |  Bearer auth  |                               |               +------------------+
 |  Claude, etc.    +-------------->|                               |
 +--------+---------+               +-+------------+----------+-----+
          |                           |            |          |
      nftables blocks          Three proxy paths:
      direct access            1. SSH exec     2. HTTP proxy   3. MCP federation
-                                   |            |          |
+     (when configured)             |            |          |
                                    v            v          v
                             +------------------+  +------------------+  +------------------+
                             |  Target Hosts    |  |  Web Services    |  |  Remote MCP      |
-                            |  (SSH servers)   |  |  (GitHub, etc.)  |  |  Servers         |
+                            |  (SSH servers)   |  |  (APIs, etc.)    |  |  Servers         |
                             +------------------+  +------------------+  +------------------+
 ```
 
-### Three Proxy Paths
+### Core
 
-**1. SSH Exec** -- The agent calls `exec` with a target and command. The broker generates an ephemeral Ed25519 keypair, has the signer issue a certificate via Unix socket IPC, SSHs to the target, runs the command, and returns stdout/stderr/exit_code. The agent never touches SSH keys or certificates. Persistent sessions reduce per-command latency from ~850ms to ~14ms.
+**SSH Broker** -- The agent calls `exec` with a target and command. The broker generates an ephemeral Ed25519 keypair, has the signer issue a certificate via Unix socket IPC, SSHs to the target, runs the command, and returns stdout/stderr/exit_code. The agent never touches SSH keys or certificates. Persistent sessions reduce per-command latency from ~850ms to ~14ms.
 
-**2. HTTP Proxy** -- The agent calls `http_request` with a URL. The broker matches the URL to a configured service, injects stored credentials (bearer token, basic auth, custom header, or query parameter), and forwards the request. Network policy controls which destinations are reachable: RFC 1918 by default, external hostnames via allowlist.
+**Policy Engine** -- Declarative YAML configuration with hot-reload. An 8-step evaluation pipeline checks every certificate request: agent exists, target exists, role allowed, duration clamped, concurrent limits, duplicate handling, global limits, approval mode. Every denial includes a specific reason.
 
-**3. MCP Federation** -- The agent calls a namespaced tool like `demo-tools.roll_dice`. The broker proxies the JSON-RPC call to the remote MCP server, injecting any configured credentials. Background discovery keeps tool catalogs fresh. From the agent's perspective, local and federated tools are indistinguishable.
+**Grant Store** -- Time-limited access grants track agent permissions across all proxy paths. Three types: `ssh_cert` (5 min default), `service` (5 min), and `mcp` (5 min). Grants auto-expire and are cleaned up by a background goroutine.
 
-### Network Isolation
+**Audit** -- Append-only structured JSON-line logging. Every certificate operation, command execution, HTTP proxy request, and policy decision is recorded. Logrotate integration with 30-day retention out of the box.
 
-On the broker host, nftables enforces that the agent user (UID 1000) cannot reach backend hosts directly. All output traffic from the agent to infrastructure IPs is dropped at the kernel level. The only path to backends is through the broker's Unix socket or MCP endpoint, where policy is enforced before every action. This means even a compromised agent process cannot bypass the broker.
+**Network Isolation** -- When deployed on the same host as the agent, nftables rules block the agent user (by UID) from reaching backend hosts directly. The only path to backends is through the broker's Unix socket or MCP endpoint. This isolation applies specifically when the agent process runs on the broker host -- remote MCP agents connecting over the network are constrained by the broker's policy enforcement rather than kernel-level traffic filtering.
+
+### Extensions
+
+**HTTP Proxy** -- A credential-injecting proxy for web services. Configure a service once with its URL prefix and credentials, and agents make requests without ever seeing the token. Supports bearer, basic auth, custom header, and query parameter injection. Network policy controls reachable destinations.
+
+**MCP Federation** -- Aggregate tools from remote MCP servers through a single unified endpoint. Remote tools appear namespaced (e.g., `devtools.list_repos`). The broker discovers tools automatically via MCP handshake and keeps catalogs fresh with background refresh.
+
+**Dashboard** -- A single-page admin UI for operational control: policy inspection, host/service/remote management with enable/disable toggles, emergency certificate revocation, session monitoring, activity feed, and audit log search. WebSocket streaming pushes state changes to connected clients in real time.
 
 ### Process Isolation
 
-**clauth-signer** holds the Ed25519 CA private key and does nothing else. It listens on a Unix socket, signs certificate requests, and runs in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. The CA key never leaves this process.
+**clauth-signer** holds the Ed25519 CA private key and does nothing else. It listens on a Unix socket, signs certificate requests, and runs in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. The CA key never leaves this process. Broker compromise does not expose the CA key.
 
-**clauth-broker** is the brain. It loads policy from YAML, evaluates certificate requests through an 8-step pipeline, manages sessions, grants, and certificate lifecycle, serves the dashboard and MCP endpoint, proxies HTTP requests with credential injection, federates remote MCP servers, and writes structured audit logs.
+**clauth-broker** is the brain. It loads policy from YAML, evaluates certificate requests, manages sessions/grants/certificate lifecycle, serves the MCP endpoint and optional dashboard, proxies HTTP requests with credential injection, federates remote MCP servers, and writes structured audit logs.
 
 **clauth** (CLI) is the agent-side tool for direct SSH operations from the broker host.
 
+## Security Boundaries
+
+Clauth provides brokered, ephemeral, policy-governed infrastructure access. Understanding what it enforces -- and what it relies on other layers to enforce -- is important for secure deployment.
+
+### What Clauth enforces
+
+- **Access issuance policy** -- Which agents can reach which targets, with which roles, for how long. Every request is evaluated against declarative policy before credentials are issued.
+- **Request-level audit** -- Every action (cert issued, command executed, HTTP request proxied, access denied) is logged with agent identity, target, timestamp, and outcome.
+- **Credential isolation** -- Backend credentials (API tokens, SSH CA key) live in the broker/signer processes. Agents interact through MCP tools and never receive long-lived secrets.
+- **Grant expiry** -- All access is time-limited. SSH certificates, service grants, and MCP grants auto-expire.
+
+### What target hosts enforce
+
+- **Command-level permissions** -- Clauth issues certificates with SSH principals (e.g., `agent-read`, `agent-op`). The target host maps these principals to Linux users with appropriate shell restrictions (rbash for read-only, bash for operators), sudoers rules, and filesystem permissions.
+- **OS-level isolation** -- The target host's own security controls (SELinux/AppArmor, filesystem permissions, network policy) are the final enforcement layer. Clauth gets the agent to the host with the right principal; the host decides what that principal can do.
+
+### What to understand about the threat model
+
+- **Broker compromise does not expose the CA key.** The signer runs as a separate process with its own systemd sandbox. An attacker who compromises the broker can request certificates (subject to policy) but cannot extract the CA private key.
+- **Host compromise can abuse active grants within TTL.** If a target host is compromised, an attacker could abuse any currently-valid SSH certificate until it expires (default 5 minutes). Short TTLs limit the blast radius.
+- **Network isolation reduces bypass risk but does not replace host hardening.** nftables rules prevent the agent user from reaching backends directly, but this is defense-in-depth, not a substitute for properly configured target hosts.
+- **Strong deployments should use:** dedicated principals per agent, least-privilege sudoers, forced commands where appropriate, and `no-pty`/`no-port-forwarding` defaults in `authorized_principals` or `sshd_config`.
+
+### Why API keys for MCP instead of mTLS?
+
+The current MCP authentication model uses API keys (bcrypt-hashed, stored in policy) for simplicity. This is appropriate for single-tenant deployments where the broker and agents share a trusted network. Stronger authentication (mTLS, OIDC/JWT) is on the roadmap for environments that need it.
+
 ## Features
+
+### SSH Certificate Authority
+
+Ed25519 CA issuing ephemeral, per-request certificates. Default TTL is 5 minutes, configurable up to 30 minutes per-target. Each certificate is scoped to a specific agent, target, and role. Duplicate certificates for the same agent+target+role combination are automatically revoked when a new one is issued.
+
+Auto-approve workflows let trusted agents get certificates instantly. For sensitive targets, requests enter a pending state until an admin approves them from the dashboard or CLI.
 
 ### TTL-Based Access Grants
 
@@ -98,15 +159,9 @@ Clauth extends the ephemeral access model beyond SSH certificates. When an agent
 Grants auto-expire and are cleaned up by a background goroutine. Duplicate grants for the same agent+resource pair are deduplicated (existing valid grant is returned). Each service and remote MCP server can be configured with its own grant mode:
 
 - **TTL mode** (default) -- grants are issued and validated on each request
-- **Passthrough mode** -- grant issuance is skipped entirely for fire-and-forget access patterns
+- **Stateless mode** -- request-scoped policy evaluation without persisted grant state, for lightweight access patterns where tracking individual grants adds no value
 
 Grant lifecycle events (issued, expired, revoked) are recorded in the activity store and visible on the dashboard.
-
-### SSH Certificate Authority
-
-Ed25519 CA issuing ephemeral, per-request certificates. Default TTL is 5 minutes, configurable up to 30 minutes per-target. Each certificate is scoped to a specific agent, target, and role. Duplicate certificates for the same agent+target+role combination are automatically revoked when a new one is issued.
-
-Auto-approve workflows let trusted agents get certificates instantly. For sensitive targets, requests enter a pending state until an admin approves them from the dashboard or CLI.
 
 ### MCP Server
 
@@ -153,20 +208,26 @@ Works with internal services (Gitea, Grafana, Portainer) and external APIs (GitH
 
 Clauth can aggregate tools and resources from remote MCP servers, presenting them through a single unified endpoint. Configure a remote server once, and the broker automatically discovers its tools via the MCP handshake (initialize -> tools/list -> resources/list), then exposes them to agents with namespace prefixing.
 
-Remote tools appear as `{server}.{tool}` (e.g., `demo-tools.roll_dice`). When an agent calls a federated tool, the broker proxies the request transparently, injecting any configured credentials. Background refresh keeps the tool catalog up to date, with exponential backoff on failures.
+Remote tools appear as `{server}.{tool}` (e.g., `devtools.list_repos`). When an agent calls a federated tool, the broker proxies the request transparently, injecting any configured credentials. Background refresh keeps the tool catalog up to date, with exponential backoff on failures.
 
 Remote servers can use any auth type (bearer, basic, header, none) and are managed via the dashboard or REST API. Each remote's connection status, tool count, and last refresh time are visible in real time. Remotes can be individually enabled/disabled.
 
-### Real-time Dashboard
+### Dashboard
 
-React 18 single-page application with a cyberpunk dark theme. Ten views across four groups:
+Optional single-page admin UI with ten views across four groups:
 
-- **OVERVIEW:** Overview -- stat cards, host/service/MCP panels with toggles, active sessions, live event feed
-- **INFRASTRUCTURE:** Hosts, Services, MCP Servers (with enable/disable toggles and config panels)
-- **MONITOR:** Agents, Activity, Sessions, Audit Log
-- **TOOLS:** Terminal, Settings
+- **OVERVIEW:** System summary -- stat cards, host/service/MCP panels with toggles, active sessions, live event feed
+- **INFRASTRUCTURE:** Hosts, Services, MCP Servers -- enable/disable toggles, configuration panels
+- **MONITOR:** Agents, Activity, Sessions, Audit Log -- searchable, filterable
+- **TOOLS:** Terminal (WebSocket SSH proxy), Settings
 
-WebSocket live event streaming pushes state changes to all connected clients. Anti-screen-capture privacy mode blurs sensitive fields on tab switch and renders tokens to canvas elements that resist screenshots.
+Key operational controls:
+- **Policy inspection** -- View resolved per-agent permissions, target configs, role mappings
+- **Emergency revocation** -- Revoke any active certificate immediately
+- **Remote disable** -- Toggle hosts, services, or federated MCP servers on/off without restart
+- **Audit search** -- Filter audit logs by agent, type, target, time range
+
+WebSocket live event streaming pushes state changes to all connected clients.
 
 ### Policy Engine
 
@@ -189,10 +250,6 @@ A 10,000-entry ring buffer tracks all agent actions in real time. Seven activity
 
 Queryable by agent, type, target, service, time range, or errors-only. The dashboard surfaces top targets, top services, and a live activity feed.
 
-### Audit Trail
-
-Append-only structured JSON-line logging. Every certificate operation is recorded: issued, denied, revoked, approved, expired. Rate limit events, policy reloads, host toggles, and session lifecycle are all captured. Logrotate integration with 30-day retention out of the box.
-
 ### Security Hardening
 
 - **Unix socket authentication** -- `SO_PEERCRED` extracts the caller's UID from the kernel. No passwords over the wire.
@@ -204,12 +261,137 @@ Append-only structured JSON-line logging. Every certificate operation is recorde
 - **Token masking** -- dashboard tokens are logged as `first4...last4`, never in full.
 - **Session binding** -- certificate request tokens are bound to the originating UID. Stolen tokens cannot be replayed from a different process.
 
+## What Survives a Broker Restart
+
+| Persists across restarts | Lost on restart |
+|--------------------------|-----------------|
+| Policy config (`policy.yaml`) | Active SSH sessions |
+| Host/service/remote configs (JSON) | In-memory certificate state |
+| Audit logs (append-only JSON) | WebSocket connections |
+| CA key (in signer process) | Activity ring buffer |
+
+The signer process is independent -- a broker restart does not affect it. Active SSH certificates remain valid on target hosts until their TTL expires, even if the broker restarts, since certificate validation is performed by the target's `sshd` against the CA public key.
+
+## RBAC -- Per-Agent Permissions
+
+Clauth implements fine-grained, per-agent access control across all three proxy paths (SSH, HTTP, MCP federation) and the dashboard. Permissions are defined declaratively in `policy.yaml` using a template inheritance model.
+
+### Capabilities
+
+- **Per-agent SSH target access** -- Which targets the agent can reach and with which roles (intersection with the target's `allowed_roles`)
+- **Per-agent HTTP service access** -- Which services the agent can use and which HTTP methods are permitted
+- **Per-agent MCP federation access** -- Which remote MCP servers the agent can call, with optional per-tool restrictions
+- **Template inheritance** -- Reusable permission sets that agents inherit via the `inherits` field, with agent-level overrides
+- **Wildcard support** -- `"*"` matches all targets, services, or remotes for broad permission grants
+- **Dashboard permission levels** -- `none`, `viewer`, `operator`, or `admin`
+
+### Backwards Compatibility
+
+Agents that do not define any RBAC fields (`ssh`, `services`, `remotes`, `dashboard`) operate in **legacy mode** with full access -- the same behavior as before RBAC was added. Existing deployments continue to work without any policy changes.
+
+### Templates
+
+Templates define reusable permission sets. An agent inherits permissions from one or more templates via the `inherits` field, then applies agent-level overrides.
+
+```yaml
+templates:
+  monitoring:
+    description: "Read-only monitoring"
+    ssh:
+      "*":                    # wildcard: applies to all targets
+        roles: [read]
+        auto_approve: true
+    services:
+      grafana:
+        methods: [GET]
+      uptime-kuma:
+        methods: [GET]
+    remotes: {}               # empty = no federation access
+    dashboard: "viewer"
+
+  full-ops:
+    description: "Operator-level access to everything"
+    ssh:
+      "*":
+        roles: [read, operator]
+        auto_approve: true
+    services:
+      "*":                    # wildcard: all services
+        methods: [GET, POST, PUT, PATCH, DELETE]
+    remotes:
+      "*": {}                 # wildcard: all remotes, all tools
+    dashboard: "operator"
+```
+
+### Per-Agent Configuration
+
+Agents reference templates and add overrides:
+
+```yaml
+agents:
+  claude:
+    uid: 1000
+    max_concurrent_certs: 20
+    api_key_hash: "$2a$10$..."
+    inherits: [full-ops]          # inherit from template(s)
+    ssh:
+      prod-server:                # override: admin on prod-server
+        roles: [read, operator, admin]
+        auto_approve: true
+      staging-server:
+        roles: [read, operator]
+        auto_approve: true
+    services:
+      github:
+        methods: [GET, POST, PUT, PATCH, DELETE]
+      grafana:
+        methods: [GET]            # restrict to read-only
+    remotes:
+      devtools: {}                # allow this remote, all tools
+    dashboard: "admin"            # override template's "operator"
+
+  monitoring-bot:
+    uid: 1001
+    inherits: [monitoring]        # read-only everywhere
+    # No overrides needed -- template is sufficient
+```
+
+### Permission Resolution Rules
+
+When an agent inherits from a template and also defines its own permissions:
+
+1. **SSH roles** -- Per-target, the agent's effective roles are the **intersection** of the roles listed in the agent's `ssh` block (or inherited) and the `allowed_roles` on the target itself. If neither the agent nor its templates define SSH permissions for a target, the agent cannot access it (unless in legacy mode).
+
+2. **Services** -- Agents can only access services explicitly listed in their `services` block or inherited via templates. The `methods` list restricts which HTTP methods are allowed. A wildcard `"*"` key means all services are accessible.
+
+3. **Remotes** -- Agents can only call federated tools on remotes explicitly listed in their `remotes` block or inherited. A wildcard `"*"` key means all remotes. Per-remote tool restrictions are optional.
+
+4. **Dashboard** -- Agent-level value overrides the inherited template value. Levels: `none`, `viewer`, `operator`, `admin`.
+
+5. **Agent overrides win** -- When an agent defines a field that also exists in an inherited template, the agent's value takes precedence for that specific key. Unspecified keys fall through to the template.
+
+6. **Multiple templates** -- Merged left-to-right. Later templates override earlier ones for the same keys.
+
+### Discovery Filtering
+
+The `list_targets`, `list_services`, and `list_remotes` MCP tools automatically filter results based on the calling agent's permissions. Agents self-discover their available infrastructure without seeing resources they cannot access.
+
+### Enforcement Points
+
+| Layer | What it checks |
+|-------|----------------|
+| SSH exec | Agent's roles for the target, intersection with target's `allowed_roles` |
+| HTTP proxy | Agent's allowed services and permitted HTTP methods |
+| MCP federation | Agent's allowed remotes and optional tool restrictions |
+| Discovery | Filters `list_targets`, `list_services`, `list_remotes` results |
+| Dashboard | Agent's dashboard access level |
+
 ## Quick Start
 
 ### 1. Build
 
 ```bash
-git clone https://github.com/sprawl/clauth.git
+git clone https://github.com/your-org/clauth.git
 cd clauth
 make build
 # Output: bin/clauth-broker  bin/clauth-signer  bin/clauth
@@ -236,7 +418,30 @@ Copy the public key to each target:
 scp /etc/clauth/ca_key.pub target:/etc/ssh/ca.pub
 ```
 
-### 3. Configure policy
+### 3. Configure target hosts
+
+For each target host, create Linux users corresponding to your role principals:
+
+```bash
+# Read-only agent user (restricted shell)
+useradd -m -s /usr/bin/rbash agent-read
+
+# Operator agent user (standard shell, limited sudo)
+useradd -m -s /bin/bash agent-op
+echo "agent-op ALL=(ALL) NOPASSWD: /usr/bin/systemctl status *, /usr/bin/docker ps" > /etc/sudoers.d/agent-op
+
+# Map principals to users in sshd_config or authorized_principals
+echo "agent-read" > /etc/ssh/auth_principals/agent-read
+echo "agent-op" > /etc/ssh/auth_principals/agent-op
+```
+
+Configure `sshd_config` to use principals:
+
+```
+AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
+```
+
+### 4. Configure policy
 
 Create `/etc/clauth/policy.yaml`:
 
@@ -266,7 +471,7 @@ roles:
 
 targets:
   webserver:
-    host: "192.168.1.10"
+    host: "10.0.1.10"
     port: 22
     allowed_roles: [read, operator]
     max_ttl: "10m"
@@ -274,7 +479,7 @@ targets:
     description: "Production web server"
 ```
 
-### 4. Start services
+### 5. Start services
 
 ```bash
 # Create system user and directories
@@ -295,7 +500,7 @@ clauth-signer --ca-key /etc/clauth/ca_key --socket /run/clauth/signer.sock &
 clauth-broker --policy /etc/clauth/policy.yaml --admin-uid 0
 ```
 
-### 5. Use it
+### 6. Use it
 
 ```bash
 # Create a session (as the agent user, UID 1000)
@@ -313,6 +518,76 @@ clauth services    # HTTP proxy services
 clauth remotes     # Federated MCP servers
 ```
 
+## Deployment
+
+### Local (Same Machine)
+
+The simplest deployment: broker and agent on the same Linux host.
+
+1. Build: `make build`
+2. Install: `sudo make install` (copies binaries to `/usr/local/bin/`)
+3. Create user: `sudo make install-user` (creates `clauth-broker` system user)
+4. Generate CA: `ssh-keygen -t ed25519 -f /etc/clauth/ca_key -N ""`
+5. Copy `configs/policy.yaml` to `/etc/clauth/policy.yaml` and edit
+6. Install systemd units: `sudo make install-systemd`
+7. Start: `sudo systemctl enable --now clauth-signer clauth-broker`
+8. Agent connects via Unix socket (`/run/clauth/broker.sock`) or MCP (`localhost:8554`)
+
+For network isolation, add nftables rules blocking agent UID from backend IPs:
+```bash
+nft add rule inet filter output meta skuid 1000 ip daddr { 10.0.1.0/24 } drop
+```
+
+### Dedicated Host (VM / LXC / Bare Metal)
+
+Recommended for production. Broker runs on its own host, agents connect over the network.
+
+1. Provision a Debian/Ubuntu host (VM, LXC, or bare metal)
+2. Build and install Clauth (same as local)
+3. Configure `CLAUTH_MCP_LISTEN=:8554` and `CLAUTH_DASHBOARD_LISTEN=:8553`
+4. Set `CLAUTH_DASHBOARD_TOKEN` in systemd override
+5. Generate MCP API key: `openssl rand -base64 32`
+6. Hash it: `htpasswd -nbBC 10 "" "YOUR_KEY" | cut -d: -f2`
+7. Add hash to policy.yaml under agent's `api_key_hash` field
+8. Configure firewall: allow 8554 (MCP) and 8553 (dashboard) from trusted networks only
+9. Provision target hosts: run `deploy/scripts/provision-target.sh` on each target with the CA public key
+10. Agents connect via MCP: `http://broker-ip:8554/mcp` with Bearer token
+
+Network isolation: nftables on the broker host is useful only if agents also run on that host. For remote agents, the broker's policy engine is the enforcement boundary.
+
+### Target Host Setup
+
+For each host that agents will SSH into:
+
+1. Run the provisioning script: `scp deploy/scripts/provision-target.sh target: && ssh target 'sudo bash provision-target.sh /path/to/ca.pub'`
+2. This creates: role accounts (agent-read, agent-op, agent-admin), principals files, sudoers rules, sshd config
+3. Verify: `ssh -i /tmp/test -o CertificateFile=/tmp/test-cert agent-read@target whoami`
+
+Or do it manually:
+- Copy CA public key to `/etc/ssh/clauth_ca.pub`
+- Add `TrustedUserCAKeys /etc/ssh/clauth_ca.pub` and `AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u` to sshd_config
+- Create users: `useradd -m -s /usr/bin/rbash agent-read` etc.
+- Create principal files: `echo "agent-read" > /etc/ssh/auth_principals/agent-read`
+- Install sudoers from `deploy/scripts/sudoers.d/clauth`
+- Restart sshd
+
+### Environment Configuration
+
+See the [Environment Variables](#environment-variables) table for a full list of configurable options.
+
+Key overrides for systemd:
+```bash
+# Set dashboard token
+sudo mkdir -p /etc/systemd/system/clauth-broker.service.d
+echo -e '[Service]\nEnvironment=CLAUTH_DASHBOARD_TOKEN=your-secure-token' | sudo tee /etc/systemd/system/clauth-broker.service.d/token.conf
+
+# Enable MCP server on network
+echo -e '[Service]\nEnvironment=CLAUTH_MCP_LISTEN=:8554' | sudo tee /etc/systemd/system/clauth-broker.service.d/mcp.conf
+
+sudo systemctl daemon-reload
+sudo systemctl restart clauth-broker
+```
+
 ## MCP Integration
 
 ### Claude Code
@@ -326,7 +601,7 @@ Add to your `.claude/settings.json`:
       "type": "url",
       "url": "http://your-broker:8554/mcp",
       "headers": {
-        "Authorization": "Bearer your-api-key"
+        "Authorization": "Bearer YOUR_API_KEY"
       }
     }
   }
@@ -367,14 +642,51 @@ Add to `claude_desktop_config.json`:
       "type": "url",
       "url": "http://your-broker:8554/mcp",
       "headers": {
-        "Authorization": "Bearer your-api-key"
+        "Authorization": "Bearer YOUR_API_KEY"
       }
     }
   }
 }
 ```
 
-The same tools are available in any MCP-compatible client.
+### Cursor
+
+Add to `.cursor/mcp.json` (or Cursor settings > MCP):
+
+```json
+{
+  "mcpServers": {
+    "clauth": {
+      "url": "http://your-broker:8554/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+### Cline
+
+Add to Cline's MCP settings (VS Code: Cline > MCP Servers > Add):
+
+```json
+{
+  "mcpServers": {
+    "clauth": {
+      "type": "streamableHttp",
+      "url": "http://your-broker:8554/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+### Any MCP-Compatible Client
+
+Clauth implements standard MCP 2025-03-26 over Streamable HTTP. Any client that supports the `url` transport type can connect. Point it at `http://your-broker:8554/mcp` with a Bearer token header. See [CLAUTH.md](CLAUTH.md) for the agent-facing reference document.
 
 ## Configuration
 
@@ -394,6 +706,11 @@ agents:
     uid: <int>                  # Linux UID (matched via SO_PEERCRED)
     max_concurrent_certs: 3     # Per-agent active cert limit
     api_key_hash: "<bcrypt>"    # For MCP API key auth (optional)
+    inherits: [template1]       # RBAC template inheritance (optional)
+    ssh: { ... }                # Per-target role overrides (optional)
+    services: { ... }           # Per-service method restrictions (optional)
+    remotes: { ... }            # Per-remote tool restrictions (optional)
+    dashboard: "viewer"         # Dashboard access level (optional)
     description: "..."
 
 roles:
@@ -405,12 +722,19 @@ targets:
   <name>:
     host: "<ip-or-hostname>"
     port: 22
-    vlan: <int>                 # Informational, shown in dashboard
     allowed_roles: [role1, role2]
     max_ttl: "10m"              # Per-target TTL cap
     auto_approve: true          # Skip manual approval
     force_command: "..."        # SSH forced command (optional)
     description: "..."
+
+templates:                      # Reusable RBAC permission sets
+  <name>:
+    description: "..."
+    ssh: { ... }
+    services: { ... }
+    remotes: { ... }
+    dashboard: "viewer"
 ```
 
 ### Environment Variables
@@ -481,6 +805,7 @@ All Unix socket endpoints above, plus:
 | `DELETE` | `/v1/dashboard/remotes/{name}` | Delete remote |
 | `POST` | `/v1/dashboard/remotes/{name}/refresh` | Force tool re-discovery |
 | `POST` | `/v1/dashboard/remotes/{name}/toggle` | Toggle remote on/off |
+| `GET` | `/v1/dashboard/permissions` | Resolved RBAC permissions for all agents |
 | `GET` | `/v1/events` | WebSocket live event stream |
 
 ### MCP Endpoint (`:8554`)
@@ -523,7 +848,6 @@ clauth/
 ```
 
 ## Requirements
-## Requirements
 
 - **Go 1.24+** -- uses enhanced `net/http` routing patterns (Go 1.22+) and recent stdlib features
 - **Linux** -- `SO_PEERCRED` for Unix socket peer authentication is Linux-specific
@@ -543,175 +867,24 @@ Clauth is deliberately minimal. Three direct dependencies, all well-established:
 
 No external databases. No message queues. No container runtime. State lives in memory and on disk as JSON files.
 
-## RBAC -- Per-Agent Permissions
-
-Clauth implements fine-grained, per-agent access control across all three proxy paths (SSH, HTTP, MCP federation) and the dashboard. Permissions are defined declaratively in `policy.yaml` using a template inheritance model.
-
-### Overview
-
-Every agent can have explicit permissions for:
-
-- **SSH targets** -- Which targets the agent can access and with which roles (intersection with the target's `allowed_roles`)
-- **HTTP proxy services** -- Which services the agent can use and which HTTP methods are permitted
-- **MCP federation** -- Which remote MCP servers the agent can call and optionally which tools
-- **Dashboard** -- Access level: `none`, `viewer`, `operator`, or `admin`
-
-### Backwards Compatibility
-
-Agents that do not define any RBAC fields (`ssh`, `services`, `remotes`, `dashboard`) operate in **legacy mode** with full access -- the same behavior as before RBAC was added. This means existing deployments continue to work without any policy changes.
-
-### Templates
-
-Templates define reusable permission sets. An agent inherits permissions from one or more templates via the `inherits` field, then applies agent-level overrides.
-
-```yaml
-templates:
-  monitoring:
-    description: "Read-only monitoring"
-    ssh:
-      "*":                    # wildcard: applies to all targets
-        roles: [read]
-        auto_approve: true
-    services:
-      grafana:
-        methods: [GET]
-      uptime-kuma:
-        methods: [GET]
-    remotes: {}               # empty = no federation access
-    dashboard: "viewer"
-
-  full-ops:
-    description: "Operator-level access to everything"
-    ssh:
-      "*":
-        roles: [read, operator]
-        auto_approve: true
-    services:
-      "*":                    # wildcard: all services
-        methods: [GET, POST, PUT, PATCH, DELETE]
-    remotes:
-      "*": {}                 # wildcard: all remotes, all tools
-    dashboard: "operator"
-```
-
-### Per-Agent Configuration
-
-Agents reference templates and add overrides:
-
-```yaml
-agents:
-  claude:
-    uid: 1000
-    max_concurrent_certs: 20
-    api_key_hash: "$2a$10$..."
-    inherits: [full-ops]          # inherit from template(s)
-    ssh:
-      docker-host:                # override: admin on docker-host
-        roles: [read, operator, admin]
-        auto_approve: true
-      mandrake-rack:
-        roles: [read, operator]
-        auto_approve: true
-    services:
-      github:
-        methods: [GET, POST, PUT, PATCH, DELETE]
-      grafana:
-        methods: [GET]            # restrict to read-only
-    remotes:
-      demo-tools: {}              # allow this remote, all tools
-    dashboard: "admin"            # override template's "operator"
-
-  monitoring-bot:
-    uid: 1001
-    inherits: [monitoring]        # read-only everywhere
-    # No overrides needed -- template is sufficient
-```
-
-### Permission Resolution Rules
-
-When an agent inherits from a template and also defines its own permissions, the resolution follows these rules:
-
-1. **SSH roles** -- Per-target, the agent's effective roles are the **intersection** of:
-   - The roles listed in the agent's `ssh` block for that target (or inherited from template)
-   - The `allowed_roles` defined on the target itself in the `targets` section
-   - If neither the agent nor its templates define SSH permissions for a target, the agent cannot access it (unless in legacy mode)
-
-2. **Services** -- The agent can only access services explicitly listed in its `services` block or inherited via templates. The `methods` list restricts which HTTP methods are allowed. A wildcard `"*"` key means all services are accessible.
-
-3. **Remotes** -- The agent can only call federated tools on remotes explicitly listed in its `remotes` block or inherited via templates. A wildcard `"*"` key means all remotes are accessible. Per-remote tool restrictions are optional.
-
-4. **Dashboard** -- Agent-level `dashboard` value overrides the inherited template value. Levels: `none` (no dashboard access), `viewer` (read-only), `operator` (toggles and basic management), `admin` (full access including settings).
-
-5. **Agent overrides win** -- When an agent defines a field that also exists in an inherited template, the agent's value takes precedence for that specific key. Unspecified keys fall through to the template.
-
-6. **Multiple templates** -- When inheriting from multiple templates, they are merged left-to-right. Later templates override earlier ones for the same keys.
-
-### Discovery Filtering
-
-The `list_targets`, `list_services`, and `list_remotes` MCP tools automatically filter their results based on the calling agent's permissions. An agent only sees infrastructure it is allowed to access:
-
-- `list_targets` returns only targets where the agent has at least one permitted role
-- `list_services` returns only services the agent is allowed to use
-- `list_remotes` returns only remotes the agent is allowed to call
-
-This means agents self-discover their available infrastructure without seeing resources they cannot access.
-
-### Enforcement Points
-
-RBAC permissions are enforced at three levels:
-
-| Layer | File | What it checks |
-|-------|------|----------------|
-| SSH exec | `mcp_tools.go` | Agent's roles for the target, intersection with target's `allowed_roles` |
-| HTTP proxy | `proxy.go` | Agent's allowed services and permitted HTTP methods |
-| MCP federation | `mcp.go` | Agent's allowed remotes and optional tool restrictions |
-| Discovery | `mcp_tools.go` | Filters `list_targets`, `list_services`, `list_remotes` results |
-| Dashboard | `dashboard.go` | Agent's dashboard access level |
-
-### Example: Restricting a New Agent
-
-To add a monitoring-only agent that can read from all hosts but only view Grafana dashboards:
-
-```yaml
-agents:
-  prometheus-scraper:
-    uid: 1002
-    max_concurrent_certs: 3
-    inherits: [monitoring]
-    services:
-      grafana:
-        methods: [GET]
-    remotes: {}
-    dashboard: "none"
-```
-
-This agent gets SSH `read` on all targets (from the `monitoring` template), can only make GET requests to Grafana, has no access to federated MCP servers, and cannot use the dashboard.
-
 ## Roadmap
 
-### Implemented
-
-- **RBAC** -- Per-agent permissions for SSH targets, HTTP proxy services, and MCP federation. Template inheritance, wildcard support, method restrictions, dashboard access levels. See the [RBAC](#rbac--per-agent-permissions) section below.
-
-### Planned
-
-Roughly prioritized:
-
 - **Prometheus metrics + ntfy alerts** -- Export cert counts, request rates, error rates. Push alerts on denied requests or anomalous activity.
-- **Sub-agent tracking** -- Accept an optional context/session ID from MCP clients to distinguish parallel sub-agents (e.g. Claude Code's Agent tool). Track and display as a tree: parent agent -> sub-agents -> their actions. Requires a custom MCP extension since the protocol has no sub-session concept.
-- **OIDC / JWT agent auth** -- Alternative to API key auth for multi-tenant deployments.
+- **Sub-agent tracking** -- Accept an optional context/session ID from MCP clients to distinguish parallel sub-agents (e.g. Claude Code's Agent tool). Track and display as a tree: parent agent -> sub-agents -> their actions.
+- **OIDC / JWT agent auth** -- Alternative to API key auth for environments that need stronger authentication or multi-agent deployments.
+- **mTLS for MCP** -- Mutual TLS as an alternative to API key authentication for the MCP endpoint.
 - **Certificate pinning to source IP** -- Bind certs to the requesting agent's IP for defense-in-depth.
 - **Target health checks** -- Periodic SSH connectivity probes with dashboard status.
 - **Audit log export** -- Ship structured logs to external SIEM (syslog, webhook, S3).
 - **Broker-level command policy** -- Command filtering at the broker before cert signing, adding a second enforcement layer above the host OS boundary. Two planned modes:
-  - *Allowlist mode* -- Only pre-approved command patterns pass (e.g., `cat *`, `docker ps *`, `systemctl status *`). Strictest security but most restrictive.
-  - *Denylist mode* -- Block known-dangerous patterns (e.g., `rm -rf /*`, `dd if=*`, `mkfs.*`, `shutdown*`). More flexible but requires careful pattern maintenance.
-  - Long-term goal: capability-based roles that map to curated command templates rather than raw shell pattern matching, avoiding the inherent complexity of bash command parsing (escapes, subshells, globs, quoting).
-  - Current architecture already supports this -- all agent commands flow through the broker via nftables isolation, so the broker is already a chokepoint. Today RBAC controls *which role* an agent gets; command policy would control *what they can do with it*.
+  - *Allowlist mode* -- Only pre-approved command patterns pass. Strictest security but most restrictive.
+  - *Denylist mode* -- Block known-dangerous patterns. More flexible but requires careful pattern maintenance.
+  - Long-term goal: capability-based roles that map to curated command templates rather than raw shell pattern matching.
+  - Current architecture already supports this -- all agent commands flow through the broker, so it is already a chokepoint. Today RBAC controls *which role* an agent gets; command policy would control *what they can do with it*.
 
 ## Contributing
 
-Clauth started as a homelab project to solve a real problem: giving Claude Code safe, auditable access to infrastructure without scattering SSH keys everywhere. It turns out this is a problem a lot of people have.
+Clauth started as a project to solve a real problem: giving AI agents safe, auditable access to infrastructure without scattering SSH keys everywhere. It turns out this is a problem a lot of people have.
 
 Contributions welcome. The codebase is ~16,000 lines of Go + HTML with no code generation and no frameworks -- just the standard library plus three dependencies. If you can read Go, you can contribute.
 
@@ -730,5 +903,5 @@ Apache License 2.0. See [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <code>~16,000 lines of Go + HTML | 3 external dependencies | Zero external databases | Production-ready</code>
+  <code>~16,000 lines of Go + HTML | 3 external dependencies | Zero external databases | Production-focused</code>
 </p>
