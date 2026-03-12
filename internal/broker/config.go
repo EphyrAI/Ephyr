@@ -168,19 +168,51 @@ func (cm *ConfigManager) Load() error {
 }
 
 // InitFromPolicy populates configs for any targets that exist in the policy
-// but do not yet have a config entry. Existing entries are not overwritten.
+// but do not yet have a config entry, and reconciles core fields from
+// policy.yaml for existing entries. Policy.yaml is authoritative for:
+// host, port, vlan, allowed_roles, max_ttl, auto_approve, and description.
+// hosts.json retains runtime-specific state (ssh_user, ssh_key_path, etc.).
 func (cm *ConfigManager) InitFromPolicy(targets map[string]policyTarget) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	changed := false
 	for name, t := range targets {
-		if _, exists := cm.configs[name]; exists {
-			continue
-		}
 		port := t.Port
 		if port == 0 {
 			port = 22
+		}
+		if existing, exists := cm.configs[name]; exists {
+			// Reconcile: policy.yaml fields win for core config.
+			if existing.Host != t.Host {
+				existing.Host = t.Host
+				changed = true
+			}
+			if existing.Port != port {
+				existing.Port = port
+				changed = true
+			}
+			if existing.VLAN != t.VLAN {
+				existing.VLAN = t.VLAN
+				changed = true
+			}
+			if !stringSliceEqual(existing.AllowedRoles, t.AllowedRoles) {
+				existing.AllowedRoles = t.AllowedRoles
+				changed = true
+			}
+			if existing.MaxTTL != t.MaxTTL {
+				existing.MaxTTL = t.MaxTTL
+				changed = true
+			}
+			if existing.AutoApprove != t.AutoApprove {
+				existing.AutoApprove = t.AutoApprove
+				changed = true
+			}
+			if existing.Description != t.Description {
+				existing.Description = t.Description
+				changed = true
+			}
+			continue
 		}
 		cm.configs[name] = &HostConfig{
 			Name:         name,
@@ -197,9 +229,22 @@ func (cm *ConfigManager) InitFromPolicy(targets map[string]policyTarget) {
 
 	if changed {
 		if err := cm.saveLocked(); err != nil {
-			log.Printf("[config] failed to save after policy init: %v", err)
+			log.Printf("[config] failed to save after policy reconciliation: %v", err)
 		}
 	}
+}
+
+// stringSliceEqual returns true if two string slices have equal contents.
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // policyTarget is a minimal interface matching the fields we need from

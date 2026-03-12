@@ -354,6 +354,23 @@ func (bs *BrokerServer) ReloadPolicy() error {
 		rawCfg.Global.RateLimit.WindowSeconds,
 	)
 
+	// Reconcile host configs from updated policy targets.
+	if bs.configMgr != nil {
+		policyTargets := make(map[string]policyTarget)
+		for name, t := range newResolved.Raw.Targets {
+			policyTargets[name] = policyTarget{
+				Host:         t.Host,
+				Port:         t.Port,
+				VLAN:         t.VLAN,
+				AllowedRoles: t.AllowedRoles,
+				MaxTTL:       t.MaxTTL,
+				AutoApprove:  t.AutoApprove,
+				Description:  t.Description,
+			}
+		}
+		bs.configMgr.InitFromPolicy(policyTargets)
+	}
+
 	bs.auditLog.LogEvent(audit.AuditEvent{
 		Severity:  audit.SeverityInfo,
 		EventType: audit.EventPolicyReload,

@@ -38,15 +38,26 @@ type ExecResult struct {
 
 // ExecSession is a persistent SSH connection for multi-command workflows.
 type ExecSession struct {
-	ID        string
-	AgentName string
-	Target    string
-	Role      string
-	Principal string
-	SSHClient *ssh.Client
-	CreatedAt time.Time
-	LastUsed  time.Time
-	mu        sync.Mutex
+	ID         string
+	AgentName  string
+	Target     string
+	Role       string
+	Principal  string
+	CertSerial string // serial of the SSH cert, used to deregister from CertState on close
+	SSHClient  *ssh.Client
+	CreatedAt  time.Time
+	LastUsed   time.Time
+	mu         sync.Mutex
+}
+
+// signResult bundles the SSH client with certificate metadata returned by
+// signAndConnect so callers can register the cert in CertState.
+type signResult struct {
+	Client      *ssh.Client
+	Serial      string
+	ExpiresAt   string // RFC3339 from signer
+	Certificate string // base64-encoded cert from signer
+	Principal   string
 }
 
 // ExecSessionInfo is a safe subset of ExecSession for API responses (no ssh.Client).
@@ -93,8 +104,9 @@ func generateSessionID() (string, error) {
 
 // signAndConnect generates an ephemeral Ed25519 keypair, signs it via the
 // signer IPC to obtain an SSH certificate, and dials the target host.
-// Returns the connected SSH client and the certificate serial (hex), or an error.
-func (p *ExecSessionPool) signAndConnect(agentName, target, role string) (*ssh.Client, string, error) {
+// Returns a signResult containing the connected SSH client and certificate
+// metadata (serial, expiry, principal), or an error.
+func (p *ExecSessionPool) signAndConnect(agentName, target, role string) (*signResult, error) {
 	// 1. Look up target and role in policy.
 	p.broker.policyMu.RLock()
 	targetCfg, targetExists := p.broker.policyCfg.Raw.Targets[target]
@@ -103,10 +115,10 @@ func (p *ExecSessionPool) signAndConnect(agentName, target, role string) (*ssh.C
 	p.broker.policyMu.RUnlock()
 
 	if !targetExists {
-		return nil, "", fmt.Errorf("unknown target %q", target)
+		return nil, fmt.Errorf("unknown target %q", target)
 	}
 	if !roleExists {
-		return nil, "", fmt.Errorf("unknown role %q", role)
+		return nil, fmt.Errorf("unknown role %q", role)
 	}
 
 	principal := roleCfg.Principal
@@ -121,12 +133,12 @@ func (p *ExecSessionPool) signAndConnect(agentName, target, role string) (*ssh.C
 	// 2. Generate ephemeral Ed25519 keypair (never written to disk).
 	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, "", fmt.Errorf("generate ephemeral keypair: %w", err)
+		return nil, fmt.Errorf("generate ephemeral keypair: %w", err)
 	}
 
 	sshPubKey, err := ssh.NewPublicKey(pubKey)
 	if err != nil {
-		return nil, "", fmt.Errorf("convert ed25519 to ssh public key: %w", err)
+		return nil, fmt.Errorf("convert ed25519 to ssh public key: %w", err)
 	}
 	pubKeyStr := string(ssh.MarshalAuthorizedKey(sshPubKey))
 
@@ -138,31 +150,31 @@ func (p *ExecSessionPool) signAndConnect(agentName, target, role string) (*ssh.C
 		KeyID:      fmt.Sprintf("mcp-%s@%s/%s", agentName, target, role),
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("signer request: %w", err)
+		return nil, fmt.Errorf("signer request: %w", err)
 	}
 
 	// 4. Parse the certificate (returned as base64-encoded authorized_key format).
 	certAK, err := base64.StdEncoding.DecodeString(resp.Certificate)
 	if err != nil {
-		return nil, "", fmt.Errorf("decode certificate base64: %w", err)
+		return nil, fmt.Errorf("decode certificate base64: %w", err)
 	}
 	certParsed, _, _, _, err := ssh.ParseAuthorizedKey(certAK)
 	if err != nil {
-		return nil, "", fmt.Errorf("parse signed certificate: %w", err)
+		return nil, fmt.Errorf("parse signed certificate: %w", err)
 	}
 	cert, ok := certParsed.(*ssh.Certificate)
 	if !ok {
-		return nil, "", fmt.Errorf("signer returned non-certificate key type %T", certParsed)
+		return nil, fmt.Errorf("signer returned non-certificate key type %T", certParsed)
 	}
 
 	// 5. Build certificate signer from ephemeral private key + signed cert.
 	sshSigner, err := ssh.NewSignerFromKey(privKey)
 	if err != nil {
-		return nil, "", fmt.Errorf("create signer from private key: %w", err)
+		return nil, fmt.Errorf("create signer from private key: %w", err)
 	}
 	certSigner, err := ssh.NewCertSigner(cert, sshSigner)
 	if err != nil {
-		return nil, "", fmt.Errorf("create cert signer: %w", err)
+		return nil, fmt.Errorf("create cert signer: %w", err)
 	}
 
 	// 6. Build SSH client config with certificate authentication.
@@ -181,10 +193,16 @@ func (p *ExecSessionPool) signAndConnect(agentName, target, role string) (*ssh.C
 	addr := net.JoinHostPort(targetCfg.Host, fmt.Sprintf("%d", port))
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
-		return nil, "", fmt.Errorf("ssh dial %s: %w", addr, err)
+		return nil, fmt.Errorf("ssh dial %s: %w", addr, err)
 	}
 
-	return client, resp.Serial, nil
+	return &signResult{
+		Client:      client,
+		Serial:      resp.Serial,
+		ExpiresAt:   resp.ExpiresAt,
+		Certificate: resp.Certificate,
+		Principal:   principal,
+	}, nil
 }
 
 // CreateSession establishes a persistent SSH connection to the target host
@@ -214,7 +232,7 @@ func (p *ExecSessionPool) CreateSession(agentName, target, role string) (*ExecSe
 	principal := roleCfg.Principal
 
 	// Sign and connect.
-	client, serial, err := p.signAndConnect(agentName, target, role)
+	sr, err := p.signAndConnect(agentName, target, role)
 	if err != nil {
 		p.broker.auditLog.LogEvent(audit.AuditEvent{
 			Severity:  audit.SeverityWarn,
@@ -230,23 +248,37 @@ func (p *ExecSessionPool) CreateSession(agentName, target, role string) (*ExecSe
 		return nil, fmt.Errorf("sign and connect: %w", err)
 	}
 
+	// Register the certificate in CertState so it appears in the dashboard.
+	p.broker.state.AddCert(&ActiveCert{
+		Serial:      sr.Serial,
+		AgentName:   agentName,
+		Target:      target,
+		Role:        role,
+		Principal:   sr.Principal,
+		IssuedAt:    time.Now(),
+		ExpiresAt:   parseRFC3339(sr.ExpiresAt),
+		Certificate: sr.Certificate,
+	})
+
 	// Generate session ID.
 	sessionID, err := generateSessionID()
 	if err != nil {
-		client.Close()
+		sr.Client.Close()
+		p.broker.state.RemoveCert(sr.Serial)
 		return nil, err
 	}
 
 	now := time.Now()
 	session := &ExecSession{
-		ID:        sessionID,
-		AgentName: agentName,
-		Target:    target,
-		Role:      role,
-		Principal: principal,
-		SSHClient: client,
-		CreatedAt: now,
-		LastUsed:  now,
+		ID:         sessionID,
+		AgentName:  agentName,
+		Target:     target,
+		Role:       role,
+		Principal:  principal,
+		CertSerial: sr.Serial,
+		SSHClient:  sr.Client,
+		CreatedAt:  now,
+		LastUsed:   now,
 	}
 
 	p.mu.Lock()
@@ -260,7 +292,7 @@ func (p *ExecSessionPool) CreateSession(agentName, target, role string) (*ExecSe
 		Agent:     agentName,
 		Target:    target,
 		Role:      role,
-		Serial:    serial,
+		Serial:    sr.Serial,
 		Details: map[string]string{
 			"session_id": sessionID,
 			"principal":  principal,
@@ -469,7 +501,7 @@ func (p *ExecSessionPool) ExecInSession(sessionID, command string, timeout int) 
 // and tears down the connection. Use this for isolated one-off commands.
 func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, timeout int) (*ExecResult, error) {
 	// Sign and connect.
-	client, serial, err := p.signAndConnect(agentName, target, role)
+	sr, err := p.signAndConnect(agentName, target, role)
 	if err != nil {
 		p.broker.auditLog.LogEvent(audit.AuditEvent{
 			Severity:  audit.SeverityWarn,
@@ -485,9 +517,23 @@ func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, t
 		})
 		return nil, fmt.Errorf("sign and connect: %w", err)
 	}
-	defer client.Close()
+	defer sr.Client.Close()
 
-	result, err := p.execCommand(client, target, role, command, timeout)
+	// Register the certificate in CertState so it appears in the dashboard
+	// for the lifetime of this one-shot execution.
+	p.broker.state.AddCert(&ActiveCert{
+		Serial:      sr.Serial,
+		AgentName:   agentName,
+		Target:      target,
+		Role:        role,
+		Principal:   sr.Principal,
+		IssuedAt:    time.Now(),
+		ExpiresAt:   parseRFC3339(sr.ExpiresAt),
+		Certificate: sr.Certificate,
+	})
+	defer p.broker.state.RemoveCert(sr.Serial)
+
+	result, err := p.execCommand(sr.Client, target, role, command, timeout)
 	if err != nil {
 		p.broker.auditLog.LogEvent(audit.AuditEvent{
 			Severity:  audit.SeverityWarn,
@@ -495,7 +541,7 @@ func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, t
 			Agent:     agentName,
 			Target:    target,
 			Role:      role,
-			Serial:    serial,
+			Serial:    sr.Serial,
 			Details: map[string]string{
 				"operation": "exec_oneshot",
 				"command":   truncate(command, 200),
@@ -512,7 +558,7 @@ func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, t
 		Agent:     agentName,
 		Target:    target,
 		Role:      role,
-		Serial:    serial,
+		Serial:    sr.Serial,
 		Details: map[string]string{
 			"operation":   "oneshot",
 			"command":     truncate(command, 200),
@@ -566,11 +612,17 @@ func (p *ExecSessionPool) CloseSession(sessionID string) error {
 	agentName := session.AgentName
 	target := session.Target
 	role := session.Role
+	certSerial := session.CertSerial
 	created := session.CreatedAt
 	session.mu.Unlock()
 
 	if client != nil {
 		client.Close()
+	}
+
+	// Remove the certificate from CertState so it no longer appears in the dashboard.
+	if certSerial != "" {
+		p.broker.state.RemoveCert(certSerial)
 	}
 
 	duration := time.Since(created)

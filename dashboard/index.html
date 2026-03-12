@@ -1604,6 +1604,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
           <div className="overview-activity-stats">
             <span>Exec: <span style={{ color: 'var(--green)', fontWeight: 600 }}>{actSummary.total_exec || 0}</span></span>
             <span>Proxy: <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{actSummary.total_proxy || 0}</span></span>
+            <span>MCP: <span style={{ color: 'var(--purple)', fontWeight: 600 }}>{actSummary.total_mcp || 0}</span></span>
             <span>Errors: <span style={{ color: 'var(--red)', fontWeight: 600 }}>{actSummary.total_errors || 0}</span></span>
           </div>
         </div>
@@ -2456,6 +2457,11 @@ function ActivityView({ token, initialAgent }) {
           <div className="stat-label">HTTP Proxy</div>
           <div className="stat-value purple">{actSummary.total_proxy || 0}</div>
           <div className="stat-sub">requests</div>
+        </div>
+        <div className="stat-card blue">
+          <div className="stat-label">MCP Calls</div>
+          <div className="stat-value blue">{actSummary.total_mcp || 0}</div>
+          <div className="stat-sub">federation</div>
         </div>
         <div className="stat-card red">
           <div className="stat-label">Errors</div>

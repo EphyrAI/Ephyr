@@ -77,13 +77,17 @@ type DashboardSummary struct {
 
 // DashboardHost is a single host entry for GET /v1/dashboard/hosts.
 type DashboardHost struct {
-	Name           string `json:"name"`
-	Host           string `json:"host"`
-	VLAN           int    `json:"vlan"`
-	Status         string `json:"status"`
-	Role           string `json:"role"`
-	AccessEnabled  bool   `json:"access_enabled"`
-	ActiveSessions int    `json:"active_sessions"`
+	Name           string   `json:"name"`
+	Host           string   `json:"host"`
+	VLAN           int      `json:"vlan"`
+	Status         string   `json:"status"`
+	Role           string   `json:"role"`
+	AccessEnabled  bool     `json:"access_enabled"`
+	ActiveSessions int      `json:"active_sessions"`
+	Description    string   `json:"description"`
+	AllowedRoles   []string `json:"allowed_roles"`
+	Port           int      `json:"port"`
+	AutoApprove    bool     `json:"auto_approve"`
 }
 
 // DashboardSession is a single session entry for GET /v1/dashboard/sessions.
@@ -310,6 +314,10 @@ func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Requ
 
 	hosts := make([]DashboardHost, 0, len(targets))
 	for name, t := range targets {
+		port := t.Port
+		if port == 0 {
+			port = 22
+		}
 		hosts = append(hosts, DashboardHost{
 			Name:           name,
 			Host:           t.Host,
@@ -318,6 +326,10 @@ func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Requ
 			Role:           t.Description,
 			AccessEnabled:  bs.hostCtl.IsEnabled(name),
 			ActiveSessions: sessionCounts[name],
+			Description:    t.Description,
+			AllowedRoles:   t.AllowedRoles,
+			Port:           port,
+			AutoApprove:    t.AutoApprove,
 		})
 	}
 

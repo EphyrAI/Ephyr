@@ -47,6 +47,7 @@ type AgentActivityStats struct {
 	TotalActions int64     `json:"total_actions"`
 	TotalExec    int64     `json:"total_exec"`
 	TotalProxy   int64     `json:"total_proxy"`
+	TotalMCP     int64     `json:"total_mcp"`
 	TotalErrors  int64     `json:"total_errors"`
 	LastActive   time.Time `json:"last_active"`
 	LastTarget   string    `json:"last_target"`
@@ -64,6 +65,7 @@ type ActivityStore struct {
 	// Counters for dashboard summary.
 	totalExec   int64
 	totalProxy  int64
+	totalMCP    int64
 	totalErrors int64
 	agentStats  map[string]*AgentActivityStats
 }
@@ -85,6 +87,7 @@ type ActivitySummary struct {
 	TotalActions  int64                          `json:"total_actions"`
 	TotalExec     int64                          `json:"total_exec"`
 	TotalProxy    int64                          `json:"total_proxy"`
+	TotalMCP      int64                          `json:"total_mcp"`
 	TotalErrors   int64                          `json:"total_errors"`
 	ActiveAgents  int                            `json:"active_agents"`
 	AgentStats    map[string]*AgentActivityStats `json:"agent_stats"`
@@ -153,6 +156,8 @@ func (s *ActivityStore) Record(entry *ActivityEntry) {
 		s.totalExec++
 	case ActivityHTTPProxy:
 		s.totalProxy++
+	case ActivityMCPCall:
+		s.totalMCP++
 	}
 	if !entry.Success {
 		s.totalErrors++
@@ -173,6 +178,9 @@ func (s *ActivityStore) Record(entry *ActivityEntry) {
 	}
 	if entry.Type == ActivityHTTPProxy {
 		stats.TotalProxy++
+	}
+	if entry.Type == ActivityMCPCall {
+		stats.TotalMCP++
 	}
 	if !entry.Success {
 		stats.TotalErrors++
@@ -210,7 +218,7 @@ func (s *ActivityStore) Query(q ActivityQuery) []*ActivityEntry {
 		if q.Type != "" && e.Type != q.Type {
 			continue
 		}
-		if q.Target != "" && e.Target != q.Target {
+		if q.Target != "" && e.Target != q.Target && e.Service != q.Target {
 			continue
 		}
 		if q.Service != "" && e.Service != q.Service {
@@ -285,6 +293,7 @@ func (s *ActivityStore) Summary() *ActivitySummary {
 		TotalActions:  totalActions,
 		TotalExec:     s.totalExec,
 		TotalProxy:    s.totalProxy,
+		TotalMCP:      s.totalMCP,
 		TotalErrors:   s.totalErrors,
 		ActiveAgents:  len(s.agentStats),
 		AgentStats:    agentStatsCopy,
