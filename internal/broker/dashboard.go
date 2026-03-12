@@ -257,14 +257,12 @@ func (bs *BrokerServer) handleDashboardSummary(w http.ResponseWriter, r *http.Re
 
 	hostname, _ := os.Hostname()
 
+	// Use UDP dial to determine local IP — net.InterfaceAddrs() requires
+	// AF_NETLINK which is blocked by systemd RestrictAddressFamilies.
 	localIP := "127.0.0.1"
-	if addrs, err := net.InterfaceAddrs(); err == nil {
-		for _, addr := range addrs {
-			if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() && ipNet.IP.To4() != nil {
-				localIP = ipNet.IP.String()
-				break
-			}
-		}
+	if conn, err := net.Dial("udp", "192.168.0.1:80"); err == nil {
+		localIP = conn.LocalAddr().(*net.UDPAddr).IP.String()
+		conn.Close()
 	}
 
 	// Include active grants in the session and agent counts.

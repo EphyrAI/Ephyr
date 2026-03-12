@@ -1714,13 +1714,17 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
             // Normalize WebSocket events
             const wsNorm = (events || []).map(e => {
               const data = e.data || {};
+              const evType = e.type || e.event_type || 'info';
+              const isToggle = evType.includes('toggle');
+              const toggleName = data.host || data.name || data.service || data.remote || '';
+              const toggleState = data.state || (data.enabled === 'true' ? 'enabled' : data.enabled === 'false' ? 'disabled' : '') || data.action || '';
               return {
                 timestamp: e.timestamp,
-                action_type: e.type || e.event_type || 'info',
-                agent: data.agent || e.agent || '-',
-                target: data.target || e.target || '-',
-                details: data.reason || data.role || data.message || '',
-                status: (e.type || '').includes('denied') ? 'error' : 'success',
+                action_type: evType,
+                agent: data.agent || e.agent || (isToggle ? 'dashboard' : '-'),
+                target: isToggle ? toggleName : (data.target || e.target || '-'),
+                details: isToggle ? (toggleName + ' ' + toggleState).trim() : (data.reason || data.role || data.message || ''),
+                status: (evType).includes('denied') ? 'error' : 'success',
                 _source: 'ws',
               };
             });
