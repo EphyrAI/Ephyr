@@ -524,7 +524,7 @@ func TestGrantConcurrency(t *testing.T) {
 	// 10 goroutines issuing grants concurrently.
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func(idx int) {
+		go func(_idx int) {
 			defer wg.Done()
 			for j := 0; j < 10; j++ {
 				g := gs.Issue(GrantTypeService, "agent-concurrent", "svc-concurrent", 10*time.Minute, nil)

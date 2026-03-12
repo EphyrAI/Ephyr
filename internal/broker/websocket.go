@@ -140,15 +140,15 @@ func (h *EventHub) writePump(c *wsClient) {
 		case msg, ok := <-c.send:
 			if !ok {
 				// Channel closed.
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			c.conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return
 			}
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -165,9 +165,9 @@ func (h *EventHub) readPump(c *wsClient) {
 	}()
 
 	c.conn.SetReadLimit(512)
-	c.conn.SetReadDeadline(time.Now().Add(wsPongTimeout))
+	_ = c.conn.SetReadDeadline(time.Now().Add(wsPongTimeout))
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(wsPongTimeout))
+		_ = c.conn.SetReadDeadline(time.Now().Add(wsPongTimeout))
 		return nil
 	})
 

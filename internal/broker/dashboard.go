@@ -930,7 +930,9 @@ func (bs *BrokerServer) handleToggleService(w http.ResponseWriter, r *http.Reque
 		newEnabled = false
 	}
 	svc.Enabled = &newEnabled
-	bs.proxyEngine.SaveServices()
+	if err := bs.proxyEngine.SaveServices(); err != nil {
+		log.Printf("[dashboard] failed to save services: %v", err)
+	}
 
 	svcAction := "disabled"
 	if newEnabled {
@@ -984,7 +986,9 @@ func (bs *BrokerServer) handleToggleRemote(w http.ResponseWriter, r *http.Reques
 		state.StatusMessage = "disabled by dashboard"
 	}
 	state.mu.Unlock()
-	bs.federator.save()
+	if err := bs.federator.save(); err != nil {
+		log.Printf("[dashboard] failed to save remotes: %v", err)
+	}
 
 	remoteAction := "disabled"
 	if newEnabled {
@@ -1157,5 +1161,5 @@ func (bs *BrokerServer) handleDashboardPermissions(w http.ResponseWriter, r *htt
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }

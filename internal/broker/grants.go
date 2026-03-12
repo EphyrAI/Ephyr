@@ -252,6 +252,6 @@ func (gs *GrantStore) ActiveCount() int {
 // generateGrantID creates a random 16-byte hex string for grant IDs.
 func generateGrantID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }

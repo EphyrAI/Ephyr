@@ -209,6 +209,6 @@ func (cs *CertState) ListPending() []*PendingRequest {
 // generateRequestID creates a random 16-byte hex string for request IDs.
 func generateRequestID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }

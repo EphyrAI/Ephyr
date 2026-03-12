@@ -85,7 +85,7 @@ func cmdServices(args []string) {
 	fs := flag.NewFlagSet("services", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	client := NewBrokerClient(*socket, *configDir)
 	services, err := client.ListServices()
@@ -124,7 +124,7 @@ func cmdRemotes(args []string) {
 	fs := flag.NewFlagSet("remotes", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	client := NewBrokerClient(*socket, *configDir)
 	remotes, err := client.ListRemotes()

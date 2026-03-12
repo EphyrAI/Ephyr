@@ -65,7 +65,7 @@ func (ts *terminalSession) close() {
 		ts.sshClient.Close()
 	}
 	if ts.ws != nil {
-		ts.ws.WriteMessage(websocket.CloseMessage,
+		_ = ts.ws.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "session ended"))
 		ts.ws.Close()
 	}
@@ -100,11 +100,11 @@ func (bs *BrokerServer) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 2: Read first message as TerminalRequest (10s timeout).
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	if err != nil {
 		log.Printf("[terminal] failed to read terminal request: %v", err)
-		conn.WriteMessage(websocket.CloseMessage,
+		_ = conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseProtocolError, "expected terminal request"))
 		conn.Close()
 		return
@@ -252,11 +252,11 @@ func (bs *BrokerServer) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
 	// Clear the read deadline set earlier for the initial request.
-	conn.SetReadDeadline(time.Time{})
+	_ = conn.SetReadDeadline(time.Time{})
 
 	// Step 7: Set up ping/pong keepalive (30s interval, same as EventHub).
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Time{})
+		_ = conn.SetReadDeadline(time.Time{})
 		return nil
 	})
 
@@ -366,7 +366,7 @@ func (bs *BrokerServer) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Wait for SSH session to finish (shell exited).
-	session.Wait()
+	_ = session.Wait()
 
 	// Ensure cleanup.
 	ts.close()
@@ -458,6 +458,6 @@ func (bs *BrokerServer) findTargetByHost(host string, port int) string {
 // writeWSError sends a JSON error message over the WebSocket and logs it.
 func writeWSError(conn *websocket.Conn, msg string) {
 	errPayload, _ := json.Marshal(map[string]string{"error": msg})
-	conn.WriteMessage(websocket.TextMessage, errPayload)
+	_ = conn.WriteMessage(websocket.TextMessage, errPayload)
 	log.Printf("[terminal] error: %s", msg)
 }

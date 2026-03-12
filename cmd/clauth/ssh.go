@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -29,7 +30,7 @@ func cmdRequest(args []string) {
 	durationShort := fs.String("d", defaultDuration, "Certificate duration (short)")
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	t := coalesce(*target, *targetShort)
 	r := coalesce(*role, *roleShort)
@@ -67,7 +68,7 @@ func cmdSSH(args []string) {
 	durationShort := fs.String("d", defaultDuration, "Certificate duration (short)")
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	t := coalesce(*target, *targetShort)
 	r := coalesce(*role, *roleShort)
@@ -133,7 +134,7 @@ func cmdExec(args []string) {
 	durationShort := fs.String("d", defaultDuration, "Certificate duration (short)")
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
-	fs.Parse(flagArgs)
+	_ = fs.Parse(flagArgs)
 
 	t := coalesce(*target, *targetShort)
 	r := coalesce(*role, *roleShort)
@@ -168,7 +169,7 @@ func cmdStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	client := NewBrokerClient(*socket, *configDir)
 	certs, err := client.ListCerts()
@@ -203,7 +204,7 @@ func cmdTargets(args []string) {
 	fs := flag.NewFlagSet("targets", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	client := NewBrokerClient(*socket, *configDir)
 	targets, err := client.ListTargets()
@@ -235,7 +236,7 @@ func cmdWhoami(args []string) {
 	fs := flag.NewFlagSet("whoami", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	client := NewBrokerClient(*socket, *configDir)
 	info, err := client.Whoami()
@@ -377,7 +378,8 @@ func runSSH(args []string) int {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			return exitErr.ExitCode()
 		}
 		fmt.Fprintf(os.Stderr, "ssh error: %v\n", err)

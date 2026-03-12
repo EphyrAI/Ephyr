@@ -98,7 +98,7 @@ func (bs *BrokerServer) handleCreateSession(w http.ResponseWriter, r *http.Reque
 	var req SessionRequest
 	// Allow empty body - auto-detect agent from UID if not provided.
 	if r.Body != nil && r.ContentLength != 0 {
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
 
 	// If agent_name not provided, resolve from UID.
@@ -827,7 +827,7 @@ func parseRFC3339(s string) time.Time {
 // parseSerial converts a hex serial string to uint64.
 func parseSerial(s string) uint64 {
 	var serial uint64
-	fmt.Sscanf(s, "%x", &serial)
+	_, _ = fmt.Sscanf(s, "%x", &serial)
 	return serial
 }
 
@@ -894,14 +894,14 @@ func (bs *BrokerServer) handleAdminToggleHost(w http.ResponseWriter, r *http.Req
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // writeError writes a JSON error response.
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 

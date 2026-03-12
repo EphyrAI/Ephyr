@@ -18,7 +18,7 @@ func cmdInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	force := fs.Bool("force", false, "Overwrite existing keypair")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	privPath := filepath.Join(*configDir, "id_ed25519")
 	pubPath := filepath.Join(*configDir, "id_ed25519.pub")

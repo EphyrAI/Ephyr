@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -368,7 +369,7 @@ func (p *ExecSessionPool) execCommand(client *ssh.Client, target, role, command 
 		runErr = res.err
 	case <-timer.C:
 		// Timeout: signal the session to close, which will unblock Run.
-		session.Signal(ssh.SIGKILL)
+		_ = session.Signal(ssh.SIGKILL)
 		session.Close()
 		elapsed := time.Since(start)
 		return &ExecResult{
@@ -384,7 +385,8 @@ func (p *ExecSessionPool) execCommand(client *ssh.Client, target, role, command 
 	elapsed := time.Since(start)
 
 	if runErr != nil {
-		if exitErr, ok := runErr.(*ssh.ExitError); ok {
+		var exitErr *ssh.ExitError
+		if errors.As(runErr, &exitErr) {
 			exitCode = exitErr.ExitStatus()
 		} else {
 			// Non-exit error (e.g., connection issue).

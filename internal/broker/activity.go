@@ -129,7 +129,7 @@ func (s *ActivityStore) Record(entry *ActivityEntry) {
 	// Generate ID if not set.
 	if entry.ID == "" {
 		b := make([]byte, 8)
-		rand.Read(b)
+		_, _ = rand.Read(b)
 		entry.ID = hex.EncodeToString(b)
 	}
 

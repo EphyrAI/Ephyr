@@ -94,7 +94,7 @@ func handleConn(conn net.Conn, ca *signer.CA, allowedUID int) {
 	defer conn.Close()
 
 	// Set a generous deadline for the entire exchange.
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	// Validate caller UID via SO_PEERCRED if configured.
 	if allowedUID >= 0 {

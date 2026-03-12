@@ -184,7 +184,7 @@ func (s *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(jsonRPCResponse{
+		_ = json.NewEncoder(w).Encode(jsonRPCResponse{
 			JSONRPC: "2.0",
 			Error: &jsonRPCError{
 				Code:    mcpErrInvalidRequest,
@@ -276,7 +276,7 @@ func (s *MCPServer) handleInitialize(w http.ResponseWriter, req jsonRPCRequest) 
 	// Parse client params (optional, for logging).
 	var params MCPInitializeParams
 	if req.Params != nil {
-		json.Unmarshal(req.Params, &params)
+		_ = json.Unmarshal(req.Params, &params)
 	}
 
 	if params.ClientInfo.Name != "" {
@@ -581,7 +581,7 @@ func (s *MCPServer) writeJSONRPC(w http.ResponseWriter, id json.RawMessage, resu
 		if id == nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 	} else {
@@ -590,10 +590,6 @@ func (s *MCPServer) writeJSONRPC(w http.ResponseWriter, id json.RawMessage, resu
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// mcpRequestDuration returns the time since the given start, formatted for logging.
-func mcpRequestDuration(start time.Time) string {
-	return time.Since(start).Round(time.Microsecond).String()
-}
