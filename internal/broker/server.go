@@ -194,6 +194,21 @@ func NewBrokerServer(cfg BrokerConfig) (*BrokerServer, error) {
 	bs.revocation = NewRevocationMap(30 * time.Minute) // max task TTL from policy
 	bs.metrics = NewMetrics()
 
+	// Wire up task expiry callback for WebSocket broadcasts and metrics.
+	bs.taskMgr.OnExpire = func(task *Task) {
+		if bs.eventHub != nil {
+			bs.eventHub.Broadcast(Event{
+				Type: "task_expired",
+				Data: map[string]interface{}{
+					"task_id":     task.ID,
+					"agent":       task.AgentName,
+					"description": task.Description,
+				},
+			})
+		}
+		bs.metrics.TasksActive.Add(-1)
+	}
+
 	return bs, nil
 }
 

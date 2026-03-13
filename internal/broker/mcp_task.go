@@ -109,6 +109,19 @@ func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args ma
 		},
 	})
 
+	if s.broker.eventHub != nil {
+		s.broker.eventHub.Broadcast(Event{
+			Type: "task_created",
+			Data: map[string]interface{}{
+				"task_id":      task.ID,
+				"agent":        agent.Name,
+				"description":  description,
+				"depth":        0,
+				"can_delegate": canDelegate,
+			},
+		})
+	}
+
 	// Return token and task info.
 	result := map[string]interface{}{
 		"task_id":      task.ID,
@@ -197,6 +210,16 @@ func (s *MCPServer) toolTaskRevoke(ctx context.Context, agent *MCPAgent, args ma
 			"description": task.Description,
 		},
 	})
+
+	if s.broker.eventHub != nil {
+		s.broker.eventHub.Broadcast(Event{
+			Type: "task_revoked",
+			Data: map[string]interface{}{
+				"task_id": taskID,
+				"agent":   agent.Name,
+			},
+		})
+	}
 
 	return jsonResult(map[string]interface{}{
 		"revoked": taskID,
@@ -381,6 +404,19 @@ func (s *MCPServer) toolTaskDelegate(ctx context.Context, agent *MCPAgent, args 
 			"depth":          fmt.Sprintf("%d", child.Depth),
 		},
 	})
+
+	if s.broker.eventHub != nil {
+		s.broker.eventHub.Broadcast(Event{
+			Type: "task_delegated",
+			Data: map[string]interface{}{
+				"task_id":        child.ID,
+				"parent_task_id": parentTaskID,
+				"agent":          agent.Name,
+				"description":    description,
+				"depth":          child.Depth,
+			},
+		})
+	}
 
 	// Return child task info and token.
 	result := map[string]interface{}{

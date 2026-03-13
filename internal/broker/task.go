@@ -48,10 +48,11 @@ type CreateTaskParams struct {
 
 // TaskManager tracks active tasks with thread-safe operations.
 type TaskManager struct {
-	mu      sync.RWMutex
-	tasks   map[string]*Task           // task ID -> task
-	byAgent map[string]map[string]bool // agent name -> set of task IDs
-	stopCh  chan struct{}
+	mu       sync.RWMutex
+	tasks    map[string]*Task           // task ID -> task
+	byAgent  map[string]map[string]bool // agent name -> set of task IDs
+	stopCh   chan struct{}
+	OnExpire func(*Task) // called when a task expires during cleanup
 }
 
 // NewTaskManager creates a TaskManager and starts a background cleanup
@@ -201,6 +202,91 @@ func (tm *TaskManager) TaskCount() int {
 	return count
 }
 
+// GetChildren returns all active (non-expired) tasks whose ParentID matches
+// the given parentID. Results are sorted by CreatedAt ascending.
+// Returns an empty slice (not nil) if no children are found.
+func (tm *TaskManager) GetChildren(parentID string) []*Task {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	now := time.Now()
+	result := make([]*Task, 0)
+
+	for _, task := range tm.tasks {
+		if task.ParentID == parentID && now.Before(task.ExpiresAt) {
+			result = append(result, task)
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	return result
+}
+
+// GetTaskTree returns all active (non-expired) tasks belonging to a root tree
+// (where RootID == rootID), including the root task itself.
+// Results are sorted by Depth ascending, then CreatedAt ascending for same depth.
+// Returns an empty slice if no tasks are found.
+func (tm *TaskManager) GetTaskTree(rootID string) []*Task {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	now := time.Now()
+	result := make([]*Task, 0)
+
+	for _, task := range tm.tasks {
+		if task.RootID == rootID && now.Before(task.ExpiresAt) {
+			result = append(result, task)
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Depth != result[j].Depth {
+			return result[i].Depth < result[j].Depth
+		}
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	return result
+}
+
+// CountDelegations returns the count of active (non-expired) tasks with Depth > 0.
+func (tm *TaskManager) CountDelegations() int {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	count := 0
+	now := time.Now()
+	for _, task := range tm.tasks {
+		if task.Depth > 0 && now.Before(task.ExpiresAt) {
+			count++
+		}
+	}
+	return count
+}
+
+// ListAllTasks returns all active (non-expired) tasks regardless of agent,
+// sorted by CreatedAt descending (newest first). Useful for dashboard global
+// task views.
+func (tm *TaskManager) ListAllTasks() []*Task {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	now := time.Now()
+	result := make([]*Task, 0)
+
+	for _, task := range tm.tasks {
+		if now.Before(task.ExpiresAt) {
+			result = append(result, task)
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	return result
+}
+
 // cleanup removes expired tasks from the manager.
 func (tm *TaskManager) cleanup() {
 	tm.mu.Lock()
@@ -209,6 +295,9 @@ func (tm *TaskManager) cleanup() {
 	now := time.Now()
 	for id, task := range tm.tasks {
 		if now.After(task.ExpiresAt) {
+			if tm.OnExpire != nil {
+				tm.OnExpire(task)
+			}
 			delete(tm.tasks, id)
 			if agents, ok := tm.byAgent[task.AgentName]; ok {
 				delete(agents, id)

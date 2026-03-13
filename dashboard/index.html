@@ -1066,6 +1066,68 @@
   .theme-btn:hover { border-color: var(--border-bright); color: var(--text); }
   .theme-btn.active { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
 
+  /* ── Task View ── */
+
+  /* Task cards/table */
+  .tasks-table { width: 100%; border-collapse: collapse; }
+  .tasks-table th { text-align: left; padding: 10px 12px; color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+  .tasks-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .tasks-table tr:hover { background: rgba(255,255,255,0.02); }
+  .tasks-table tr.revoked { opacity: 0.4; }
+
+  /* Task depth badge */
+  .badge-root { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+  .badge-delegated { background: rgba(139,92,246,0.15); color: var(--purple); border: 1px solid rgba(139,92,246,0.3); }
+  .badge-can-delegate { border: 1px dashed var(--cyan); }
+
+  /* Task tree view */
+  .task-tree { padding: 0; }
+  .task-tree-node { position: relative; padding: 10px 12px 10px 24px; margin-left: 0; border-left: 2px solid var(--border); }
+  .task-tree-node:last-child { border-left-color: transparent; }
+  .task-tree-node::before { content: ''; position: absolute; left: -2px; top: 0; width: 20px; height: 22px; border-left: 2px solid var(--border); border-bottom: 2px solid var(--border); border-bottom-left-radius: 8px; }
+  .task-tree-node:last-child::before { border-left: 2px solid var(--border); }
+  .task-tree-root { border-left: 3px solid var(--green); padding: 12px 16px; margin-bottom: 4px; border-radius: 4px; background: rgba(34,197,94,0.05); }
+  .task-tree-root::before { display: none; }
+  .task-tree-level { margin-left: 24px; }
+
+  /* Task tree node content */
+  .task-node-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .task-node-desc { font-weight: 500; }
+  .task-node-meta { display: flex; gap: 12px; font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .task-node-actions { margin-left: auto; display: flex; gap: 6px; }
+
+  /* Envelope inspector panel */
+  .envelope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .envelope-grid.single { grid-template-columns: 1fr; }
+  .envelope-section { margin-bottom: 16px; }
+  .envelope-section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin-bottom: 8px; font-weight: 600; }
+  .envelope-items { display: flex; flex-wrap: wrap; gap: 6px; }
+  .envelope-item { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); }
+  .envelope-item.attenuated { opacity: 0.3; text-decoration: line-through; }
+  .envelope-compare-header { font-size: 13px; font-weight: 600; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .envelope-compare-header.parent { color: var(--amber); }
+  .envelope-compare-header.child { color: var(--cyan); }
+
+  /* Cascade warning */
+  .cascade-warning { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 12px 16px; margin: 12px 0; }
+  .cascade-warning-title { color: var(--red); font-weight: 600; margin-bottom: 4px; }
+  .cascade-warning-list { font-size: 13px; color: var(--text-dim); margin-top: 8px; }
+  .cascade-warning-list li { margin-bottom: 2px; }
+
+  /* Revoke confirmation inline */
+  .revoke-confirm { display: flex; align-items: center; gap: 8px; }
+  .revoke-confirm .btn { font-size: 12px; padding: 4px 10px; }
+
+  /* Task stat card accent */
+  .stat-card.purple .stat-value { color: var(--purple); }
+  .stat-card.purple { border-left: 3px solid var(--purple); }
+
+  /* Task status dot */
+  .task-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+  .task-status-dot.active { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,0.4); }
+  .task-status-dot.revoked { background: var(--red); }
+  .task-status-dot.expired { background: var(--text-dim); }
+
   /* Responsive breakpoints */
   @media (max-width: 1400px) {
     .stats-row { grid-template-columns: repeat(3, 1fr); }
@@ -1497,7 +1559,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
       </div>
 
       {/* Row 2: Active resources */}
-      <div className="stats-row" style={{ marginBottom: '16px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+      <div className="stats-row" style={{ marginBottom: '16px', gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div className="stat-card green">
           <div className="stat-label">Active Agents</div>
           <div className="stat-value green">{summary.agents_active || 0}</div>
@@ -1522,6 +1584,11 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
           <div className="stat-label">Hosts Online</div>
           <div className="stat-value amber">{summary.hosts_online || 0}</div>
           <div className="stat-sub">of {summary.hosts_enabled || 0} enabled</div>
+        </div>
+        <div className="stat-card purple">
+          <div className="stat-label">Active Tasks</div>
+          <div className="stat-value purple">{summary.tasks_active || 0}</div>
+          <div className="stat-sub">{summary.tasks_delegated || 0} delegated</div>
         </div>
       </div>
 
@@ -3338,6 +3405,329 @@ function TerminalInstance({ tab, token, onStatusChange }) {
   return <div ref={termContainerRef} className="terminal-xterm-container" style={{ height: '100%' }} />;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 6b. TASKS VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function TasksView({ token, now }) {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [depthFilter, setDepthFilter] = useState('ALL');
+  const [agentFilter, setAgentFilter] = useState('');
+  const [viewMode, setViewMode] = useState('TABLE');
+  const [inspectTask, setInspectTask] = useState(null);
+  const [inspectDetail, setInspectDetail] = useState(null);
+  const [revokeTarget, setRevokeTarget] = useState(null);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const url = agentFilter ? `/v1/dashboard/tasks?agent=${encodeURIComponent(agentFilter)}` : '/v1/dashboard/tasks';
+      const data = await api('GET', url, null, token);
+      setTasks(data.tasks || []);
+    } catch(e) { console.error('fetch tasks:', e); }
+    setLoading(false);
+  }, [token, agentFilter]);
+
+  useEffect(() => { fetchTasks(); const iv = setInterval(fetchTasks, 5000); return () => clearInterval(iv); }, [fetchTasks]);
+
+  const filtered = tasks.filter(t => {
+    if (statusFilter === 'ACTIVE' && t.status !== 'active') return false;
+    if (statusFilter === 'REVOKED' && t.status !== 'revoked') return false;
+    if (depthFilter === 'ROOT' && t.depth !== 0) return false;
+    if (depthFilter === 'DELEGATED' && t.depth === 0) return false;
+    return true;
+  });
+
+  const activeCount = tasks.filter(t => t.status === 'active').length;
+  const revokedCount = tasks.filter(t => t.status === 'revoked').length;
+  const rootCount = tasks.filter(t => t.depth === 0).length;
+  const delegatedCount = tasks.filter(t => t.depth > 0).length;
+
+  const agents = [...new Set(tasks.map(t => t.agent_name))].sort();
+
+  const handleRevoke = async (task) => {
+    try {
+      const preview = await api('POST', `/v1/dashboard/tasks/${task.id}/revoke?preview=true`, null, token);
+      setRevokeTarget({ task, preview });
+    } catch(e) { console.error('revoke preview:', e); }
+  };
+
+  const confirmRevoke = async () => {
+    if (!revokeTarget) return;
+    try {
+      await api('POST', `/v1/dashboard/tasks/${revokeTarget.task.id}/revoke`, null, token);
+      setRevokeTarget(null);
+      fetchTasks();
+    } catch(e) { console.error('revoke:', e); }
+  };
+
+  const handleInspect = async (task) => {
+    setInspectTask(task);
+    try {
+      const detail = await api('GET', `/v1/dashboard/tasks/${task.id}`, null, token);
+      setInspectDetail(detail);
+    } catch(e) { console.error('inspect:', e); }
+  };
+
+  const tasksByRoot = useMemo(() => {
+    const groups = {};
+    filtered.forEach(t => {
+      const rootId = t.root_id || t.id;
+      if (!groups[rootId]) groups[rootId] = [];
+      groups[rootId].push(t);
+    });
+    Object.values(groups).forEach(g => g.sort((a, b) => a.depth - b.depth));
+    return groups;
+  }, [filtered]);
+
+  const renderTreeNode = (task, allTasks) => {
+    const children = allTasks.filter(t => t.parent_id === task.id);
+    return (
+      <div key={task.id} className={task.depth === 0 ? 'task-tree-root' : 'task-tree-node'}>
+        <div className="task-node-header">
+          <span className={`task-status-dot ${task.status}`} />
+          <span className={`badge ${task.depth === 0 ? 'badge-root' : 'badge-delegated'}`}>{task.depth === 0 ? 'ROOT' : `D${task.depth}`}</span>
+          {task.can_delegate && <span className="badge badge-can-delegate">CAN DELEGATE</span>}
+          <span className="task-node-desc">{task.description || task.id.slice(0, 12)}</span>
+          <div className="task-node-actions">
+            {task.status === 'active' && <button className="btn btn-revoke" style={{fontSize:'11px',padding:'2px 8px'}} onClick={(e) => { e.stopPropagation(); handleRevoke(task); }}>Revoke</button>}
+            <button className="btn btn-purple" style={{fontSize:'11px',padding:'2px 8px'}} onClick={(e) => { e.stopPropagation(); handleInspect(task); }}>Inspect</button>
+          </div>
+        </div>
+        <div className="task-node-meta">
+          <span>{task.agent_name}</span>
+          <span>TTL: {Math.max(0, Math.round(task.remaining_ttl_seconds))}s</span>
+          {task.child_count > 0 && <span>{task.child_count} children</span>}
+        </div>
+        {children.length > 0 && (
+          <div className="task-tree-level">
+            {children.map(c => renderTreeNode(c, allTasks))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {/* Revoke confirmation dialog */}
+      {revokeTarget && (
+        <div className="cascade-warning">
+          <div className="cascade-warning-title">Revoke task: {revokeTarget.task.description || revokeTarget.task.id.slice(0,12)}</div>
+          {revokeTarget.preview.cascade_count > 0 && (
+            <div>This will also invalidate {revokeTarget.preview.cascade_count} child task{revokeTarget.preview.cascade_count > 1 ? 's' : ''}.</div>
+          )}
+          <div className="revoke-confirm" style={{marginTop:'8px'}}>
+            <button className="btn btn-revoke" onClick={confirmRevoke}>Confirm Revoke</button>
+            <button className="btn" onClick={() => setRevokeTarget(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Filter bar */}
+      <div style={{display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap', marginBottom:'16px'}}>
+        <button className={`filter-btn ${statusFilter==='ALL'?'active':''}`} onClick={() => setStatusFilter('ALL')}>All ({tasks.length})</button>
+        <button className={`filter-btn ${statusFilter==='ACTIVE'?'active':''}`} onClick={() => setStatusFilter('ACTIVE')}>Active ({activeCount})</button>
+        <button className={`filter-btn ${statusFilter==='REVOKED'?'active':''}`} onClick={() => setStatusFilter('REVOKED')}>Revoked ({revokedCount})</button>
+        <span style={{width:'1px',height:'20px',background:'var(--border)',margin:'0 4px'}} />
+        <button className={`filter-btn ${depthFilter==='ALL'?'active':''}`} onClick={() => setDepthFilter('ALL')}>All Depths</button>
+        <button className={`filter-btn ${depthFilter==='ROOT'?'active':''}`} onClick={() => setDepthFilter('ROOT')}>Root ({rootCount})</button>
+        <button className={`filter-btn ${depthFilter==='DELEGATED'?'active':''}`} onClick={() => setDepthFilter('DELEGATED')}>Delegated ({delegatedCount})</button>
+        <span style={{width:'1px',height:'20px',background:'var(--border)',margin:'0 4px'}} />
+        <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={{background:'var(--bg-card)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:'4px',padding:'4px 8px',fontSize:'13px'}}>
+          <option value="">All Agents</option>
+          {agents.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <div style={{marginLeft:'auto',display:'flex',gap:'4px'}}>
+          <button className={`filter-btn ${viewMode==='TABLE'?'active':''}`} onClick={() => setViewMode('TABLE')}>Table</button>
+          <button className={`filter-btn ${viewMode==='TREE'?'active':''}`} onClick={() => setViewMode('TREE')}>Tree</button>
+        </div>
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div style={{color:'var(--text-dim)',padding:'20px'}}>Loading tasks...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{color:'var(--text-dim)',padding:'20px'}}>No tasks found.</div>
+      ) : viewMode === 'TABLE' ? (
+        <table className="tasks-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Depth</th>
+              <th>Agent</th>
+              <th>Description</th>
+              <th>TTL</th>
+              <th>Children</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(t => (
+              <tr key={t.id} className={t.status === 'revoked' ? 'revoked' : ''}>
+                <td><span className={`task-status-dot ${t.status}`} /></td>
+                <td><span className={`badge ${t.depth === 0 ? 'badge-root' : 'badge-delegated'}`}>{t.depth === 0 ? 'ROOT' : `D${t.depth}`}</span></td>
+                <td>{t.agent_name}</td>
+                <td>
+                  <div>{t.description || t.id.slice(0,12)}</div>
+                  <div style={{fontSize:'11px',color:'var(--text-dim)'}}>{t.id.slice(0,12)}...</div>
+                </td>
+                <td style={{minWidth:'120px'}}>
+                  {t.status === 'active' ? (
+                    <TTLBar remaining={t.remaining_ttl_seconds} maxTTL={t.max_ttl_seconds} />
+                  ) : (
+                    <span style={{color:'var(--red)',fontSize:'12px'}}>revoked</span>
+                  )}
+                </td>
+                <td>
+                  {t.child_count > 0 ? <span className="badge badge-delegated">{t.child_count}</span> : '-'}
+                  {t.can_delegate && <span className="badge badge-can-delegate" style={{marginLeft:'4px',fontSize:'10px'}}>{'\u2B2C'}</span>}
+                </td>
+                <td>
+                  <div style={{display:'flex',gap:'4px'}}>
+                    {t.status === 'active' && <button className="btn btn-revoke" style={{fontSize:'11px',padding:'2px 8px'}} onClick={() => handleRevoke(t)}>Revoke</button>}
+                    <button className="btn btn-purple" style={{fontSize:'11px',padding:'2px 8px'}} onClick={() => handleInspect(t)}>Inspect</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="task-tree">
+          {Object.entries(tasksByRoot).map(([rootId, treeTasks]) => (
+            <div key={rootId} style={{marginBottom:'16px'}}>
+              {treeTasks.filter(t => t.depth === 0).map(root => renderTreeNode(root, treeTasks))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Envelope inspector slideout */}
+      {inspectTask && (
+        <EnvelopeInspectorPanel
+          task={inspectTask}
+          detail={inspectDetail}
+          onClose={() => { setInspectTask(null); setInspectDetail(null); }}
+          token={token}
+        />
+      )}
+    </div>
+  );
+}
+
+function EnvelopeInspectorPanel({ task, detail, onClose, token }) {
+  const [parentEnvelope, setParentEnvelope] = useState(null);
+
+  useEffect(() => {
+    if (task.depth > 0 && task.parent_id && token) {
+      api('GET', `/v1/dashboard/tasks/${task.parent_id}`, null, token)
+        .then(d => setParentEnvelope(d.envelope))
+        .catch(() => {});
+    }
+    return () => setParentEnvelope(null);
+  }, [task, token]);
+
+  const env = task.envelope || {};
+
+  const renderEnvelopeItems = (items, parentItems) => {
+    if (!items || items.length === 0) return <span style={{color:'var(--text-dim)',fontSize:'12px'}}>none</span>;
+    return (
+      <div className="envelope-items">
+        {items.map(item => <span key={item} className="envelope-item">{item}</span>)}
+        {parentItems && parentItems.filter(p => !items.includes(p)).map(item => (
+          <span key={'att-'+item} className="envelope-item attenuated">{item}</span>
+        ))}
+      </div>
+    );
+  };
+
+  const sections = [
+    { label: 'Targets', key: 'targets' },
+    { label: 'Roles', key: 'roles' },
+    { label: 'Services', key: 'services' },
+    { label: 'Remotes', key: 'remotes' },
+    { label: 'Methods', key: 'methods' },
+  ];
+
+  return (
+    <>
+      <div className="slideout-overlay open" onClick={onClose} />
+      <div className="slideout-panel open" style={{padding:'20px',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
+          <h3 style={{margin:0,fontFamily:'var(--heading-font)',fontSize:'14px',fontWeight:600,color:'var(--text-bright)',letterSpacing:'1px'}}>Task Envelope</h3>
+          <button className="slideout-close" onClick={onClose}>&times;</button>
+        </div>
+
+        {/* Task info */}
+        <div className="envelope-section">
+          <div className="envelope-section-title">Task Info</div>
+          <div style={{fontSize:'13px',display:'grid',gridTemplateColumns:'auto 1fr',gap:'4px 12px'}}>
+            <span style={{color:'var(--text-dim)'}}>ID:</span>
+            <span style={{fontFamily:'monospace',fontSize:'12px'}}>{task.id}</span>
+            <span style={{color:'var(--text-dim)'}}>Agent:</span>
+            <span>{task.agent_name}</span>
+            <span style={{color:'var(--text-dim)'}}>Description:</span>
+            <span>{task.description}</span>
+            <span style={{color:'var(--text-dim)'}}>Depth:</span>
+            <span><span className={`badge ${task.depth === 0 ? 'badge-root' : 'badge-delegated'}`}>{task.depth === 0 ? 'ROOT' : `Depth ${task.depth}`}</span></span>
+            <span style={{color:'var(--text-dim)'}}>Status:</span>
+            <span><span className={`task-status-dot ${task.status}`} style={{marginRight:'6px'}} />{task.status}</span>
+            <span style={{color:'var(--text-dim)'}}>TTL:</span>
+            <span>{Math.max(0, Math.round(task.remaining_ttl_seconds))}s remaining</span>
+            <span style={{color:'var(--text-dim)'}}>Can Delegate:</span>
+            <span>{task.can_delegate ? 'Yes' : 'No'}</span>
+            <span style={{color:'var(--text-dim)'}}>Children:</span>
+            <span>{String(task.child_count)}</span>
+          </div>
+        </div>
+
+        {/* Lineage */}
+        {detail && detail.lineage_details && detail.lineage_details.length > 1 && (
+          <div className="envelope-section">
+            <div className="envelope-section-title">Lineage</div>
+            {detail.lineage_details.map((l, i) => (
+              <div key={l.id} style={{paddingLeft: (i*16)+'px', fontSize:'13px', marginBottom:'2px'}}>
+                {i > 0 && <span style={{color:'var(--text-dim)',marginRight:'4px'}}>{'\u2514\u2500'}</span>}
+                <span className={`badge ${l.depth === 0 ? 'badge-root' : 'badge-delegated'}`} style={{fontSize:'10px',marginRight:'4px'}}>D{l.depth}</span>
+                {l.description || l.id.slice(0,12)}
+                <span style={{color:'var(--text-dim)',marginLeft:'6px',fontSize:'11px'}}>{l.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Envelope capabilities */}
+        <div className="envelope-section" style={{marginTop:'16px'}}>
+          <div className="envelope-section-title">{parentEnvelope ? 'Capability Envelope (attenuated items shown struck through)' : 'Capability Envelope'}</div>
+          {sections.map(s => (
+            <div key={s.key} style={{marginBottom:'12px'}}>
+              <div style={{fontSize:'12px',color:'var(--text-dim)',marginBottom:'4px',fontWeight:600}}>{s.label}</div>
+              {renderEnvelopeItems(env[s.key], parentEnvelope ? parentEnvelope[s.key] : null)}
+            </div>
+          ))}
+        </div>
+
+        {/* Children list */}
+        {detail && detail.children && detail.children.length > 0 && (
+          <div className="envelope-section">
+            <div className="envelope-section-title">Children ({detail.children.length})</div>
+            {detail.children.map(c => (
+              <div key={c.id} style={{padding:'6px 8px',marginBottom:'4px',background:'rgba(255,255,255,0.03)',borderRadius:'4px',fontSize:'13px'}}>
+                <span className={`task-status-dot ${c.status}`} style={{marginRight:'6px'}} />
+                <span className="badge badge-delegated" style={{fontSize:'10px',marginRight:'6px'}}>D{c.depth}</span>
+                {c.description || c.id.slice(0,12)}
+                <span style={{color:'var(--text-dim)',marginLeft:'8px',fontSize:'11px'}}>TTL: {Math.max(0,Math.round(c.remaining_ttl_seconds))}s</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function TerminalView({ hosts, token }) {
   const [tabs, setTabs] = useState([]);
   const [activeTabId, setActiveTabId] = useState(null);
@@ -3918,7 +4308,7 @@ function App() {
         const msg = JSON.parse(evt.data);
         setEvents(prev => [msg, ...prev].slice(0, 200));
         const t = (msg.type || '').toLowerCase();
-        if (t.includes('grant') || t.includes('deny') || t.includes('revoke') || t.includes('expire') || t.includes('issued') || t.includes('toggle')) {
+        if (t.includes('grant') || t.includes('deny') || t.includes('revoke') || t.includes('expire') || t.includes('issued') || t.includes('toggle') || t.includes('task')) {
           fetchLive();
         }
       } catch {}
@@ -3995,6 +4385,7 @@ function App() {
     { id: 'activity', label: 'Activity', icon: '\u2261', group: 'MONITOR' },
     { id: 'sessions', label: 'Sessions', icon: '\u27d0', group: 'MONITOR' },
     { id: 'audit', label: 'Audit Log', icon: '\u25a4', group: 'MONITOR' },
+    { id: 'tasks', label: 'Tasks', icon: '\u29C9', group: 'MONITOR' },
     { id: 'terminal', label: 'Terminal', icon: '\u2318', group: 'TOOLS' },
     { id: 'settings', label: 'Settings', icon: '\u2699', group: 'TOOLS' },
   ];
@@ -4006,6 +4397,7 @@ function App() {
     activity: 'Activity Monitor',
     sessions: 'Session Control',
     audit: 'Audit Log',
+    tasks: 'Task Management',
     terminal: 'Terminal Access',
     services: 'Service Configuration',
     'mcp-servers': 'MCP Servers',
@@ -4081,6 +4473,7 @@ function App() {
               {view === 'activity' && <ActivityView token={token} initialAgent={activityAgent} />}
               {view === 'sessions' && <SessionsView sessions={sessions} now={now} onRevoke={handleRevoke} />}
               {view === 'audit' && <AuditView token={token} events={events} />}
+              {view === 'tasks' && <TasksView token={token} now={now} />}
               {view === 'terminal' && <TerminalView hosts={hosts} token={token} />}
               {view === 'services' && <ServicesView token={token} />}
               {view === 'mcp-servers' && <MCPServersView token={token} />}

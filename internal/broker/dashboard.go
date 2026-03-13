@@ -84,6 +84,10 @@ type DashboardSummary struct {
 	SignerOK        bool   `json:"signer_ok"`
 	ActiveGrants    int    `json:"active_grants,omitempty"`
 	GrantMode       string `json:"grant_mode,omitempty"`
+	TasksActive     int    `json:"tasks_active"`
+	TasksDelegated  int    `json:"tasks_delegated"`
+	TasksCreated    int64  `json:"tasks_created_total"`
+	Revocations     int64  `json:"revocations_total"`
 }
 
 // DashboardHost is a single host entry for GET /v1/dashboard/hosts.
@@ -242,6 +246,11 @@ func (bs *BrokerServer) dashboardRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /v1/dashboard/settings/grants", bs.handleGetGrantSettings)
 	mux.HandleFunc("PUT /v1/dashboard/settings/grants", bs.handleUpdateGrantSettings)
 
+	// --- Task management ---
+	mux.HandleFunc("GET /v1/dashboard/tasks", bs.handleDashboardTasks)
+	mux.HandleFunc("GET /v1/dashboard/tasks/{id}", bs.handleDashboardTaskDetail)
+	mux.HandleFunc("POST /v1/dashboard/tasks/{id}/revoke", bs.handleDashboardRevokeTask)
+
 	// --- Metrics ---
 	mux.HandleFunc("GET /v1/metrics", bs.handleMetrics)
 
@@ -329,6 +338,14 @@ func (bs *BrokerServer) handleDashboardSummary(w http.ResponseWriter, r *http.Re
 	if bs.grantStore != nil {
 		resp.ActiveGrants = bs.grantStore.ActiveCount()
 		resp.GrantMode = string(bs.grantStore.Mode)
+	}
+	if bs.taskMgr != nil {
+		resp.TasksActive = bs.taskMgr.TaskCount()
+		resp.TasksDelegated = bs.taskMgr.CountDelegations()
+	}
+	if bs.metrics != nil {
+		resp.TasksCreated = bs.metrics.TasksCreated.Load()
+		resp.Revocations = bs.metrics.WatermarkRevocations.Load()
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1102,6 +1119,270 @@ func (bs *BrokerServer) handleUpdateGrantSettings(w http.ResponseWriter, r *http
 		DefaultServiceTTL: bs.grantStore.DefaultServiceTTL.String(),
 		DefaultMCPTTL:     bs.grantStore.DefaultMCPTTL.String(),
 		ActiveGrants:      bs.grantStore.ActiveCount(),
+	})
+}
+
+// DashboardTask is a single task entry for GET /v1/dashboard/tasks.
+type DashboardTask struct {
+	ID           string        `json:"id"`
+	RootID       string        `json:"root_id"`
+	ParentID     string        `json:"parent_id"`
+	AgentName    string        `json:"agent_name"`
+	Description  string        `json:"description"`
+	Depth        int           `json:"depth"`
+	Lineage      []string      `json:"lineage"`
+	CreatedAt    time.Time     `json:"created_at"`
+	ExpiresAt    time.Time     `json:"expires_at"`
+	RemainingTTL float64       `json:"remaining_ttl_seconds"`
+	MaxTTL       float64       `json:"max_ttl_seconds"`
+	Status       string        `json:"status"`
+	CanDelegate  bool          `json:"can_delegate"`
+	ChildCount   int           `json:"child_count"`
+	Envelope     *TaskEnvelope `json:"envelope"`
+}
+
+// DashboardTaskDetail is the detailed response for GET /v1/dashboard/tasks/{id}.
+type DashboardTaskDetail struct {
+	DashboardTask
+	Children       []DashboardTask `json:"children"`
+	Tree           []DashboardTask `json:"tree"`
+	LineageDetails []LineageEntry  `json:"lineage_details"`
+}
+
+// LineageEntry describes one ancestor in a task's lineage chain.
+type LineageEntry struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
+	Depth       int    `json:"depth"`
+	Status      string `json:"status"`
+}
+
+// taskToDashboard converts a Task to a DashboardTask for API responses.
+func (bs *BrokerServer) taskToDashboard(task *Task) DashboardTask {
+	now := time.Now()
+	remaining := task.ExpiresAt.Sub(now).Seconds()
+	if remaining < 0 {
+		remaining = 0
+	}
+	maxTTL := task.ExpiresAt.Sub(task.CreatedAt).Seconds()
+	status := "active"
+	if bs.revocation != nil && bs.revocation.IsRevoked(task.ID) {
+		status = "revoked"
+	}
+	childCount := 0
+	if bs.taskMgr != nil {
+		childCount = len(bs.taskMgr.GetChildren(task.ID))
+	}
+	return DashboardTask{
+		ID:           task.ID,
+		RootID:       task.RootID,
+		ParentID:     task.ParentID,
+		AgentName:    task.AgentName,
+		Description:  task.Description,
+		Depth:        task.Depth,
+		Lineage:      task.Lineage,
+		CreatedAt:    task.CreatedAt,
+		ExpiresAt:    task.ExpiresAt,
+		RemainingTTL: remaining,
+		MaxTTL:       maxTTL,
+		Status:       status,
+		CanDelegate:  task.CanDelegate,
+		ChildCount:   childCount,
+		Envelope:     &task.Envelope,
+	}
+}
+
+// handleDashboardTasks serves GET /v1/dashboard/tasks.
+// Optional query parameter: ?agent=<name> to filter by agent.
+func (bs *BrokerServer) handleDashboardTasks(w http.ResponseWriter, r *http.Request) {
+	if bs.taskMgr == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"tasks": []interface{}{}, "count": 0})
+		return
+	}
+
+	agentFilter := r.URL.Query().Get("agent")
+	var tasks []*Task
+	if agentFilter != "" {
+		tasks = bs.taskMgr.ListTasks(agentFilter)
+	} else {
+		tasks = bs.taskMgr.ListAllTasks()
+	}
+
+	result := make([]DashboardTask, 0, len(tasks))
+	for _, t := range tasks {
+		result = append(result, bs.taskToDashboard(t))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"tasks": result,
+		"count": len(result),
+	})
+}
+
+// handleDashboardTaskDetail serves GET /v1/dashboard/tasks/{id}.
+func (bs *BrokerServer) handleDashboardTaskDetail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "task id is required")
+		return
+	}
+
+	if bs.taskMgr == nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	task := bs.taskMgr.GetTask(id)
+	if task == nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	dt := bs.taskToDashboard(task)
+
+	// Get children.
+	childTasks := bs.taskMgr.GetChildren(id)
+	children := make([]DashboardTask, 0, len(childTasks))
+	for _, c := range childTasks {
+		children = append(children, bs.taskToDashboard(c))
+	}
+
+	// Get full tree.
+	treeTasks := bs.taskMgr.GetTaskTree(task.RootID)
+	tree := make([]DashboardTask, 0, len(treeTasks))
+	for _, t := range treeTasks {
+		tree = append(tree, bs.taskToDashboard(t))
+	}
+
+	// Resolve lineage details.
+	lineageDetails := make([]LineageEntry, 0, len(task.Lineage))
+	for _, lid := range task.Lineage {
+		entry := LineageEntry{ID: lid}
+		if ancestor := bs.taskMgr.GetTask(lid); ancestor != nil {
+			entry.Description = ancestor.Description
+			entry.Depth = ancestor.Depth
+			entry.Status = "active"
+			if bs.revocation != nil && bs.revocation.IsRevoked(lid) {
+				entry.Status = "revoked"
+			}
+		} else {
+			entry.Description = ""
+			entry.Status = "expired"
+		}
+		lineageDetails = append(lineageDetails, entry)
+	}
+
+	detail := DashboardTaskDetail{
+		DashboardTask:  dt,
+		Children:       children,
+		Tree:           tree,
+		LineageDetails: lineageDetails,
+	}
+
+	writeJSON(w, http.StatusOK, detail)
+}
+
+// handleDashboardRevokeTask serves POST /v1/dashboard/tasks/{id}/revoke.
+// Supports ?preview=true to return impact without actually revoking.
+// Security: Currently protected by the shared dashboard token only.
+// Dashboard RBAC level required: operator or admin (when per-agent auth is implemented).
+func (bs *BrokerServer) handleDashboardRevokeTask(w http.ResponseWriter, r *http.Request) {
+	if err := dashboardWriteCheck(); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "task id is required")
+		return
+	}
+
+	if bs.taskMgr == nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	task := bs.taskMgr.GetTask(id)
+	if task == nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	// Get full tree to find descendants.
+	treeTasks := bs.taskMgr.GetTaskTree(task.RootID)
+
+	// Count descendants: tasks in the tree whose lineage contains this task's ID,
+	// excluding the task itself.
+	var descendants []*Task
+	for _, t := range treeTasks {
+		if t.ID == id {
+			continue
+		}
+		for _, lid := range t.Lineage {
+			if lid == id {
+				descendants = append(descendants, t)
+				break
+			}
+		}
+	}
+
+	preview := r.URL.Query().Get("preview") == "true"
+	if preview {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"task_id":       id,
+			"cascade_count": len(descendants),
+			"preview":       true,
+		})
+		return
+	}
+
+	// Revoke the task itself.
+	if bs.revocation != nil {
+		bs.revocation.Revoke(id)
+	}
+	bs.taskMgr.RevokeTask(id)
+
+	// Cascade revoke all descendants.
+	for _, d := range descendants {
+		if bs.revocation != nil {
+			bs.revocation.Revoke(d.ID)
+		}
+		bs.taskMgr.RevokeTask(d.ID)
+	}
+
+	// Update metrics.
+	if bs.metrics != nil {
+		bs.metrics.WatermarkRevocations.Add(1 + int64(len(descendants)))
+	}
+
+	// Audit log.
+	bs.auditLog.LogEvent(audit.AuditEvent{
+		Severity:  audit.SeverityWarn,
+		EventType: "task_revoke_dashboard",
+		Agent:     task.AgentName,
+		Details: map[string]string{
+			"task_id":       id,
+			"cascade_count": strconv.Itoa(len(descendants)),
+			"remote":        r.RemoteAddr,
+		},
+	})
+
+	// WebSocket broadcast.
+	if bs.eventHub != nil {
+		bs.eventHub.Broadcast(Event{
+			Type: "task_revoked",
+			Data: map[string]string{
+				"task_id":       id,
+				"agent":         task.AgentName,
+				"cascade_count": strconv.Itoa(len(descendants)),
+			},
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"revoked":       id,
+		"cascade_count": len(descendants),
 	})
 }
 

@@ -1069,3 +1069,249 @@ func TestCreateChildTask_LineageCopySafety(t *testing.T) {
 		t.Error("child lineage mutation affected parent — backing array is shared!")
 	}
 }
+
+// --- GetChildren / GetTaskTree / CountDelegations / ListAllTasks tests ---
+
+func TestGetChildren_Basic(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	child1, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "child-1",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating child1: %v", err)
+	}
+
+	time.Sleep(1 * time.Millisecond) // ensure different timestamps
+
+	child2, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "child-2",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating child2: %v", err)
+	}
+
+	children := tm.GetChildren(parent.ID)
+	if len(children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(children))
+	}
+
+	// Should be sorted by CreatedAt ascending.
+	if children[0].ID != child1.ID {
+		t.Errorf("expected first child to be %s, got %s", child1.ID, children[0].ID)
+	}
+	if children[1].ID != child2.ID {
+		t.Errorf("expected second child to be %s, got %s", child2.ID, children[1].ID)
+	}
+}
+
+func TestGetChildren_NoChildren(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	root := tm.CreateTask(CreateTaskParams{
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+		Envelope:  TaskEnvelope{Targets: []string{"host1"}},
+	})
+
+	children := tm.GetChildren(root.ID)
+	if children == nil {
+		t.Fatal("expected non-nil empty slice, got nil")
+	}
+	if len(children) != 0 {
+		t.Errorf("expected 0 children, got %d", len(children))
+	}
+}
+
+func TestGetTaskTree_MultiLevel(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	root := createDelegatingParent(tm)
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    root.ID,
+		AgentName:   "agent-1",
+		Description: "child",
+		TTL:         30 * time.Minute,
+		CanDelegate: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating child: %v", err)
+	}
+
+	grandchild, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    child.ID,
+		AgentName:   "agent-1",
+		Description: "grandchild",
+		TTL:         10 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating grandchild: %v", err)
+	}
+
+	tree := tm.GetTaskTree(root.ID)
+	if len(tree) != 3 {
+		t.Fatalf("expected 3 tasks in tree, got %d", len(tree))
+	}
+
+	// Should be sorted by depth ascending.
+	if tree[0].ID != root.ID {
+		t.Errorf("expected tree[0] to be root %s, got %s", root.ID, tree[0].ID)
+	}
+	if tree[0].Depth != 0 {
+		t.Errorf("expected tree[0] depth 0, got %d", tree[0].Depth)
+	}
+	if tree[1].ID != child.ID {
+		t.Errorf("expected tree[1] to be child %s, got %s", child.ID, tree[1].ID)
+	}
+	if tree[1].Depth != 1 {
+		t.Errorf("expected tree[1] depth 1, got %d", tree[1].Depth)
+	}
+	if tree[2].ID != grandchild.ID {
+		t.Errorf("expected tree[2] to be grandchild %s, got %s", grandchild.ID, tree[2].ID)
+	}
+	if tree[2].Depth != 2 {
+		t.Errorf("expected tree[2] depth 2, got %d", tree[2].Depth)
+	}
+}
+
+func TestGetTaskTree_ExcludesOtherRoots(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	// Tree 1: root1 -> child1
+	root1 := createDelegatingParent(tm)
+	_, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    root1.ID,
+		AgentName:   "agent-1",
+		Description: "tree1-child",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Tree 2: root2 -> child2
+	root2 := createDelegatingParent(tm)
+	_, err = tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    root2.ID,
+		AgentName:   "agent-1",
+		Description: "tree2-child",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// GetTaskTree for root1 should only return root1's tree.
+	tree1 := tm.GetTaskTree(root1.ID)
+	if len(tree1) != 2 {
+		t.Fatalf("expected 2 tasks in tree1, got %d", len(tree1))
+	}
+	for _, task := range tree1 {
+		if task.RootID != root1.ID {
+			t.Errorf("tree1 contains task with RootID %s, expected %s", task.RootID, root1.ID)
+		}
+	}
+
+	// GetTaskTree for root2 should only return root2's tree.
+	tree2 := tm.GetTaskTree(root2.ID)
+	if len(tree2) != 2 {
+		t.Fatalf("expected 2 tasks in tree2, got %d", len(tree2))
+	}
+	for _, task := range tree2 {
+		if task.RootID != root2.ID {
+			t.Errorf("tree2 contains task with RootID %s, expected %s", task.RootID, root2.ID)
+		}
+	}
+}
+
+func TestCountDelegations(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	// 2 root tasks (depth 0).
+	root1 := createDelegatingParent(tm)
+	root2 := createDelegatingParent(tm)
+
+	// 3 delegated children (depth > 0).
+	for i := 0; i < 2; i++ {
+		_, err := tm.CreateChildTask(CreateChildTaskParams{
+			ParentID:    root1.ID,
+			AgentName:   "agent-1",
+			Description: "delegation",
+			TTL:         5 * time.Minute,
+			CanDelegate: false,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	_, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    root2.ID,
+		AgentName:   "agent-1",
+		Description: "delegation",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	count := tm.CountDelegations()
+	if count != 3 {
+		t.Errorf("expected 3 delegations, got %d", count)
+	}
+}
+
+func TestListAllTasks_MultiAgent(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	t1 := tm.CreateTask(CreateTaskParams{AgentName: "agent-1", Description: "first", TTL: 5 * time.Minute, Envelope: TaskEnvelope{}})
+	time.Sleep(1 * time.Millisecond)
+	t2 := tm.CreateTask(CreateTaskParams{AgentName: "agent-2", Description: "second", TTL: 5 * time.Minute, Envelope: TaskEnvelope{}})
+	time.Sleep(1 * time.Millisecond)
+	t3 := tm.CreateTask(CreateTaskParams{AgentName: "agent-3", Description: "third", TTL: 5 * time.Minute, Envelope: TaskEnvelope{}})
+
+	all := tm.ListAllTasks()
+	if len(all) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(all))
+	}
+
+	// ListAllTasks sorts newest first (CreatedAt descending).
+	if all[0].ID != t3.ID {
+		t.Errorf("expected newest task first (t3 %s), got %s", t3.ID, all[0].ID)
+	}
+	if all[1].ID != t2.ID {
+		t.Errorf("expected second newest (t2 %s), got %s", t2.ID, all[1].ID)
+	}
+	if all[2].ID != t1.ID {
+		t.Errorf("expected oldest last (t1 %s), got %s", t1.ID, all[2].ID)
+	}
+
+	// Verify all agents are represented.
+	agents := make(map[string]bool)
+	for _, task := range all {
+		agents[task.AgentName] = true
+	}
+	if !agents["agent-1"] || !agents["agent-2"] || !agents["agent-3"] {
+		t.Errorf("expected all 3 agents represented, got %v", agents)
+	}
+}
