@@ -1173,5 +1173,11 @@ func (bs *BrokerServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "metrics not initialized", http.StatusInternalServerError)
 		return
 	}
+	// Sync auth cache stats before serving.
+	if bs.mcpServer != nil && bs.mcpServer.auth != nil {
+		hits, misses := bs.mcpServer.auth.CacheStats()
+		bs.metrics.AuthCacheHits.Store(hits)
+		bs.metrics.AuthCacheMisses.Store(misses)
+	}
 	bs.metrics.ServePrometheus(w, r)
 }

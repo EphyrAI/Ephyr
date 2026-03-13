@@ -29,6 +29,8 @@ type Metrics struct {
 	WatermarkRevocations atomic.Int64
 	DelegationRotations  atomic.Int64
 	LegacyRequests       atomic.Int64 // requests without CTT (legacy mode)
+	AuthCacheHits        atomic.Int64
+	AuthCacheMisses      atomic.Int64
 
 	// Gauges
 	ActiveWatermarks    atomic.Int64
@@ -239,6 +241,8 @@ func (m *Metrics) ServePrometheus(w http.ResponseWriter, r *http.Request) {
 		{"clauth_watermark_revocations_total", "Total watermark revocations", &m.WatermarkRevocations},
 		{"clauth_delegation_rotations_total", "Total delegation cert rotations", &m.DelegationRotations},
 		{"clauth_legacy_requests_total", "Requests without CTT (legacy mode)", &m.LegacyRequests},
+		{"clauth_auth_cache_hits_total", "Auth cache hits (bcrypt bypassed)", &m.AuthCacheHits},
+		{"clauth_auth_cache_misses_total", "Auth cache misses (bcrypt required)", &m.AuthCacheMisses},
 	}
 
 	for _, c := range counters {
