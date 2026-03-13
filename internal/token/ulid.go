@@ -124,8 +124,5 @@ func ValidateULID(id string) bool {
 	// Check that the timestamp portion doesn't overflow 48 bits.
 	// Max timestamp char at position 0 is '7' (value 7), since 8<<45 > 2^48.
 	upper := strings.ToUpper(id)
-	if upper[0] > '7' {
-		return false
-	}
-	return true
+	return upper[0] <= '7'
 }

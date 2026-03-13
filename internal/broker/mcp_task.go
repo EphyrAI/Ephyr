@@ -234,16 +234,3 @@ func (s *MCPServer) toolTaskList(ctx context.Context, agent *MCPAgent, args map[
 	})
 }
 
-// validateTaskEnvelope checks if the requested target/role/service is within
-// the agent's active task envelope. Returns nil if valid or task identity is disabled.
-func (s *MCPServer) validateTaskEnvelope(agent *MCPAgent, target, role string) error {
-	if !s.broker.TaskIdentityEnabled() {
-		return nil // legacy mode: no task validation
-	}
-
-	// For Phase 2a, task envelope validation is advisory --
-	// we log the check but don't enforce it yet.
-	// This will become mandatory when agents start using task_create.
-
-	return nil
-}
