@@ -1300,19 +1300,27 @@ Y = yes, ~ = partial, - = no, * = Phase 2b
 
 ### 13.1 Phase 2b: Delegation Tokens (CTT-D)
 
-**Status:** Designed, not yet implemented.
+**Status:** Implemented in v0.3.0 (2026-03-13).
 
-Phase 2b introduces CTT-D (Clauth Task Token -- Delegation), enabling
-parent tasks to spawn child tasks with attenuated capabilities.
+Phase 2b implements CTT-D (Clauth Task Token -- Delegation), enabling
+parent tasks to spawn child tasks with attenuated capabilities via the
+`task_delegate` MCP tool. The broker's `SignCTTD()` issues delegation
+tokens, `Validate()` verifies them, and `CreateChildTask()` enforces
+envelope attenuation through `IsSubsetOf()`. Delegation depth is capped
+at 5 (`DefaultMaxChildDepth` constant). Cascading revocation invalidates
+entire subtrees by lineage walk. The implementation includes a
+`TokensDelegated` Prometheus counter for observability, and is covered
+by 13 unit tests and 7 integration tests.
 
 **Key design decisions:**
 
 - CTT-D tokens carry `"typ": "CTT-D"` in the header and use `ctd_` prefix
   for the JTI field.
 - The child's envelope must pass `IsSubsetOf(parent.Envelope)` at issuance.
-- The parent token includes delegation controls:
-  - `max_child_depth`: Maximum delegation depth (prevents unbounded chains).
-  - `child_can_delegate`: Whether children can further delegate.
+- Delegation is controlled by `CanDelegate` on the `Task` struct, and
+  depth is bounded by the `DefaultMaxChildDepth = 5` constant. A parent
+  with `CanDelegate: false` cannot spawn children; depth beyond 5 is
+  rejected at `CreateChildTask()` time.
 - Cascading revocation works unchanged: revoking the parent's task ID
   automatically invalidates all children via the lineage watermark walk.
 - The child's lineage array extends the parent's:
@@ -1321,7 +1329,7 @@ parent tasks to spawn child tasks with attenuated capabilities.
 **Example flow:**
 
 ```
-Parent Task (depth=0, envelope={targets: [A,B,C]})
+Parent Task (depth=0, envelope={targets: [A,B,C]}, CanDelegate=true)
     |
     | task_delegate(envelope={targets: [A]}, description="subtask")
     |
