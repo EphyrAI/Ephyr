@@ -99,6 +99,23 @@ Every certificate request passes through these steps in order:
 Expired certs are purged before evaluation so stale entries do not affect
 concurrency counts.
 
+### Epoch Watermark Revocation
+
+Task tokens (CTT-E) are revoked using epoch watermarking rather than per-token
+blocklists. When a task is revoked via `task_revoke`, the task ID is recorded
+with a timestamp in the revocation table. During token validation, the broker
+walks the token's lineage array; if any ancestor ID appears in the revocation
+table with a timestamp before the token's issuance time, the token is rejected.
+
+This approach has several advantages over traditional token blocklists:
+- **O(lineage depth) validation** -- typically O(1) for root tasks.
+- **Cascading revocation** -- revoking a parent automatically invalidates all
+  descendants without enumerating them.
+- **Bounded storage** -- the revocation table grows with the number of revoked
+  tasks, not the number of issued tokens.
+- **No distributed state** -- revocation is enforced at the broker, not pushed
+  to target hosts.
+
 ### Rate Limiting
 
 Per-UID sliding window: 10 requests per 60 seconds (configurable). Applied
@@ -145,6 +162,50 @@ Agent-supplied headers cannot override injected auth headers.
 - CanvasSecret: renders tokens on canvas (not text-selectable)
 - Visibility blur: page blurs on tab switch
 - Print CSS: hides sensitive content in print media
+
+---
+
+## Auth Cache Security
+
+The MCP authenticator maintains an in-memory cache of successful API key
+verifications to avoid repeated bcrypt comparisons. The cache has the following
+security properties:
+
+### Cache Key Design
+
+Cache entries are keyed on `SHA-256(apiKey)`, not the raw API key. This means:
+- The plaintext API key is never stored in the cache.
+- Cache entries cannot be reversed to recover the original key.
+- Different API keys produce different fingerprints (collision-resistant).
+
+### TTL-Bounded Staleness
+
+Cache entries expire after a configurable TTL (default 60 seconds). This bounds
+the window during which a revoked or rotated API key could still authenticate:
+
+- **Best case:** Key rotation takes effect within one request (cache miss).
+- **Worst case:** A revoked key remains valid for up to `CLAUTH_AUTH_CACHE_TTL`
+  seconds after the policy is reloaded.
+
+For environments requiring immediate key revocation, set `CLAUTH_AUTH_CACHE_TTL=0`
+to disable the cache entirely. Every MCP request will then perform a full bcrypt
+comparison.
+
+### Automatic Invalidation
+
+The entire cache is cleared when:
+- An agent is added via `AddAgent()` (e.g., during policy reload).
+- An agent is removed via `RemoveAgent()`.
+
+This ensures that policy changes (adding, removing, or re-keying agents) take
+effect immediately, not after the TTL expires.
+
+### Denial-of-Service Considerations
+
+The cache does not store failed authentication attempts. An attacker sending
+many invalid API keys will always hit the bcrypt slow path, which provides
+implicit rate limiting (bcrypt cost 10 takes ~100ms per comparison). The cache
+only benefits legitimate, previously-authenticated agents.
 
 ---
 
@@ -252,7 +313,7 @@ Key event types: `startup`, `shutdown`, `cert_issued`, `cert_denied`,
 `cert_pending`, `cert_approved`, `cert_revoked`, `session_start`,
 `rate_limited`, `policy_reload`, `host_toggle`, `mcp_exec`,
 `mcp_session_create`, `mcp_session_close`, `http_proxy`,
-`http_proxy_denied`, `anomaly_detected`.
+`http_proxy_denied`, `anomaly_detected`, `task_create`, `task_revoke`.
 
 Each entry includes: timestamp, severity (INFO/WARN/ERROR/ALERT), event type,
 agent, target, role, serial, duration, reason, and arbitrary details map.

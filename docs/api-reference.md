@@ -1014,8 +1014,289 @@ requesting agent.
 
 ---
 
+---
+
+### Task Identity Tools (v0.2)
+
+The following four tools manage task-scoped identity tokens (CTT-E). They
+require the signer to support delegation certificates. If the signer is
+v0.1 (no delegation support), these tools return an error.
+
+#### `task_create`
+
+Create a new task with a scoped capability envelope derived from the agent's
+RBAC permissions. Returns a signed CTT-E (JWT) token.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `description` | string | Yes | -- | Human-readable description of the task |
+| `ttl` | string | No | `"30m"` | Task TTL as Go duration. Maximum `"1h"`. |
+
+**Example request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tools/call",
+  "params": {
+    "name": "task_create",
+    "arguments": {
+      "description": "Deploy updated config to web-server",
+      "ttl": "15m"
+    }
+  }
+}
+```
+
+**Response** (success):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{"task_id":"01JQXYZ...","token":"eyJhbGciOiJFZERTQSIsInR5cCI6IkNUVC1FIiwia2lkIjoiZGVsZWc6Li4uIn0...","expires_at":"2026-03-13T15:15:00Z","ttl_seconds":900,"envelope":{"targets":["web-server","app-server"],"roles":["read","operator"],"services":["github","gitea"],"remotes":["demo-tools"],"methods":["GET","POST","PUT","DELETE"]}}"
+      }
+    ]
+  }
+}
+```
+
+**Response fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `task_id` | string | ULID identifier for the task (26 characters) |
+| `token` | string | Signed CTT-E JWT (3 dot-separated base64url segments) |
+| `expires_at` | string | RFC3339 expiry timestamp |
+| `ttl_seconds` | int | TTL in seconds |
+| `envelope` | object | Resolved capability envelope |
+| `envelope.targets` | array | SSH targets this task can access |
+| `envelope.roles` | array | SSH roles this task can use |
+| `envelope.services` | array | HTTP proxy services this task can access |
+| `envelope.remotes` | array | Federated MCP remotes this task can access |
+| `envelope.methods` | array | HTTP methods this task can use |
+
+**Errors:**
+
+| Condition | Response |
+|-----------|----------|
+| Task identity not available (signer v0.1) | `"task identity not available (signer does not support delegation)"` |
+| Missing description | `"description is required"` |
+| Invalid TTL format | `"invalid ttl: ..."` |
+| TTL exceeds 1 hour | `"ttl cannot exceed 1h"` |
+| TTL is zero or negative | `"ttl must be positive"` |
+| Token signing failure | `"failed to sign task token: ..."` |
+
+---
+
+#### `task_info`
+
+Get information about a specific task including its envelope, lineage, and
+remaining TTL. If `task_id` is omitted, lists all active tasks for the agent
+(identical to `task_list`).
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | No | Task ID (ULID). If omitted, lists all active tasks. |
+
+**Example request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tools/call",
+  "params": {
+    "name": "task_info",
+    "arguments": {
+      "task_id": "01JQXYZ..."
+    }
+  }
+}
+```
+
+**Response** (single task):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{"task":{"id":"01JQXYZ...","agent_name":"claude","description":"Deploy updated config to web-server","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","root_id":"01JQXYZ...","parent_id":"","depth":0,"lineage":["01JQXYZ..."],"initiated_by":"clauth:apikey:ak_claude","envelope":{"targets":["web-server"],"roles":["operator"],"services":[],"remotes":[],"methods":[]}},"remaining_ttl":"12m30s","is_revoked":false}"
+      }
+    ]
+  }
+}
+```
+
+**Response fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `task` | object | Full task object (ID, agent, description, timestamps, lineage, envelope) |
+| `remaining_ttl` | string | Human-readable time remaining (Go duration) |
+| `is_revoked` | bool | Whether this task has been revoked via epoch watermark |
+
+**Response** (no task_id -- list all):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{"tasks":[...],"count":2}"
+      }
+    ]
+  }
+}
+```
+
+**Errors:**
+
+| Condition | Response |
+|-----------|----------|
+| Task not found or expired | `"task not found or expired"` |
+| Task belongs to another agent | `"access denied: task belongs to another agent"` |
+
+---
+
+#### `task_revoke`
+
+Revoke a task and set an epoch watermark. All tokens issued for this task
+are immediately invalidated. Revocation cascades: any child tasks in the
+lineage are also invalidated because their lineage includes the revoked
+task ID.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | Yes | Task ID to revoke |
+
+**Example request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "method": "tools/call",
+  "params": {
+    "name": "task_revoke",
+    "arguments": {
+      "task_id": "01JQXYZ..."
+    }
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{"revoked":"01JQXYZ...","status":"all tokens invalidated"}"
+      }
+    ]
+  }
+}
+```
+
+**Errors:**
+
+| Condition | Response |
+|-----------|----------|
+| Missing task_id | `"task_id is required"` |
+| Task not found or expired | `"task not found or expired"` |
+| Task belongs to another agent | `"access denied: task belongs to another agent"` |
+
+---
+
+#### `task_list`
+
+List all active (non-expired, non-revoked) tasks for the calling agent.
+
+**Parameters:** None
+
+**Example request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 13,
+  "method": "tools/call",
+  "params": {
+    "name": "task_list",
+    "arguments": {}
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 13,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{"tasks":[{"id":"01JQXYZ...","description":"Deploy config","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","remaining_ttl":"12m30s","is_revoked":false}],"count":1}"
+      }
+    ]
+  }
+}
+```
+
+**Response fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tasks` | array | List of task summaries |
+| `tasks[].id` | string | Task ULID |
+| `tasks[].description` | string | Task description |
+| `tasks[].created_at` | string | RFC3339 creation timestamp |
+| `tasks[].expires_at` | string | RFC3339 expiry timestamp |
+| `tasks[].remaining_ttl` | string | Human-readable time remaining |
+| `tasks[].is_revoked` | bool | Whether task is revoked |
+| `count` | int | Total number of active tasks |
+
+
 ### GET /v1/metrics
 
-Returns Prometheus-format metrics for monitoring. Includes latency histograms for token operations, counters for tasks/tokens/revocations, and gauges for active state.
+Returns Prometheus-format metrics for monitoring. Includes latency histograms
+for token operations, counters for tasks/tokens/revocations, gauges for active
+state, and auth cache performance counters.
 
 No authentication required (intended for Prometheus scraping).
+
+**Auth cache metrics:**
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `clauth_auth_cache_hits_total` | counter | Number of MCP authentication requests served from cache (bcrypt bypassed) |
+| `clauth_auth_cache_misses_total` | counter | Number of MCP authentication requests requiring full bcrypt comparison |
+
+These counters allow monitoring the cache hit rate. A consistently low hit rate
+may indicate the cache TTL is too short or agents are rotating API keys
+frequently. The hit ratio is: `hits / (hits + misses)`.

@@ -401,6 +401,7 @@ precedence if both are set.
 | CLAUTH_DASHBOARD_DIR | /opt/clauth/dashboard | Directory containing static dashboard files (index.html, etc.). |
 | CLAUTH_MCP_LISTEN | :8554 | TCP bind address for the MCP JSON-RPC endpoint. Set to empty to disable. |
 | CLAUTH_SOCKET_GROUP | clauth-agents | Unix group name for the broker socket. The socket is chown'd to this group with 0660 permissions so group members can connect. |
+| CLAUTH_AUTH_CACHE_TTL | 60s | TTL for the MCP API key authentication cache. Accepts Go duration strings (e.g., `"30s"`, `"2m"`, `"0"`). Set to `"0"` to disable caching entirely -- every MCP request will perform a full bcrypt comparison. The cache avoids repeated bcrypt work for the same API key within the TTL window. |
 
 ### Signer (clauth-signer)
 
@@ -409,6 +410,19 @@ precedence if both are set.
 | CLAUTH_CA_KEY | /etc/clauth/ca_key | Path to the Ed25519 CA private key file. |
 | CLAUTH_SOCKET | /run/clauth/signer.sock | Unix socket path for the signer's IPC listener. |
 | CLAUTH_BROKER_UID | -1 (any) | UID allowed to connect to the signer socket. Set to the clauth-broker user's UID (e.g., 999) to restrict access. -1 allows any caller. |
+
+### BrokerConfig Struct Reference
+
+The `BrokerConfig` struct in `internal/broker/server.go` maps directly to the
+environment variables above. The `AuthCacheTTL` field controls the auth cache:
+
+| Field | Type | Env Variable | Default | Description |
+|-------|------|-------------|---------|-------------|
+| `AuthCacheTTL` | `time.Duration` | `CLAUTH_AUTH_CACHE_TTL` | 60s | TTL for cached MCP authentication results. Set to 0 to disable. When set to a negative sentinel value (-1), caching is explicitly disabled. |
+
+The cache uses SHA-256 fingerprints of API keys as cache keys (the raw key is
+never stored in the cache). Cache entries are automatically invalidated when
+agents are added or removed from the policy.
 
 ---
 
@@ -427,6 +441,7 @@ precedence if both are set.
   -dashboard-dir DIR       Dashboard static files (env: CLAUTH_DASHBOARD_DIR)
   -mcp-listen ADDR         MCP TCP address (env: CLAUTH_MCP_LISTEN)
   -socket-group GROUP      Socket group name (env: CLAUTH_SOCKET_GROUP)
+  -auth-cache-ttl DUR      Auth cache TTL (env: CLAUTH_AUTH_CACHE_TTL, default 60s, 0 disables)
   -version                 Print version and exit
 ```
 

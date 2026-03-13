@@ -118,7 +118,8 @@ Central orchestrator running multiple listeners and thirteen subsystems.
 | Activity Store | `broker/activity.go` | 10,000-entry ring buffer for analytics |
 | Exec Pool | `broker/mcp_exec.go` | SSH session management (persistent + one-shot) |
 | Proxy Engine | `broker/proxy.go` | HTTP proxy with credential injection |
-| MCP Server | `broker/mcp.go`, `broker/mcp_resources.go` | Model Context Protocol with 10 tools and 7 resources |
+| MCP Server | `broker/mcp.go`, `broker/mcp_resources.go` | Model Context Protocol with 14 tools and 7 resources |
+| Auth Cache | `broker/mcp_auth.go` | SHA-256-keyed auth result cache with configurable TTL (avoids repeated bcrypt) |
 
 ### Certificate Request Flow
 
@@ -186,10 +187,10 @@ audit log, host toggle (revokes certs on disable), host config CRUD, role
 listing, WebSocket terminal, activity queries, service config CRUD,
 WebSocket event stream.
 
-**MCP** (`:8554`) -- Single `POST /mcp` endpoint. Ten tools: `list_targets`,
+**MCP** (`:8554`) -- Single `POST /mcp` endpoint. Fourteen tools: `list_targets`,
 `exec`, `session_create`, `session_close`, `list_sessions`, `list_certs`,
-`http_request`, `list_services`, `list_remotes`, plus federated `{server}.{tool}`
-calls. Seven resources for agent self-discovery:
+`http_request`, `list_services`, `list_remotes`, `task_create`, `task_info`,
+`task_revoke`, `task_list`, plus federated `{server}.{tool}` calls. Seven resources for agent self-discovery:
 `clauth://overview`, `clauth://targets`, `clauth://services`,
 `clauth://roles`, `clauth://status`, `clauth://tools`, `clauth://remotes`.
 
@@ -233,7 +234,39 @@ stateless and proxy-friendly.
 
 ---
 
-## Task Identity (v0.2)
+## Integration Tests
+
+The `test/integration/` directory contains live smoke tests that exercise the
+full MCP stack against a running broker instance. These tests verify:
+
+- MCP protocol handshake (`initialize`, `tools/list`)
+- Legacy tool compatibility (`list_targets`, `exec`, sessions)
+- Complete task lifecycle (`task_create` -> `task_info` -> `task_list` -> `task_revoke`)
+- Task validation (rejected TTLs, empty descriptions, nonexistent task IDs)
+- Prometheus metrics endpoint (`/v1/metrics`)
+- Performance benchmarking (task_create, task_info, task_list, task_revoke latency)
+
+Run them with:
+
+```bash
+cd /opt/clauth
+go test ./test/integration/ -v -count=1
+```
+
+Override defaults with environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| CLAUTH_MCP_ENDPOINT | http://192.168.100.75:8554/mcp | MCP endpoint URL |
+| CLAUTH_MCP_KEY | (built-in test key) | MCP API key |
+| CLAUTH_DASH_ENDPOINT | http://192.168.100.75:8553 | Dashboard endpoint URL |
+| CLAUTH_DASH_TOKEN | password | Dashboard token |
+
+A JSON report is written to `/tmp/clauth-smoke-report.json` after each run.
+
+---
+
+## Task Identity (v0.2 -- Implemented)
 
 ### Tiered Trust Model
 

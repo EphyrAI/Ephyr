@@ -986,7 +986,7 @@ sees only its own data.
 
 #### `clauth://tools` -- Tools Reference
 
-Quick-reference card for all 10 MCP tools. Designed for agents that want a
+Quick-reference card for all 14 MCP tools. Designed for agents that want a
 compact cheat-sheet without reading full documentation.
 
 **Content includes:**
@@ -1444,41 +1444,286 @@ systemctl restart clauth-signer && systemctl restart clauth-broker
 
 ## Task Identity Tools (v0.2)
 
-These tools manage task-scoped identity. They require the signer to support delegation (v0.2+). If the signer is v0.1, these tools return an error indicating task identity is unavailable.
+Task identity is implemented in Phase 2a. These four tools manage task-scoped
+identity using CTT-E (Execution Token) JWTs signed by the broker's delegated
+key. They require the signer to support delegation (v0.2+). If the signer is
+v0.1, these tools return an error indicating task identity is unavailable.
 
 | Tool | Description |
 |------|-------------|
 | `task_create` | Create a task and receive a CTT-E token |
 | `task_info` | Get task details, envelope, and remaining TTL |
-| `task_revoke` | Revoke a task (cascading invalidation) |
+| `task_revoke` | Revoke a task (cascading invalidation via epoch watermark) |
 | `task_list` | List active tasks for this agent |
 
-### task_create
+### 11. `task_create`
 
-Creates a new root task with a scoped capability envelope derived from the agent's RBAC permissions.
+Creates a new root task with a scoped capability envelope derived from the
+agent's RBAC permissions. The envelope lists the maximum targets, roles,
+services, remotes, and methods the task can access. Wildcards in policy are
+resolved to explicit literal arrays at token issuance time.
 
-**Arguments:**
-- `description` (string, required): Human-readable task description
-- `ttl` (string, optional): Task TTL as Go duration (default "30m", max "1h")
+**Parameters:**
 
-**Returns:**
-- `task_id`: ULID identifier for the task
-- `token`: Signed CTT-E JWT for authenticating subsequent requests
-- `expires_at`: RFC3339 expiry timestamp
-- `envelope`: Resolved capability envelope (targets, roles, services, remotes, methods)
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `description` | string | Yes | -- | Human-readable task description |
+| `ttl` | string | No | `"30m"` | Task TTL as Go duration (max `"1h"`) |
 
-### task_info
+**Example call:**
 
-**Arguments:**
-- `task_id` (string, optional): Specific task ID. If omitted, lists all active tasks.
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tools/call",
+  "params": {
+    "name": "task_create",
+    "arguments": {
+      "description": "Investigate unhealthy n8n container on dockerhost",
+      "ttl": "15m"
+    }
+  }
+}
+```
 
-### task_revoke
+**Response:**
 
-Revokes a task and sets an epoch watermark. All tokens issued for this task (and any future child tasks) are immediately invalidated.
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{"task_id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","token":"eyJhbGciOiJFZERTQSIsInR5cCI6IkNUVC1FIiwia2lkIjoiZGVsZWc6Li4uIn0.eyJzdWIiOiJjbGF1ZGUiLCJ0YXNrIjp7ImlkIjoiMDFKUVhZWi4uLiJ9fQ.signature","expires_at":"2026-03-13T15:15:00Z","ttl_seconds":900,"envelope":{"targets":["dockerhost","mandrake-rack","hugoblog"],"roles":["read","operator"],"services":["github","gitea","grafana"],"remotes":["demo-tools"],"methods":["GET","POST","PUT","DELETE"]}}"
+      }
+    ]
+  }
+}
+```
 
-**Arguments:**
-- `task_id` (string, required): Task ID to revoke
+**Key response fields:**
 
-### task_list
+| Field | Description |
+|-------|-------------|
+| `task_id` | ULID identifier (26 characters, time-sortable) |
+| `token` | Signed CTT-E JWT (EdDSA, 3 base64url segments) |
+| `expires_at` | RFC3339 expiry timestamp |
+| `envelope` | Resolved capability envelope (explicit targets, roles, services, remotes, methods) |
+
+**Validation errors:**
+
+- Missing or empty `description`: `"description is required"`
+- TTL exceeds 1 hour: `"ttl cannot exceed 1h"`
+- Invalid TTL format: `"invalid ttl: ..."`
+- Signer lacks delegation support: `"task identity not available (signer does not support delegation)"`
+
+---
+
+### 12. `task_info`
+
+Returns information about a specific task including its full object, remaining
+TTL, and revocation status. If `task_id` is omitted, falls back to listing
+all active tasks for the agent (same as `task_list`).
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | No | Task ID (ULID). Omit to list all active tasks. |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tools/call",
+  "params": {
+    "name": "task_info",
+    "arguments": {
+      "task_id": "01JQXYZ1A2B3C4D5E6F7G8H9JK"
+    }
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{"task":{"id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","agent_name":"claude","description":"Investigate unhealthy n8n container on dockerhost","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","root_id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","parent_id":"","depth":0,"lineage":["01JQXYZ1A2B3C4D5E6F7G8H9JK"],"initiated_by":"clauth:apikey:ak_claude","envelope":{"targets":["dockerhost"],"roles":["operator"],"services":[],"remotes":[],"methods":[]}},"remaining_ttl":"12m30s","is_revoked":false}"
+      }
+    ]
+  }
+}
+```
+
+**Notes:**
+- `remaining_ttl` is computed at response time.
+- `is_revoked` checks against the epoch watermark revocation table.
+- Agents can only view their own tasks; requesting another agent's task returns
+  `"access denied: task belongs to another agent"`.
+
+---
+
+### 13. `task_revoke`
+
+Revokes a task and sets an epoch watermark. All tokens issued for this task are
+immediately invalidated. Revocation cascades: any child tasks whose lineage
+includes the revoked task ID are also invalidated via the watermark walk.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | Yes | Task ID to revoke |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "method": "tools/call",
+  "params": {
+    "name": "task_revoke",
+    "arguments": {
+      "task_id": "01JQXYZ1A2B3C4D5E6F7G8H9JK"
+    }
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{"revoked":"01JQXYZ1A2B3C4D5E6F7G8H9JK","status":"all tokens invalidated"}"
+      }
+    ]
+  }
+}
+```
+
+**Notes:**
+- Revocation is immediate and permanent for the task ID.
+- The revoked task is removed from the task manager and decrements the active
+  task gauge in metrics.
+- Audit log records `task_revoke` event with severity WARN.
+
+---
+
+### 14. `task_list`
 
 Lists all active (non-expired, non-revoked) tasks for the calling agent.
+Returns a summary for each task including its remaining TTL and revocation status.
+
+**Parameters:** None
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 13,
+  "method": "tools/call",
+  "params": {
+    "name": "task_list",
+    "arguments": {}
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 13,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{"tasks":[{"id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","description":"Investigate unhealthy n8n container","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","remaining_ttl":"12m30s","is_revoked":false},{"id":"01JQABC2D3E4F5G6H7J8K9LMNO","description":"Deploy blog update","created_at":"2026-03-13T15:02:00Z","expires_at":"2026-03-13T15:32:00Z","remaining_ttl":"27m15s","is_revoked":false}],"count":2}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Performance
+
+### MCP Authentication: Auth Cache
+
+The broker caches successful API key authentication results to avoid repeated
+bcrypt comparisons on every MCP request. Cache behavior:
+
+- **Cache key:** SHA-256 fingerprint of the API key (the raw key is never stored)
+- **Default TTL:** 60 seconds (configurable via `CLAUTH_AUTH_CACHE_TTL`)
+- **Invalidation:** Cache is automatically cleared when agents are added or removed
+
+**Measured latency (cold vs warm):**
+
+| Scenario | Latency | Description |
+|----------|---------|-------------|
+| Cold (cache miss) | ~216ms | Full bcrypt comparison required |
+| Warm (cache hit) | <1ms | SHA-256 lookup + expiry check only |
+
+The cache reduces MCP endpoint latency by roughly 200x for repeated requests
+within the TTL window. This is particularly impactful for agents making rapid
+sequences of tool calls (e.g., session-based workflows with multiple `exec`
+calls).
+
+To disable the cache (e.g., in environments where immediate key revocation is
+required), set `CLAUTH_AUTH_CACHE_TTL=0`.
+
+### SSH Execution: Sessions vs One-Shot
+
+Every `exec` call without a `session_id` performs the full certificate lifecycle:
+
+1. Generate ephemeral Ed25519 keypair (~1ms)
+2. Sign certificate via Unix socket IPC (~5ms)
+3. SSH connect + authenticate (~800ms)
+4. Execute command (varies)
+5. Disconnect
+
+**One-shot latency:** ~850ms overhead per command.
+
+With a persistent session, steps 1--3 are eliminated:
+
+1. Open channel on existing connection (~2ms)
+2. Execute command (varies)
+
+**Session latency:** ~14ms overhead per command (60x faster).
+
+### Task Identity Operations
+
+Measured from the integration test benchmark (10 iterations each):
+
+| Operation | Typical Latency | Notes |
+|-----------|----------------|-------|
+| `task_create` | ~5--10ms | Includes RBAC envelope resolution + EdDSA signing |
+| `task_info` | ~2--5ms | In-memory lookup |
+| `task_list` | ~2--5ms | Filters by agent name |
+| `task_revoke` | ~2--5ms | Sets watermark + removes from task manager |
+
+Task operations are significantly faster than SSH operations because they
+involve no IPC to the signer (the broker signs CTT-E tokens locally using
+the delegated key).

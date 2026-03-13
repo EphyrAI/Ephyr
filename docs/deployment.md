@@ -275,6 +275,7 @@ Restart=on-failure
 RestartSec=5
 ExecReload=/bin/kill -HUP $MAINPID
 Environment=CLAUTH_ADMIN_UIDS=0,1000
+Environment=CLAUTH_AUTH_CACHE_TTL=60s
 
 # Security hardening
 ProtectSystem=strict
@@ -788,6 +789,71 @@ EOF
 
 ---
 
+## Running Integration Tests
+
+After the broker is running, verify the full MCP stack with the integration
+test suite in `test/integration/`. These tests exercise the live MCP endpoint
+including protocol handshake, all tool categories, task identity lifecycle,
+validation, metrics, and performance benchmarking.
+
+### Prerequisites
+
+- Go 1.24+ installed on the test runner machine
+- Network access to the broker's MCP port (8554) and dashboard port (8553)
+- A valid MCP API key for an agent configured in `policy.yaml`
+
+### Running the Tests
+
+From the Clauth source directory:
+
+```bash
+cd /opt/clauth
+go test ./test/integration/ -v -count=1
+```
+
+Override connection parameters with environment variables:
+
+```bash
+CLAUTH_MCP_ENDPOINT=http://192.168.100.75:8554/mcp \
+CLAUTH_MCP_KEY=your-api-key \
+CLAUTH_DASH_ENDPOINT=http://192.168.100.75:8553 \
+CLAUTH_DASH_TOKEN=your-dashboard-token \
+go test ./test/integration/ -v -count=1
+```
+
+### What the Tests Verify
+
+| Test | Description |
+|------|-------------|
+| TestMCPInitialize | MCP protocol handshake and version negotiation |
+| TestToolsList | Confirms all 14 tools are registered (including 4 task identity tools) |
+| TestLegacyToolsStillWork | Verifies pre-v0.2 tools (`list_targets`) are unaffected |
+| TestTaskLifecycle | Full create -> info -> list -> revoke -> verify-revoked cycle |
+| TestTaskValidation | Rejects invalid TTLs, empty descriptions, nonexistent task IDs |
+| TestMetricsEndpoint | Prometheus metrics include task and token counters |
+| TestPerformanceBench | Latency benchmarks for task_create, task_info, task_list, task_revoke |
+
+A JSON report with per-test latencies is written to
+`/tmp/clauth-smoke-report.json` after each run.
+
+### Expected Output
+
+All tests should pass. A summary is printed at the end:
+
+```
+  CLAUTH v0.2 PHASE 2a -- INTEGRATION TEST REPORT
+  ========================================================================
+  TEST                            LATENCY   STATUS  DETAIL
+  ----------------------------------------------------------------------
+  mcp_initialize                    5.20ms  [  OK  ]  server=clauth protocol=2025-03-26
+  tools_list                        3.15ms  [  OK  ]  14 tools, all 4 task tools present
+  ...
+  TOTAL: N passed, 0 failed, XXms total latency
+  ========================================================================
+```
+
+---
+
 ## Verification Checklist
 
 After completing all setup steps, verify each component:
@@ -871,6 +937,40 @@ After completing all setup steps, verify each component:
   ```bash
   nft list ruleset
   # Should show the inet filter table with SSH + 8553 + 8554 rules
+  ```
+
+- [ ] **Task identity tools available**
+  ```bash
+  curl -s -X POST http://BROKER_HOST:8554/mcp \
+    -H "Authorization: Bearer YOUR_MCP_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+    | python3 -c "import sys,json; tools=[t['name'] for t in json.load(sys.stdin)['result']['tools']]; assert 'task_create' in tools, 'missing task_create'; print(f'{len(tools)} tools registered, task identity available')"
+  ```
+
+- [ ] **Task create/revoke cycle works**
+  ```bash
+  # Create a test task
+  RESULT=$(curl -s -X POST http://BROKER_HOST:8554/mcp \
+    -H "Authorization: Bearer YOUR_MCP_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"task_create","arguments":{"description":"verification test","ttl":"1m"}}}')
+  TASK_ID=$(echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(json.loads(r['result']['content'][0]['text'])['task_id'])")
+  echo "Created task: $TASK_ID"
+
+  # Revoke it
+  curl -s -X POST http://BROKER_HOST:8554/mcp \
+    -H "Authorization: Bearer YOUR_MCP_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"task_revoke\",\"arguments\":{\"task_id\":\"$TASK_ID\"}}}" \
+    | python3 -m json.tool
+  # Should return: {"revoked": "...", "status": "all tokens invalidated"}
+  ```
+
+- [ ] **Integration tests pass**
+  ```bash
+  cd /opt/clauth && go test ./test/integration/ -v -count=1
+  # All tests should pass with 0 failures
   ```
 
 ---

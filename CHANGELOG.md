@@ -1,35 +1,76 @@
 # Changelog
 
-## [Unreleased] — v0.2.0-alpha (Task Identity)
+All notable changes to Clauth are documented in this file.
+
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [0.2.0] -- 2026-03-13
+
+Task-scoped portable identity, auth caching, Prometheus metrics, and integration test suite.
 
 ### Added
-- **Task-scoped identity (Phase 2a)**: Agents can create tasks with `task_create`, receiving a signed CTT-E token that correlates all actions to a task ID
-- **Tiered trust model**: Signer issues delegation certificates to the broker; broker signs task tokens locally without IPC per-request
-- **Epoch watermark revocation**: `task_revoke` invalidates all tokens for a task via timestamp-based watermarking (O(depth) validation, no per-token blocklists)
-- **4 new MCP tools**: `task_create`, `task_info`, `task_revoke`, `task_list`
-- **Performance metrics**: Lock-free latency histograms, Prometheus `/v1/metrics` endpoint, per-request timing breakdown in audit entries
-- **ULID task IDs**: Lexicographically sortable, collision-resistant, encode creation time
-- **Capability envelopes**: Task tokens carry an upper-bound envelope (targets, roles, services, remotes, methods) resolved from RBAC policy at creation time
+
+- **Task-scoped identity (Phase 2a)**: Agents create tasks via `task_create` and receive a signed CTT-E (Clauth Task Token - Envelope) JWT that correlates all subsequent actions to a task ID with a capability envelope
+- **4 new MCP tools**: `task_create`, `task_info`, `task_list`, `task_revoke` -- bringing the total to 14 local tools
+- **Tiered trust model**: Signer issues delegation certificates to the broker; broker signs task tokens locally without IPC round-trip per request
+- **Capability envelopes**: Task tokens carry an upper-bound permission set (targets, roles, services, remotes, methods) resolved from RBAC policy at creation time
+- **Epoch watermark revocation**: `task_revoke` invalidates all tokens for a task via timestamp watermarking with O(depth) validation and no per-token blocklists; cascading revocation propagates to child tasks
+- **ULID task IDs**: Lexicographically sortable, collision-resistant identifiers that encode creation time
 - **Identity URN scheme**: `clauth:local:uid:*` and `clauth:apikey:*` bootstrap identity formats
-- **Delegation key rotation**: Broker auto-rotates its signing key before delegation cert expiry (configurable TTL/refresh)
-- **Legacy mode**: Full backward compatibility — agents without task tokens continue to work unchanged
+- **Delegation key rotation**: Broker auto-rotates its signing key before delegation certificate expiry (configurable TTL/refresh)
+- **Prometheus metrics endpoint**: `GET /v1/metrics` with Prometheus exposition format -- 8 latency histograms, 10 counters/gauges covering tasks, tokens, delegation, auth cache, and legacy requests
+- **Auth cache**: SHA-256 keyed bcrypt result cache with configurable TTL (`CLAUTH_AUTH_CACHE_TTL` env var, default 60s)
+- **Integration test suite**: 8 end-to-end tests in `test/integration/smoke_test.go` covering MCP handshake, tool listing, legacy compatibility, task lifecycle, task validation, metrics, and performance benchmarks
+- **Legacy mode**: Full backward compatibility -- agents without task tokens continue to work unchanged
 
 ### Changed
-- Signer now supports 4 IPC actions: `ping`, `sign`, `sign_delegation`, `root_public_key`
-- BrokerServer initializes task identity subsystem at startup (graceful degradation if signer doesn't support delegation)
-- Audit entries can include task correlation fields (`task_id`, `task_root_id`, `task_lineage`)
 
-## [0.1.0] — 2026-03-13
+- Signer now supports 4 IPC actions: `ping`, `sign`, `sign_delegation`, `root_public_key`
+- BrokerServer initializes task identity subsystem at startup with graceful degradation if signer does not support delegation
+- Audit entries include task correlation fields (`task_id`, `task_root_id`, `task_lineage`) when a task token is present
+- MCP tool count increased from 10 to 14 (9 core + 4 task + federated)
+- Codebase grew from ~16,000 to ~23,000 lines of Go across 64 files
+- Test count increased from 165 to 253 across 13 test files
+
+### Fixed
+
+- Removed unused stub function flagged by linter
+- Simplified ULID validation per gosimple S1002
+- Fixed CI test path resolution and lint errors
+- Fixed test fixtures to use testdata directory convention
+
+### Performance
+
+- **Auth cache**: 187x speedup on repeated MCP requests -- cold auth ~216ms (bcrypt), warm auth <1ms (cache hit). Configurable TTL via `CLAUTH_AUTH_CACHE_TTL` (default 60s). Disable with `CLAUTH_AUTH_CACHE_TTL=0`.
+- **Token signing**: <1ms via local Ed25519 signing with delegated key (no IPC per token)
+- **Token validation**: <1ms for signature + envelope + watermark check
+
+## [0.1.0] -- 2026-03-13
+
+Initial release. Three-process architecture with SSH certificate authority, HTTP proxy, MCP federation, RBAC, and admin dashboard.
 
 ### Added
-- Three-process architecture: signer (CA key custody), broker (policy + proxy), CLI
-- SSH exec via ephemeral Ed25519 certificates
-- HTTP proxy with automatic credential injection (7 services)
-- MCP federation with remote tool aggregation
-- Per-agent RBAC with template inheritance, wildcards, role intersection
-- Real-time dashboard with 10 views (overview, hosts, services, MCP servers, agents, activity, sessions, audit, terminal, settings)
-- Policy hot-reload via SIGHUP
-- Rate limiting (per-UID sliding window)
-- WebSocket event streaming for dashboard
-- 165 tests, GitHub Actions CI (build + test + lint)
-- Threat model document (12 enumerated threats)
+
+- **Three-process architecture**: clauth-signer (CA key custody), clauth-broker (policy + proxy), clauth CLI
+- **SSH certificate authority**: Ed25519 CA issuing ephemeral per-request certificates with 5-minute default TTL
+- **Persistent SSH sessions**: Reduce per-command latency from ~850ms to ~14ms for sequential operations
+- **HTTP proxy with credential injection**: Bearer, basic auth, custom header, and query parameter injection for 7+ service types
+- **MCP server**: 10 tools over JSON-RPC 2.0 / Streamable HTTP (MCP 2025-03-26)
+- **MCP resources**: 7 self-discovery resources (`clauth://overview`, `clauth://targets`, etc.)
+- **MCP federation**: Aggregate tools from remote MCP servers with namespace prefixing and automatic discovery
+- **Policy engine**: Declarative YAML with 8-step evaluation pipeline and hot-reload via SIGHUP
+- **RBAC**: Per-agent permissions across SSH, HTTP proxy, MCP federation, and dashboard with template inheritance and wildcard support
+- **TTL-based access grants**: Time-limited grants for SSH certificates, services, and MCP remotes with automatic cleanup
+- **Admin dashboard**: Single-page UI with 10 views -- overview, hosts, services, MCP servers, agents, activity, sessions, audit log, terminal, settings
+- **WebSocket event streaming**: Real-time state changes pushed to dashboard clients
+- **Activity monitoring**: 10,000-entry ring buffer tracking 7 activity types with per-agent statistics
+- **Structured audit logging**: Append-only JSON-line format with logrotate integration
+- **Network isolation**: nftables rules blocking agent UID from direct backend access
+- **Security hardening**: SO_PEERCRED authentication, constant-time token comparison, systemd sandboxing, CA key isolation
+- **Rate limiting**: Per-agent sliding window rate limiter
+- **Target provisioning**: Automated script for deploying role accounts, principals, and sudoers to target hosts
+- **MCP client integration**: Configuration guides for Claude Code, Claude Desktop, Cursor, and Cline
+- **165 unit tests** across policy engine, grants, rate limiter, and broker internals
+- **GitHub Actions CI**: Build, test, and lint pipeline
+- **Threat model**: 12 enumerated threats with mitigations and residual risk assessment
+- **Documentation**: Architecture, security, configuration, deployment, API reference, and MCP integration guides

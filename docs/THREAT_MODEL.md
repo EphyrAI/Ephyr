@@ -144,7 +144,7 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 | Aspect | Detail |
 |--------|--------|
 | **Current mitigation** | The CA private key is isolated in the signer process. The signer restricts callers to broker UID 999 via `SO_PEERCRED`, has no network access (`AF_UNIX` only), and runs with `MemoryDenyWriteExecute`, all capabilities dropped, and a syscall allowlist. An attacker in the broker process cannot extract the CA key. |
-| **Residual risk** | An attacker with broker code execution can: (1) request certificates from the signer within policy constraints, (2) read plaintext credentials in `/var/lib/clauth/services.json`, (3) read plaintext credentials for federated MCP servers in `/var/lib/clauth/remotes.json`, (4) read or truncate audit logs, (5) modify host/service/remote state. The attacker is still bounded by policy (the signer enforces duration caps and principal restrictions independently), but has full access to all configured backend credentials. |
+| **Residual risk** | An attacker with broker code execution can: (1) request certificates from the signer within policy constraints, (2) read plaintext credentials in `/var/lib/clauth/services.json`, (3) read plaintext credentials for federated MCP servers in `/var/lib/clauth/remotes.json`, (4) read or truncate audit logs, (5) modify host/service/remote state, (6) sign arbitrary CTT-E task tokens using the in-memory delegation key. The attacker is still bounded by policy (the signer enforces duration caps and principal restrictions independently), but has full access to all configured backend credentials and can forge task tokens within the delegation certificate's validity period. |
 | **Planned** | Credential encryption at rest with a derived key. Remote audit log shipping so the tamper window is bounded. |
 
 ### T4: Signer Compromise
@@ -237,6 +237,26 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 | **Residual risk** | There is no rate limiting on the MCP TCP endpoint for authenticated agents beyond the per-UID Unix socket limits. A compromised API key could be used to flood the broker with tool calls. The dashboard WebSocket endpoint has a 64-message backpressure buffer per client but no connection limit. bcrypt's computational cost, while a defense against brute force, also makes the authentication endpoint itself a CPU exhaustion vector if an attacker sends many invalid keys. |
 | **Planned** | Per-agent rate limiting on the MCP endpoint. Connection limits on the dashboard WebSocket. Configurable bcrypt cost with adaptive rate limiting on failed authentication attempts. |
 
+### T13: Auth Cache Poisoning
+
+**Threat:** An attacker manipulates the MCP auth cache to authenticate as a different agent or to extend the validity of a revoked key.
+
+| Aspect | Detail |
+|--------|--------|
+| **Current mitigation** | Cache entries are keyed on SHA-256(apiKey), which is collision-resistant and irreversible. The cache stores only successful authentication results -- failed attempts are never cached. The entire cache is automatically invalidated when agents are added or removed (e.g., during policy reload). Cache entries are TTL-bounded (default 60 seconds), limiting the staleness window. |
+| **Residual risk** | Within the TTL window, a revoked API key could still authenticate from cache. An agent whose `api_key_hash` is updated in policy will retain cached access until the TTL expires or a full policy reload triggers cache invalidation. |
+| **Mitigation** | Set `CLAUTH_AUTH_CACHE_TTL=0` in environments requiring immediate key revocation. For most deployments, the 60-second default is an acceptable tradeoff between security and performance (bcrypt is ~200ms per comparison). |
+
+### T14: Delegation Key Compromise
+
+**Threat:** An attacker obtains the broker's ephemeral delegation key, enabling them to forge CTT-E task tokens.
+
+| Aspect | Detail |
+|--------|--------|
+| **Current mitigation** | The delegation key is an ephemeral Ed25519 keypair generated in-memory at broker startup. It is never written to disk. The delegation certificate (signed by the signer's root CA key) authorizes this key to sign CTT-E tokens and has a limited validity period. CTT-E tokens carry a capability envelope that bounds what they can authorize, and the existing policy pipeline still evaluates every brokered request independently. |
+| **Residual risk** | An attacker with broker process memory access (e.g., via /proc/pid/mem on a compromised host, or a memory dump) could extract the delegation private key and forge CTT-E tokens within the delegation certificate's validity period. These forged tokens would pass signature verification. However, the policy engine still independently evaluates each request, so the forged token cannot exceed the agent's policy-defined permissions. |
+| **Planned** | Delegation key rotation on a configurable interval. Shorter delegation certificate lifetimes (currently bounded by the signer's max TTL). Memory protection for the delegation key (mlock). |
+
 ---
 
 ## What is Explicitly Out of Scope
@@ -308,6 +328,8 @@ The following table provides a consolidated view of the most significant residua
 | 8 | Root on broker host can read CA key | **Low** | B1 | Accepted -- HSM/TPM long-term |
 | 9 | No push-revocation for SSH certificates | **Low** | B2 | Accepted -- OpenSSH limitation |
 | 10 | Network bypass possible for remote (non-co-located) agents | **Low** | B0r | Accepted -- architectural |
+| 11 | Auth cache allows revoked key to authenticate for up to TTL window | **Low** | B0r | Mitigated -- TTL-bounded, auto-invalidation on policy change, disable with TTL=0 |
+| 12 | Delegation key in broker memory could be extracted | **Low** | B1 | Accepted -- bounded by delegation cert validity + policy enforcement |
 
 ---
 
