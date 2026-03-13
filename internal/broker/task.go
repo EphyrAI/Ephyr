@@ -1,0 +1,333 @@
+package broker
+
+import (
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/sprawl/clauth/internal/policy"
+	"github.com/sprawl/clauth/internal/token"
+)
+
+// Task represents an active agent task run with scoped identity.
+type Task struct {
+	ID          string       `json:"id"`           // ULID
+	RootID      string       `json:"root_id"`      // ULID of the root task
+	ParentID    string       `json:"parent_id"`    // empty for root tasks
+	AgentName   string       `json:"agent_name"`
+	Description string       `json:"description"`
+	Depth       int          `json:"depth"`        // 0 = root
+	Lineage     []string     `json:"lineage"`      // [root, ..., self]
+	InitiatedBy string       `json:"initiated_by"` // "clauth:local:uid:1000" etc.
+	CreatedAt   time.Time    `json:"created_at"`
+	ExpiresAt   time.Time    `json:"expires_at"`
+	Envelope    TaskEnvelope `json:"envelope"`
+	TokenID     string       `json:"token_id"`     // JTI of the CTT-E
+	CanDelegate bool         `json:"can_delegate"` // whether CTT-D was issued (Phase 2b)
+}
+
+// TaskEnvelope defines the maximum capabilities for a task.
+type TaskEnvelope struct {
+	Targets  []string `json:"targets"`
+	Roles    []string `json:"roles"`
+	Services []string `json:"services"`
+	Remotes  []string `json:"remotes"`
+	Methods  []string `json:"methods"`
+}
+
+// CreateTaskParams holds parameters for creating a new task.
+type CreateTaskParams struct {
+	AgentName   string
+	Description string
+	TTL         time.Duration
+	InitiatedBy string
+	Envelope    TaskEnvelope
+}
+
+// TaskManager tracks active tasks with thread-safe operations.
+type TaskManager struct {
+	mu      sync.RWMutex
+	tasks   map[string]*Task           // task ID -> task
+	byAgent map[string]map[string]bool // agent name -> set of task IDs
+	stopCh  chan struct{}
+}
+
+// NewTaskManager creates a TaskManager and starts a background cleanup
+// goroutine that removes expired tasks every 30 seconds.
+func NewTaskManager() *TaskManager {
+	tm := &TaskManager{
+		tasks:   make(map[string]*Task),
+		byAgent: make(map[string]map[string]bool),
+		stopCh:  make(chan struct{}),
+	}
+	go tm.cleanupLoop()
+	return tm
+}
+
+// Stop halts the background cleanup goroutine.
+func (tm *TaskManager) Stop() {
+	select {
+	case <-tm.stopCh:
+		// already stopped
+	default:
+		close(tm.stopCh)
+	}
+}
+
+// CreateTask registers a new root task. The task manager generates the ID
+// (ULID), sets lineage to [self], depth to 0, and timestamps.
+func (tm *TaskManager) CreateTask(params CreateTaskParams) *Task {
+	now := time.Now()
+	id := token.NewULID()
+
+	task := &Task{
+		ID:          id,
+		RootID:      id,
+		ParentID:    "",
+		AgentName:   params.AgentName,
+		Description: params.Description,
+		Depth:       0,
+		Lineage:     []string{id},
+		InitiatedBy: params.InitiatedBy,
+		CreatedAt:   now,
+		ExpiresAt:   now.Add(params.TTL),
+		Envelope:    params.Envelope,
+	}
+
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	tm.tasks[id] = task
+	if tm.byAgent[params.AgentName] == nil {
+		tm.byAgent[params.AgentName] = make(map[string]bool)
+	}
+	tm.byAgent[params.AgentName][id] = true
+
+	return task
+}
+
+// GetTask retrieves a task by ID. Returns nil if not found or expired.
+func (tm *TaskManager) GetTask(id string) *Task {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	task, ok := tm.tasks[id]
+	if !ok {
+		return nil
+	}
+	if time.Now().After(task.ExpiresAt) {
+		return nil
+	}
+	return task
+}
+
+// ListTasks returns all active (non-expired) tasks, optionally filtered by
+// agent name. If agentName is empty, all active tasks are returned.
+// Results are sorted by creation time (oldest first).
+func (tm *TaskManager) ListTasks(agentName string) []*Task {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	now := time.Now()
+	var result []*Task
+
+	if agentName != "" {
+		ids := tm.byAgent[agentName]
+		for id := range ids {
+			if task, ok := tm.tasks[id]; ok && now.Before(task.ExpiresAt) {
+				result = append(result, task)
+			}
+		}
+	} else {
+		for _, task := range tm.tasks {
+			if now.Before(task.ExpiresAt) {
+				result = append(result, task)
+			}
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	return result
+}
+
+// ListTasksByAgent returns active tasks for a specific agent.
+func (tm *TaskManager) ListTasksByAgent(agentName string) []*Task {
+	return tm.ListTasks(agentName)
+}
+
+// RevokeTask removes a task and returns it. Returns nil if not found.
+func (tm *TaskManager) RevokeTask(id string) *Task {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	task, ok := tm.tasks[id]
+	if !ok {
+		return nil
+	}
+
+	delete(tm.tasks, id)
+	if agents, ok := tm.byAgent[task.AgentName]; ok {
+		delete(agents, id)
+		if len(agents) == 0 {
+			delete(tm.byAgent, task.AgentName)
+		}
+	}
+
+	return task
+}
+
+// IsTaskActive returns true if the task exists and hasn't expired.
+func (tm *TaskManager) IsTaskActive(id string) bool {
+	return tm.GetTask(id) != nil
+}
+
+// TaskCount returns the number of active (non-expired) tasks.
+func (tm *TaskManager) TaskCount() int {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	count := 0
+	now := time.Now()
+	for _, task := range tm.tasks {
+		if now.Before(task.ExpiresAt) {
+			count++
+		}
+	}
+	return count
+}
+
+// cleanup removes expired tasks from the manager.
+func (tm *TaskManager) cleanup() {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	now := time.Now()
+	for id, task := range tm.tasks {
+		if now.After(task.ExpiresAt) {
+			delete(tm.tasks, id)
+			if agents, ok := tm.byAgent[task.AgentName]; ok {
+				delete(agents, id)
+				if len(agents) == 0 {
+					delete(tm.byAgent, task.AgentName)
+				}
+			}
+		}
+	}
+}
+
+// cleanupLoop runs cleanup every 30 seconds until Stop is called.
+func (tm *TaskManager) cleanupLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			tm.cleanup()
+		case <-tm.stopCh:
+			return
+		}
+	}
+}
+
+// BuildEnvelopeFromPolicy builds a TaskEnvelope from the agent's resolved
+// RBAC permissions and policy config. This resolves wildcards to explicit
+// literal arrays at task creation time — tokens never contain wildcards.
+func BuildEnvelopeFromPolicy(agentName string, resolved *policy.ResolvedConfig) TaskEnvelope {
+	env := TaskEnvelope{}
+
+	perms, hasPerms := resolved.AgentPerms[agentName]
+
+	if !hasPerms || perms.LegacyMode {
+		// Legacy mode: include all targets, all roles, all services, all remotes.
+		for name := range resolved.Raw.Targets {
+			env.Targets = append(env.Targets, name)
+		}
+		for name := range resolved.Raw.Roles {
+			env.Roles = append(env.Roles, name)
+		}
+		// Legacy agents get all services and remotes.
+		env.Services = []string{"*"}
+		env.Remotes = []string{"*"}
+		env.Methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+
+		sort.Strings(env.Targets)
+		sort.Strings(env.Roles)
+		return env
+	}
+
+	// RBAC mode: resolve explicit lists from permissions.
+
+	// Targets: check each defined target.
+	roleSet := make(map[string]bool)
+	for targetName := range resolved.Raw.Targets {
+		if perms.CanAccessTarget(targetName) {
+			env.Targets = append(env.Targets, targetName)
+			// Collect roles the agent can use on this target.
+			for _, r := range perms.GetTargetRoles(targetName) {
+				roleSet[r] = true
+			}
+		}
+	}
+	for r := range roleSet {
+		env.Roles = append(env.Roles, r)
+	}
+
+	// Services: check each configured service.
+	methodSet := make(map[string]bool)
+	for svcName, svcAccess := range perms.ServiceAccess {
+		if svcName == "*" {
+			// Wildcard service access — but we still list explicitly.
+			// We cannot enumerate all services from policy alone, so
+			// include the wildcard marker for services.
+			env.Services = append(env.Services, "*")
+			if len(svcAccess.Methods) == 0 {
+				methodSet["GET"] = true
+				methodSet["POST"] = true
+				methodSet["PUT"] = true
+				methodSet["PATCH"] = true
+				methodSet["DELETE"] = true
+				methodSet["HEAD"] = true
+				methodSet["OPTIONS"] = true
+			} else {
+				for _, m := range svcAccess.Methods {
+					methodSet[m] = true
+				}
+			}
+			continue
+		}
+		env.Services = append(env.Services, svcName)
+		if len(svcAccess.Methods) == 0 {
+			methodSet["GET"] = true
+			methodSet["POST"] = true
+			methodSet["PUT"] = true
+			methodSet["PATCH"] = true
+			methodSet["DELETE"] = true
+			methodSet["HEAD"] = true
+			methodSet["OPTIONS"] = true
+		} else {
+			for _, m := range svcAccess.Methods {
+				methodSet[m] = true
+			}
+		}
+	}
+	for m := range methodSet {
+		env.Methods = append(env.Methods, m)
+	}
+
+	// Remotes: check each configured remote.
+	for remoteName := range perms.RemoteAccess {
+		env.Remotes = append(env.Remotes, remoteName)
+	}
+
+	// Sort for deterministic output.
+	sort.Strings(env.Targets)
+	sort.Strings(env.Roles)
+	sort.Strings(env.Services)
+	sort.Strings(env.Remotes)
+	sort.Strings(env.Methods)
+
+	return env
+}
+

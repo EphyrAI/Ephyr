@@ -2,6 +2,10 @@ package broker
 
 import (
 	"bufio"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"context"
 	"fmt"
@@ -21,6 +25,7 @@ import (
 	"github.com/sprawl/clauth/internal/auth"
 	"github.com/sprawl/clauth/internal/policy"
 	"github.com/sprawl/clauth/internal/signer"
+	"github.com/sprawl/clauth/internal/token"
 )
 
 // BrokerConfig holds all configuration for the broker server.
@@ -90,6 +95,14 @@ type BrokerServer struct {
 	// Counters for granted and denied certificate requests (atomic).
 	grantCount uint64
 	denyCount  uint64
+
+	// v0.2: Task identity components.
+	taskMgr        *TaskManager
+	delegation     *DelegationManager
+	revocation     *RevocationMap
+	metrics        *Metrics
+	tokenIssuer    *token.Issuer
+	tokenValidator *token.Validator
 }
 
 // NewBrokerServer initializes all components and returns a ready-to-start server.
@@ -175,6 +188,11 @@ func NewBrokerServer(cfg BrokerConfig) (*BrokerServer, error) {
 	// Initialize access grant store.
 	bs.grantStore = NewGrantStore()
 
+	// Initialize v0.2 task identity components.
+	bs.taskMgr = NewTaskManager()
+	bs.revocation = NewRevocationMap(30 * time.Minute) // max task TTL from policy
+	bs.metrics = NewMetrics()
+
 	return bs, nil
 }
 
@@ -237,6 +255,11 @@ func (bs *BrokerServer) ListenAndServe() error {
 	})
 
 	log.Printf("[broker] listening on %s", bs.cfg.ListenSocket)
+
+	// Initialize v0.2 task identity subsystem (non-fatal if signer doesn't support it).
+	if err := bs.InitTaskIdentity(); err != nil {
+		log.Printf("[broker] warning: task identity init error: %v", err)
+	}
 
 	// Start dashboard TCP listener in a goroutine.
 	if bs.cfg.DashboardAddr != "" {
@@ -324,6 +347,16 @@ func (bs *BrokerServer) GracefulShutdown() {
 	}
 	if bs.grantStore != nil {
 		bs.grantStore.Stop()
+	}
+	// v0.2: Stop task identity components.
+	if bs.taskMgr != nil {
+		bs.taskMgr.Stop()
+	}
+	if bs.delegation != nil {
+		bs.delegation.Stop()
+	}
+	if bs.revocation != nil {
+		bs.revocation.Stop()
 	}
 	bs.auditLog.Close()
 
@@ -476,6 +509,103 @@ func (bs *BrokerServer) startMCPListener() {
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		log.Printf("[mcp] server error: %v", err)
 	}
+}
+
+// InitTaskIdentity initializes the v0.2 task identity subsystem.
+// Called after the signer is confirmed reachable.
+// If the signer doesn't support delegation (v0.1), this logs a warning
+// and leaves task identity disabled (legacy mode continues to work).
+func (bs *BrokerServer) InitTaskIdentity() error {
+	// 1. Request root public key from signer.
+	rootPubKey, err := bs.signerClient.RootPublicKey()
+	if err != nil {
+		log.Printf("[broker] task identity disabled: signer does not support delegation: %v", err)
+		return nil // graceful degradation
+	}
+
+	// 2. Create token issuer.
+	brokerID := generateBrokerID()
+	bs.tokenIssuer = token.NewIssuer(brokerID)
+
+	// 3. Create token validator with pinned root key.
+	bs.tokenValidator = token.NewValidator(rootPubKey)
+
+	// 4. Create delegation manager.
+	bs.delegation = NewDelegationManager(DelegationConfig{
+		BrokerID:    brokerID,
+		TTL:         1 * time.Hour,
+		RefreshAt:   50 * time.Minute,
+		MaxTokenTTL: 30 * time.Minute,
+		SignerFunc: func(pubKey ed25519.PublicKey, brokerID string, ttl time.Duration) (string, []byte, time.Time, time.Time, ed25519.PublicKey, error) {
+			resp, err := bs.signerClient.RequestDelegation(pubKey, brokerID, ttl)
+			if err != nil {
+				return "", nil, time.Time{}, time.Time{}, nil, err
+			}
+			sig, err := base64.StdEncoding.DecodeString(resp.DelegationSig)
+			if err != nil {
+				return "", nil, time.Time{}, time.Time{}, nil, fmt.Errorf("decode delegation sig: %w", err)
+			}
+			expiry, err := time.Parse(time.RFC3339, resp.ExpiresAt)
+			if err != nil {
+				return "", nil, time.Time{}, time.Time{}, nil, fmt.Errorf("parse expiry: %w", err)
+			}
+			return resp.DelegationCertID, sig, time.Now(), expiry, rootPubKey, nil
+		},
+		OnRotation: func() {
+			bs.metrics.DelegationRotations.Add(1)
+			delegCert := &token.DelegationCert{
+				ID:        bs.delegation.CurrentCertID(),
+				BrokerID:  brokerID,
+				PublicKey: bs.delegation.CurrentPublicKey(),
+				Signature: bs.delegation.CertSignature(),
+				IssuedAt:  bs.delegation.CertIssuedAt(),
+				ExpiresAt: bs.delegation.CertExpiry(),
+			}
+			// Update issuer with new delegation key.
+			bs.tokenIssuer.SetDelegation(bs.delegation.CurrentPrivateKey(), delegCert)
+			// Register with validator.
+			bs.tokenValidator.AddDelegation(delegCert)
+		},
+	})
+
+	// 5. Start delegation lifecycle.
+	if err := bs.delegation.Start(); err != nil {
+		log.Printf("[broker] task identity disabled: delegation failed: %v", err)
+		bs.delegation = nil
+		bs.tokenIssuer = nil
+		bs.tokenValidator = nil
+		return nil
+	}
+
+	// Trigger the OnRotation callback to set up issuer with initial delegation key.
+	if bs.delegation.IsReady() {
+		bs.metrics.DelegationRotations.Add(1)
+		delegCert := &token.DelegationCert{
+			ID:        bs.delegation.CurrentCertID(),
+			BrokerID:  brokerID,
+			PublicKey: bs.delegation.CurrentPublicKey(),
+			Signature: bs.delegation.CertSignature(),
+			IssuedAt:  bs.delegation.CertIssuedAt(),
+			ExpiresAt: bs.delegation.CertExpiry(),
+		}
+		bs.tokenIssuer.SetDelegation(bs.delegation.CurrentPrivateKey(), delegCert)
+		bs.tokenValidator.AddDelegation(delegCert)
+	}
+
+	log.Printf("[broker] task identity enabled (broker=%s, delegation=%s)", brokerID, bs.delegation.CurrentCertID())
+	return nil
+}
+
+// TaskIdentityEnabled returns true if the v0.2 task identity subsystem is active.
+func (bs *BrokerServer) TaskIdentityEnabled() bool {
+	return bs.tokenIssuer != nil && bs.delegation != nil && bs.delegation.IsReady()
+}
+
+// generateBrokerID creates a random 8-byte hex identifier for this broker instance.
+func generateBrokerID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // lookupGroupID resolves a group name to its numeric GID by parsing /etc/group.

@@ -230,3 +230,48 @@ auto-revokes the old cert for the same agent+target+role.
 **Why MCP over REST?** LLMs invoke MCP tools natively with typed arguments
 and JSON Schema validation. Streamable HTTP (JSON-RPC 2.0 over POST) is
 stateless and proxy-friendly.
+
+---
+
+## Task Identity (v0.2)
+
+### Tiered Trust Model
+
+```
+Signer (root CA)
+  │ signs delegation cert (infrequent IPC)
+  ▼
+Broker (delegated issuer)
+  │ signs CTT-E tokens locally (no IPC per request)
+  ▼
+Task tokens (leaf credentials)
+```
+
+The signer holds the long-lived Ed25519 root key. The broker generates an ephemeral Ed25519 keypair and requests a delegation certificate from the signer. This cert authorizes the broker to sign task tokens (CTT-E) locally without IPC on every request.
+
+### Token Format
+
+CTT-E (Execution Token) is a compact JWT:
+- Header: `{"alg":"EdDSA","typ":"CTT-E","kid":"<delegation-cert-id>"}`
+- Payload: agent name, task identity (ULID), lineage, capability envelope
+- Signature: Ed25519 over `base64url(header).base64url(payload)`
+
+### Validation Chain
+
+Every brokered request with a CTT-E follows:
+1. Parse JWT, verify type is CTT-E
+2. Look up delegation cert by `kid`, verify against pinned root public key
+3. Verify delegation cert hasn't expired
+4. Verify CTT-E signature against delegated public key
+5. Verify CTT-E hasn't expired
+6. Epoch watermark check (walk lineage for revocation)
+7. Envelope pre-check (is requested resource within token bounds?)
+8. Policy evaluation (existing pipeline)
+
+### Epoch Watermark Revocation
+
+Instead of per-token blocklists, Clauth uses epoch watermarking. When a task is revoked, its ID is recorded with a timestamp. Any token issued before the watermark is dead. Revoking a parent cascades to all children (their lineage includes the parent ID).
+
+### Capability Envelope
+
+Task tokens carry an upper-bound envelope listing the maximum targets, roles, services, remotes, and methods the task can access. Wildcards in policy are resolved to explicit literal arrays at token issuance time — tokens never contain wildcards.

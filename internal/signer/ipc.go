@@ -1,6 +1,8 @@
 package signer
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,12 +14,17 @@ const DefaultTimeout = 10 * time.Second
 
 // SignRequest is the JSON request sent over the Unix socket to the signer.
 type SignRequest struct {
-	Action       string   `json:"action"`                  // "sign" or "ping"
-	PublicKey    string   `json:"public_key,omitempty"`     // authorized_key format
+	Action       string   `json:"action"`                    // "sign", "ping", "sign_delegation", or "root_public_key"
+	PublicKey    string   `json:"public_key,omitempty"`       // authorized_key format (for "sign")
 	Principals   []string `json:"principals,omitempty"`
-	Duration     string   `json:"duration,omitempty"`       // Go duration string (e.g. "1h")
-	KeyID        string   `json:"key_id,omitempty"`         // e.g. "agent-foo@target-host"
+	Duration     string   `json:"duration,omitempty"`         // Go duration string (e.g. "1h")
+	KeyID        string   `json:"key_id,omitempty"`           // e.g. "agent-foo@target-host"
 	ForceCommand string   `json:"force_command,omitempty"`
+
+	// Delegation fields (used when Action is "sign_delegation").
+	BrokerPublicKey string `json:"broker_public_key,omitempty"` // base64 Ed25519 public key (32 bytes)
+	BrokerID        string `json:"broker_id,omitempty"`          // broker instance identifier
+	DelegationTTL   string `json:"delegation_ttl,omitempty"`     // Go duration for cert validity
 }
 
 // SignResponse is the JSON response returned by the signer.
@@ -27,6 +34,11 @@ type SignResponse struct {
 	ExpiresAt   string `json:"expires_at,omitempty"`  // RFC3339 timestamp
 	Status      string `json:"status,omitempty"`      // "ok" for ping responses
 	Error       string `json:"error,omitempty"`       // non-empty on failure
+
+	// Delegation response fields.
+	DelegationCertID string `json:"delegation_cert_id,omitempty"` // unique cert identifier
+	DelegationSig    string `json:"delegation_sig,omitempty"`     // base64 Ed25519 signature over canonical payload
+	RootPublicKey    string `json:"root_public_key,omitempty"`    // base64 signer's Ed25519 public key (for pinning)
 }
 
 // Client is an IPC client that communicates with the signer subprocess
@@ -75,6 +87,53 @@ func (c *Client) RequestSign(req SignRequest) (*SignResponse, error) {
 		return nil, fmt.Errorf("signer: sign: %s", resp.Error)
 	}
 	return resp, nil
+}
+
+// RequestDelegation sends a delegation signing request.
+// The broker sends its public key; the signer signs a canonical payload
+// containing the broker's public key, broker ID, issued_at, and expires_at.
+// The returned signature and cert ID can be used by the broker to construct
+// a DelegationCert.
+func (c *Client) RequestDelegation(brokerPubKey ed25519.PublicKey, brokerID string, ttl time.Duration) (*SignResponse, error) {
+	req := SignRequest{
+		Action:          "sign_delegation",
+		BrokerPublicKey: base64.StdEncoding.EncodeToString(brokerPubKey),
+		BrokerID:        brokerID,
+		DelegationTTL:   ttl.String(),
+	}
+	resp, err := c.do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("signer: sign_delegation: %s", resp.Error)
+	}
+	return resp, nil
+}
+
+// RootPublicKey requests the signer's root Ed25519 public key.
+// Used at broker startup to pin the root key for token validation.
+func (c *Client) RootPublicKey() (ed25519.PublicKey, error) {
+	resp, err := c.do(SignRequest{Action: "root_public_key"})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("signer: root_public_key: %s", resp.Error)
+	}
+	if resp.RootPublicKey == "" {
+		return nil, fmt.Errorf("signer: root_public_key: empty response")
+	}
+
+	keyBytes, err := base64.StdEncoding.DecodeString(resp.RootPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("signer: root_public_key: decode base64: %w", err)
+	}
+	if len(keyBytes) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("signer: root_public_key: invalid key size %d, want %d", len(keyBytes), ed25519.PublicKeySize)
+	}
+
+	return ed25519.PublicKey(keyBytes), nil
 }
 
 // do connects to the Unix socket, sends the request, and reads the response.

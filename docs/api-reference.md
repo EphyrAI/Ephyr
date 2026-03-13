@@ -874,7 +874,7 @@ Single endpoint handling all MCP JSON-RPC 2.0 methods.
 |--------|-------------|
 | `initialize` | Protocol handshake -- returns server capabilities (tools, resources) |
 | `notifications/initialized` | Client acknowledgment (no response) |
-| `tools/list` | List all 10 available tools with JSON Schema parameters |
+| `tools/list` | List all 14 available tools with JSON Schema parameters |
 | `tools/call` | Execute a tool by name with arguments |
 | `resources/list` | List all 7 available resources with URIs and descriptions |
 | `resources/read` | Read a specific resource by URI, returns Markdown content |
@@ -996,7 +996,7 @@ curl -s -X POST http://BROKER:8554/mcp \
 | `clauth://services` | HTTP Proxy Services | Per-service details: URL prefix, auth type, allowed methods/paths, usage examples |
 | `clauth://roles` | Roles & Permissions | Role-to-principal mappings, per-role capabilities, role selection guide |
 | `clauth://status` | Agent Status | Agent's active certs (count), active sessions (list), last 10 activity entries |
-| `clauth://tools` | Tools Reference | All 10 tools with parameters, return types, and usage hints |
+| `clauth://tools` | Tools Reference | All 14 tools with parameters, return types, and usage hints |
 | `clauth://remotes` | Federated Servers | Configured MCP federation servers, status, and available tools |
 
 Resources return dynamically generated Markdown content reflecting the current policy
@@ -1011,3 +1011,11 @@ requesting agent.
 | -32601 | Unknown method |
 | -32602 | Invalid parameters (e.g., missing required field, unknown resource URI) |
 | -32603 | Internal error (signer down, SSH failure) |
+
+---
+
+### GET /v1/metrics
+
+Returns Prometheus-format metrics for monitoring. Includes latency histograms for token operations, counters for tasks/tokens/revocations, and gauges for active state.
+
+No authentication required (intended for Prometheus scraping).

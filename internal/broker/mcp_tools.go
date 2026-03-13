@@ -212,6 +212,61 @@ func (s *MCPServer) toolDefinitions() []MCPToolDefinition {
 				"properties": map[string]interface{}{},
 			},
 		},
+		// v0.2: Task identity tools.
+		{
+			Name:        "task_create",
+			Description: "Create a new task with scoped identity. Returns a CTT-E token for authenticating subsequent requests.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"description": map[string]interface{}{
+						"type":        "string",
+						"description": "Human-readable description of the task",
+					},
+					"ttl": map[string]interface{}{
+						"type":        "string",
+						"description": "Task TTL as Go duration (default '30m', max '1h')",
+						"default":     "30m",
+					},
+				},
+				"required": []string{"description"},
+			},
+		},
+		{
+			Name:        "task_info",
+			Description: "Get information about a task including its envelope, lineage, and remaining TTL",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"task_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Task ID (ULID). If omitted, lists all active tasks for this agent.",
+					},
+				},
+			},
+		},
+		{
+			Name:        "task_revoke",
+			Description: "Revoke a task and invalidate all its tokens. Cascading: also invalidates any child tasks.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"task_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Task ID to revoke",
+					},
+				},
+				"required": []string{"task_id"},
+			},
+		},
+		{
+			Name:        "task_list",
+			Description: "List active tasks for this agent",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
 	}
 }
 
@@ -240,6 +295,15 @@ func (s *MCPServer) handleToolCall(ctx context.Context, agent *MCPAgent, toolNam
 		return s.toolListServices(ctx, agent)
 	case "list_remotes":
 		return s.toolListRemotes(ctx, agent)
+	// v0.2: Task identity tool dispatch.
+	case "task_create":
+		return s.toolTaskCreate(ctx, agent, args)
+	case "task_info":
+		return s.toolTaskInfo(ctx, agent, args)
+	case "task_revoke":
+		return s.toolTaskRevoke(ctx, agent, args)
+	case "task_list":
+		return s.toolTaskList(ctx, agent, args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}

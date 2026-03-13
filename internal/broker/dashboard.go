@@ -242,6 +242,9 @@ func (bs *BrokerServer) dashboardRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /v1/dashboard/settings/grants", bs.handleGetGrantSettings)
 	mux.HandleFunc("PUT /v1/dashboard/settings/grants", bs.handleUpdateGrantSettings)
 
+	// --- Metrics ---
+	mux.HandleFunc("GET /v1/metrics", bs.handleMetrics)
+
 	// --- Static file serving for the React dashboard ---
 	if bs.cfg.DashboardDir != "" {
 		fs := http.FileServer(http.Dir(bs.cfg.DashboardDir))
@@ -1162,4 +1165,13 @@ func (bs *BrokerServer) handleDashboardPermissions(w http.ResponseWriter, r *htt
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+// handleMetrics serves GET /v1/metrics in Prometheus exposition format.
+func (bs *BrokerServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if bs.metrics == nil {
+		http.Error(w, "metrics not initialized", http.StatusInternalServerError)
+		return
+	}
+	bs.metrics.ServePrometheus(w, r)
 }

@@ -1439,3 +1439,46 @@ curl -s http://BROKER_HOST:8553/v1/dashboard/activity/summary \
 # Restart broker if needed
 systemctl restart clauth-signer && systemctl restart clauth-broker
 ```
+
+---
+
+## Task Identity Tools (v0.2)
+
+These tools manage task-scoped identity. They require the signer to support delegation (v0.2+). If the signer is v0.1, these tools return an error indicating task identity is unavailable.
+
+| Tool | Description |
+|------|-------------|
+| `task_create` | Create a task and receive a CTT-E token |
+| `task_info` | Get task details, envelope, and remaining TTL |
+| `task_revoke` | Revoke a task (cascading invalidation) |
+| `task_list` | List active tasks for this agent |
+
+### task_create
+
+Creates a new root task with a scoped capability envelope derived from the agent's RBAC permissions.
+
+**Arguments:**
+- `description` (string, required): Human-readable task description
+- `ttl` (string, optional): Task TTL as Go duration (default "30m", max "1h")
+
+**Returns:**
+- `task_id`: ULID identifier for the task
+- `token`: Signed CTT-E JWT for authenticating subsequent requests
+- `expires_at`: RFC3339 expiry timestamp
+- `envelope`: Resolved capability envelope (targets, roles, services, remotes, methods)
+
+### task_info
+
+**Arguments:**
+- `task_id` (string, optional): Specific task ID. If omitted, lists all active tasks.
+
+### task_revoke
+
+Revokes a task and sets an epoch watermark. All tokens issued for this task (and any future child tasks) are immediately invalidated.
+
+**Arguments:**
+- `task_id` (string, required): Task ID to revoke
+
+### task_list
+
+Lists all active (non-expired, non-revoked) tasks for the calling agent.

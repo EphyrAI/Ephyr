@@ -262,6 +262,18 @@ Queryable by agent, type, target, service, time range, or errors-only. The dashb
 - **Token masking** -- dashboard tokens are logged as `first4...last4`, never in full.
 - **Session binding** -- certificate request tokens are bound to the originating UID. Stolen tokens cannot be replayed from a different process.
 
+## What's New in v0.2 (Task Identity)
+
+v0.2 introduces **task-scoped portable identity**:
+
+- **Task tokens (CTT-E)**: Agents create tasks via `task_create` and receive signed JWT tokens that scope all subsequent actions to a task ID with a capability envelope
+- **Tiered trust**: Signer delegates signing authority to the broker via short-lived certificates — broker signs tokens locally without per-request IPC
+- **Epoch revocation**: `task_revoke` invalidates all tokens instantly via timestamp watermarking, with cascading support for parent/child tasks
+- **Prometheus metrics**: `/v1/metrics` endpoint with latency histograms and operational counters
+- **Full backward compatibility**: Existing agents without task tokens continue to work unchanged (legacy mode)
+
+See [docs/architecture.md](docs/architecture.md) for the trust model and validation chain.
+
 ## What Survives a Broker Restart
 
 | Persists across restarts | Lost on restart |

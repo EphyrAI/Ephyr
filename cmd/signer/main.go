@@ -119,6 +119,12 @@ func handleConn(conn net.Conn, ca *signer.CA, allowedUID int) {
 	case "sign":
 		handleSign(conn, ca, req)
 
+	case "sign_delegation":
+		handleSignDelegation(conn, ca, req)
+
+	case "root_public_key":
+		handleRootPublicKey(conn, ca)
+
 	default:
 		writeError(conn, fmt.Sprintf("unknown action: %q", req.Action))
 	}
@@ -182,6 +188,65 @@ func handleSign(conn net.Conn, ca *signer.CA, req signer.SignRequest) {
 
 	log.Printf("signed cert serial=%s key_id=%s principals=%v expires=%s",
 		resp.Serial, req.KeyID, req.Principals, resp.ExpiresAt)
+}
+
+// handleSignDelegation processes a delegation signing request.
+func handleSignDelegation(conn net.Conn, ca *signer.CA, req signer.SignRequest) {
+	// Validate required fields.
+	if req.BrokerPublicKey == "" {
+		writeError(conn, "broker_public_key is required")
+		return
+	}
+	if req.BrokerID == "" {
+		writeError(conn, "broker_id is required")
+		return
+	}
+	if req.DelegationTTL == "" {
+		writeError(conn, "delegation_ttl is required")
+		return
+	}
+
+	// Decode the broker's public key from base64.
+	brokerPubBytes, err := base64.StdEncoding.DecodeString(req.BrokerPublicKey)
+	if err != nil {
+		writeError(conn, fmt.Sprintf("invalid broker_public_key base64: %v", err))
+		return
+	}
+
+	// Parse the TTL.
+	ttl, err := time.ParseDuration(req.DelegationTTL)
+	if err != nil {
+		writeError(conn, fmt.Sprintf("invalid delegation_ttl %q: %v", req.DelegationTTL, err))
+		return
+	}
+
+	// Delegate to the extracted signing function.
+	result, err := signer.SignDelegation(ca, brokerPubBytes, req.BrokerID, ttl)
+	if err != nil {
+		writeError(conn, fmt.Sprintf("delegation signing failed: %v", err))
+		return
+	}
+
+	resp := signer.SignResponse{
+		DelegationCertID: result.CertID,
+		DelegationSig:    base64.StdEncoding.EncodeToString(result.Signature),
+		ExpiresAt:        result.ExpiresAt.UTC().Format(time.RFC3339),
+	}
+	writeJSON(conn, resp)
+
+	log.Printf("signed delegation cert_id=%s broker_id=%s expires=%s",
+		result.CertID, req.BrokerID, resp.ExpiresAt)
+}
+
+// handleRootPublicKey returns the signer's root Ed25519 public key.
+func handleRootPublicKey(conn net.Conn, ca *signer.CA) {
+	pubKey := ca.RawPublicKey()
+	resp := signer.SignResponse{
+		RootPublicKey: base64.StdEncoding.EncodeToString(pubKey),
+	}
+	writeJSON(conn, resp)
+
+	log.Printf("returned root public key")
 }
 
 // validatePeerUID checks the connecting process UID via SO_PEERCRED.

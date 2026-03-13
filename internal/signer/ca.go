@@ -10,8 +10,10 @@ import (
 
 // CA holds the loaded certificate authority signing key.
 type CA struct {
-	signer ssh.Signer
-	pubKey ssh.PublicKey
+	signer  ssh.Signer
+	pubKey  ssh.PublicKey
+	rawPriv ed25519.PrivateKey
+	rawPub  ed25519.PublicKey
 }
 
 // LoadCA reads an OpenSSH private key file (e.g. from ssh-keygen -t ed25519),
@@ -51,8 +53,26 @@ func LoadCA(path string) (*CA, error) {
 	}
 
 	return &CA{
-		signer: signer,
-		pubKey: signer.PublicKey(),
+		signer:  signer,
+		pubKey:  signer.PublicKey(),
+		rawPriv: *privKey,
+		rawPub:  privKey.Public().(ed25519.PublicKey),
+	}, nil
+}
+
+// NewCAFromKey creates a CA from an existing Ed25519 private key.
+// Used in tests to avoid reading from disk.
+func NewCAFromKey(privKey ed25519.PrivateKey) (*CA, error) {
+	signer, err := ssh.NewSignerFromKey(privKey)
+	if err != nil {
+		return nil, fmt.Errorf("ca: create signer: %w", err)
+	}
+
+	return &CA{
+		signer:  signer,
+		pubKey:  signer.PublicKey(),
+		rawPriv: privKey,
+		rawPub:  privKey.Public().(ed25519.PublicKey),
 	}, nil
 }
 
@@ -64,4 +84,14 @@ func (c *CA) Signer() ssh.Signer {
 // PublicKey returns the CA's public key.
 func (c *CA) PublicKey() ssh.PublicKey {
 	return c.pubKey
+}
+
+// RawPrivateKey returns the underlying Ed25519 private key for non-SSH signing.
+func (c *CA) RawPrivateKey() ed25519.PrivateKey {
+	return c.rawPriv
+}
+
+// RawPublicKey returns the Ed25519 public key bytes.
+func (c *CA) RawPublicKey() ed25519.PublicKey {
+	return c.rawPub
 }
