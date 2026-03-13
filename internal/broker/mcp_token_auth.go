@@ -7,7 +7,7 @@ import (
 	"github.com/sprawl/clauth/internal/token"
 )
 
-// authenticateWithCTTE attempts to validate a Bearer token as a CTT-E task token.
+// authenticateWithCTTE attempts to validate a Bearer token as a CTT-E or CTT-D task token.
 // Returns nil, nil if the token is not a JWT (caller should fall through to API key auth).
 // Returns agent, nil on successful task token validation.
 // Returns nil, err on validation failure.
@@ -19,13 +19,14 @@ func (s *MCPServer) authenticateWithCTTE(bearerToken string) (*MCPAgent, error) 
 
 	// Task identity must be enabled (delegation active, validator ready).
 	if !s.broker.TaskIdentityEnabled() {
-		return nil, fmt.Errorf("task identity not enabled, cannot validate CTT-E")
+		return nil, fmt.Errorf("task identity not enabled, cannot validate task token")
 	}
 
 	// Validate the token: signature chain, delegation cert, expiry, audience.
-	claims, err := s.broker.tokenValidator.ValidateCTTE(bearerToken)
+	// Accepts both CTT-E (execution) and CTT-D (delegation) token types.
+	claims, err := s.broker.tokenValidator.Validate(bearerToken)
 	if err != nil {
-		return nil, fmt.Errorf("CTT-E validation failed: %w", err)
+		return nil, fmt.Errorf("token validation failed: %w", err)
 	}
 
 	// Check revocation via epoch watermarks — walks the lineage array

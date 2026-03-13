@@ -24,6 +24,7 @@ type Metrics struct {
 	TasksCreated         atomic.Int64
 	TasksActive          atomic.Int64
 	TokensSigned         atomic.Int64 // CTT-E tokens signed
+	TokensDelegated      atomic.Int64 // CTT-D tokens signed (delegations)
 	TokensValidated      atomic.Int64
 	TokensRejected       atomic.Int64
 	WatermarkRevocations atomic.Int64
@@ -236,6 +237,7 @@ func (m *Metrics) ServePrometheus(w http.ResponseWriter, r *http.Request) {
 		{"clauth_tasks_created_total", "Total tasks created", &m.TasksCreated},
 		{"clauth_tasks_active", "Currently active tasks", &m.TasksActive},
 		{"clauth_tokens_signed_total", "Total CTT-E tokens signed", &m.TokensSigned},
+		{"clauth_tokens_delegated_total", "Total CTT-D tokens signed (delegations)", &m.TokensDelegated},
 		{"clauth_tokens_validated_total", "Total tokens validated", &m.TokensValidated},
 		{"clauth_tokens_rejected_total", "Total tokens rejected", &m.TokensRejected},
 		{"clauth_watermark_revocations_total", "Total watermark revocations", &m.WatermarkRevocations},

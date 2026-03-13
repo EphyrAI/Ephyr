@@ -96,6 +96,39 @@ func (i *Issuer) SignCTTE(claims *TaskClaims) (string, error) {
 	return signJWT(claims, deleg.ID, string(TokenTypeCTTE), privKey)
 }
 
+// SignCTTD creates and signs a CTT-D delegation token.
+// Returns a compact JWT string: header.payload.signature
+func (i *Issuer) SignCTTD(claims *TaskClaims) (string, error) {
+	i.mu.RLock()
+	privKey := i.privateKey
+	deleg := i.delegation
+	i.mu.RUnlock()
+
+	if privKey == nil || deleg == nil {
+		return "", errors.New("token: issuer has no delegation key set")
+	}
+
+	if claims == nil {
+		return "", errors.New("token: claims are nil")
+	}
+
+	// Populate standard fields if not set.
+	if claims.Issuer == "" {
+		claims.Issuer = "clauth:" + i.brokerID
+	}
+	if claims.Audience == "" {
+		claims.Audience = "clauth-broker"
+	}
+	if claims.IssuedAt.IsZero() {
+		claims.IssuedAt = time.Now()
+	}
+	if claims.TokenID == "" {
+		claims.TokenID = "ctd_" + NewULID()
+	}
+
+	return signJWT(claims, deleg.ID, string(TokenTypeCTTD), privKey)
+}
+
 // signJWT builds and signs a JWT from the given claims.
 func signJWT(claims *TaskClaims, kid string, typ string, privKey ed25519.PrivateKey) (string, error) {
 	// Build header.

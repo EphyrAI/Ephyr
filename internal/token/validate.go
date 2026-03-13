@@ -45,11 +45,18 @@ func (v *Validator) AddDelegation(cert *DelegationCert) {
 //  7. Verify audience is "clauth-broker"
 //  8. Return parsed TaskClaims
 func (v *Validator) ValidateCTTE(tokenStr string) (*TaskClaims, error) {
-	return v.validateCTTEAt(tokenStr, time.Now())
+	return v.validateAt(tokenStr, time.Now(), TokenTypeCTTE)
 }
 
-// validateCTTEAt is the internal validation with an injectable clock for testing.
-func (v *Validator) validateCTTEAt(tokenStr string, now time.Time) (*TaskClaims, error) {
+// Validate parses and validates a CTT-E or CTT-D token string.
+// Accepts both token types; otherwise identical to ValidateCTTE.
+func (v *Validator) Validate(tokenStr string) (*TaskClaims, error) {
+	return v.validateAt(tokenStr, time.Now(), TokenTypeCTTE, TokenTypeCTTD)
+}
+
+// validateAt is the internal validation with an injectable clock for testing.
+// allowedTypes specifies which token types are accepted.
+func (v *Validator) validateAt(tokenStr string, now time.Time, allowedTypes ...TokenType) (*TaskClaims, error) {
 	// Step 1: Parse JWT structure.
 	parts := strings.SplitN(tokenStr, ".", 3)
 	if len(parts) != 3 {
@@ -73,7 +80,14 @@ func (v *Validator) validateCTTEAt(tokenStr string, now time.Time) (*TaskClaims,
 	if header.Algorithm != "EdDSA" {
 		return nil, fmt.Errorf("token: unsupported algorithm: %s", header.Algorithm)
 	}
-	if header.Type != string(TokenTypeCTTE) {
+	typeAllowed := false
+	for _, at := range allowedTypes {
+		if header.Type == string(at) {
+			typeAllowed = true
+			break
+		}
+	}
+	if !typeAllowed {
 		return nil, fmt.Errorf("token: unexpected token type: %s", header.Type)
 	}
 

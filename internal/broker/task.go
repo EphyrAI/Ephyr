@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -42,6 +43,7 @@ type CreateTaskParams struct {
 	TTL         time.Duration
 	InitiatedBy string
 	Envelope    TaskEnvelope
+	CanDelegate bool
 }
 
 // TaskManager tracks active tasks with thread-safe operations.
@@ -92,6 +94,7 @@ func (tm *TaskManager) CreateTask(params CreateTaskParams) *Task {
 		CreatedAt:   now,
 		ExpiresAt:   now.Add(params.TTL),
 		Envelope:    params.Envelope,
+		CanDelegate: params.CanDelegate,
 	}
 
 	tm.mu.Lock()
@@ -329,5 +332,116 @@ func BuildEnvelopeFromPolicy(agentName string, resolved *policy.ResolvedConfig) 
 	sort.Strings(env.Methods)
 
 	return env
+}
+
+// DefaultMaxChildDepth is the maximum delegation chain depth.
+const DefaultMaxChildDepth = 5
+
+// CreateChildTaskParams holds parameters for creating a child task.
+type CreateChildTaskParams struct {
+	ParentID    string
+	AgentName   string        // must match parent's agent
+	Description string
+	TTL         time.Duration
+	Envelope    *TaskEnvelope // if nil, inherit parent's; if set, must be subset
+	CanDelegate bool
+}
+
+// IsSubsetOf checks if this envelope is a subset of parent.
+// Delegates to token.Envelope.IsSubsetOf for the actual comparison.
+func (e *TaskEnvelope) IsSubsetOf(parent *TaskEnvelope) bool {
+	te := token.Envelope{
+		Targets: e.Targets, Roles: e.Roles, Services: e.Services,
+		Remotes: e.Remotes, Methods: e.Methods,
+	}
+	pe := token.Envelope{
+		Targets: parent.Targets, Roles: parent.Roles, Services: parent.Services,
+		Remotes: parent.Remotes, Methods: parent.Methods,
+	}
+	return te.IsSubsetOf(&pe)
+}
+
+// CreateChildTask creates a delegated child task under an existing parent task.
+// The child inherits the parent's agent, has attenuated (or inherited) envelope,
+// and its TTL cannot exceed the parent's remaining lifetime.
+func (tm *TaskManager) CreateChildTask(params CreateChildTaskParams) (*Task, error) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	now := time.Now()
+
+	// Lookup parent.
+	parent, ok := tm.tasks[params.ParentID]
+	if !ok {
+		return nil, fmt.Errorf("parent task not found: %s", params.ParentID)
+	}
+
+	// Check parent not expired.
+	if now.After(parent.ExpiresAt) {
+		return nil, fmt.Errorf("parent task has expired: %s", params.ParentID)
+	}
+
+	// Agent must match.
+	if parent.AgentName != params.AgentName {
+		return nil, fmt.Errorf("agent name mismatch: parent is %q, requested %q", parent.AgentName, params.AgentName)
+	}
+
+	// Parent must permit delegation.
+	if !parent.CanDelegate {
+		return nil, fmt.Errorf("parent task does not permit delegation")
+	}
+
+	// Check depth limit.
+	if parent.Depth+1 > DefaultMaxChildDepth {
+		return nil, fmt.Errorf("maximum delegation depth exceeded (max %d)", DefaultMaxChildDepth)
+	}
+
+	// Check child TTL does not exceed parent's remaining TTL.
+	childExpiry := now.Add(params.TTL)
+	if childExpiry.After(parent.ExpiresAt) {
+		return nil, fmt.Errorf("child TTL exceeds parent's remaining TTL")
+	}
+
+	// Resolve envelope.
+	var envelope TaskEnvelope
+	if params.Envelope != nil {
+		if !params.Envelope.IsSubsetOf(&parent.Envelope) {
+			return nil, fmt.Errorf("child envelope exceeds parent envelope")
+		}
+		envelope = *params.Envelope
+	} else {
+		envelope = parent.Envelope
+	}
+
+	// Generate ID and build lineage.
+	id := token.NewULID()
+
+	lineage := make([]string, len(parent.Lineage)+1)
+	copy(lineage, parent.Lineage)
+	lineage[len(parent.Lineage)] = id
+
+	child := &Task{
+		ID:          id,
+		RootID:      parent.RootID,
+		ParentID:    parent.ID,
+		AgentName:   params.AgentName,
+		Description: params.Description,
+		Depth:       parent.Depth + 1,
+		Lineage:     lineage,
+		InitiatedBy: parent.InitiatedBy,
+		CreatedAt:   now,
+		ExpiresAt:   childExpiry,
+		Envelope:    envelope,
+		CanDelegate: params.CanDelegate,
+	}
+
+	// Store.
+	tm.tasks[id] = child
+	if tm.byAgent[params.AgentName] == nil {
+		tm.byAgent[params.AgentName] = make(map[string]bool)
+	}
+	tm.byAgent[params.AgentName][id] = true
+
+	return child, nil
 }
 

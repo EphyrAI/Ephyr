@@ -1176,3 +1176,126 @@ func TestEnvelope_EmptySlices(t *testing.T) {
 		t.Error("empty remotes should not contain anything")
 	}
 }
+
+// --- CTT-D Tests ---
+
+func TestSignCTTD_Basic(t *testing.T) {
+	_, _, _, brokerPriv, cert := testSetup(t)
+
+	issuer := NewIssuer("broker-test")
+	issuer.SetDelegation(brokerPriv, cert)
+
+	claims := testClaims()
+	claims.TokenID = "" // let auto-populate
+	tokenStr, err := issuer.SignCTTD(claims)
+	if err != nil {
+		t.Fatalf("sign CTT-D: %v", err)
+	}
+
+	// Verify JTI has "ctd_" prefix.
+	parsed, err := ParseUnverified(tokenStr)
+	if err != nil {
+		t.Fatalf("parse unverified: %v", err)
+	}
+	if !strings.HasPrefix(parsed.TokenID, "ctd_") {
+		t.Errorf("token ID = %q, want prefix 'ctd_'", parsed.TokenID)
+	}
+
+	// Verify header has "CTT-D" type.
+	parts := strings.SplitN(tokenStr, ".", 3)
+	headerJSON, _ := base64.RawURLEncoding.DecodeString(parts[0])
+	var header map[string]interface{}
+	json.Unmarshal(headerJSON, &header)
+	if header["typ"] != "CTT-D" {
+		t.Errorf("typ = %v, want CTT-D", header["typ"])
+	}
+}
+
+func TestSignCTTD_RoundTrip(t *testing.T) {
+	rootPub, _, _, brokerPriv, cert := testSetup(t)
+
+	issuer := NewIssuer("broker-test")
+	issuer.SetDelegation(brokerPriv, cert)
+
+	claims := testClaims()
+	claims.TokenID = "ctd_" + NewULID()
+	tokenStr, err := issuer.SignCTTD(claims)
+	if err != nil {
+		t.Fatalf("sign CTT-D: %v", err)
+	}
+
+	// Validate with Validate() (not ValidateCTTE).
+	validator := NewValidator(rootPub)
+	validator.AddDelegation(cert)
+
+	parsed, err := validator.Validate(tokenStr)
+	if err != nil {
+		t.Fatalf("validate CTT-D: %v", err)
+	}
+
+	if parsed.Subject != "test-agent" {
+		t.Errorf("subject = %q, want %q", parsed.Subject, "test-agent")
+	}
+	if parsed.Task.Description != "test task" {
+		t.Errorf("task description = %q, want %q", parsed.Task.Description, "test task")
+	}
+	if len(parsed.Envelope.Targets) != 2 {
+		t.Errorf("targets = %v, want 2 items", parsed.Envelope.Targets)
+	}
+}
+
+func TestValidate_AcceptsBoth(t *testing.T) {
+	rootPub, _, _, brokerPriv, cert := testSetup(t)
+
+	issuer := NewIssuer("broker-test")
+	issuer.SetDelegation(brokerPriv, cert)
+
+	validator := NewValidator(rootPub)
+	validator.AddDelegation(cert)
+
+	// Sign and validate a CTT-E via Validate().
+	claimsE := testClaims()
+	tokenE, err := issuer.SignCTTE(claimsE)
+	if err != nil {
+		t.Fatalf("sign CTT-E: %v", err)
+	}
+	if _, err := validator.Validate(tokenE); err != nil {
+		t.Fatalf("Validate() should accept CTT-E: %v", err)
+	}
+
+	// Sign and validate a CTT-D via Validate().
+	claimsD := testClaims()
+	claimsD.TokenID = "ctd_" + NewULID()
+	tokenD, err := issuer.SignCTTD(claimsD)
+	if err != nil {
+		t.Fatalf("sign CTT-D: %v", err)
+	}
+	if _, err := validator.Validate(tokenD); err != nil {
+		t.Fatalf("Validate() should accept CTT-D: %v", err)
+	}
+}
+
+func TestValidateCTTE_RejectsCTTD(t *testing.T) {
+	rootPub, _, _, brokerPriv, cert := testSetup(t)
+
+	issuer := NewIssuer("broker-test")
+	issuer.SetDelegation(brokerPriv, cert)
+
+	claims := testClaims()
+	claims.TokenID = "ctd_" + NewULID()
+	tokenStr, err := issuer.SignCTTD(claims)
+	if err != nil {
+		t.Fatalf("sign CTT-D: %v", err)
+	}
+
+	validator := NewValidator(rootPub)
+	validator.AddDelegation(cert)
+
+	_, err = validator.ValidateCTTE(tokenStr)
+	if err == nil {
+		t.Fatal("expected ValidateCTTE to reject CTT-D token")
+	}
+	if !strings.Contains(err.Error(), "unexpected token type") {
+		t.Errorf("expected 'unexpected token type' error, got: %v", err)
+	}
+}

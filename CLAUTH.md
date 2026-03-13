@@ -75,9 +75,10 @@ Credentials are injected automatically. You do not provide authentication. Optio
 | Tool | Description |
 |------|-------------|
 | `task_create` | Create a scoped task and receive a CTT-E token |
+| `task_delegate` | Delegate a child task with attenuated capabilities (CTT-D token) |
 | `task_info` | Get task details (envelope, lineage, TTL remaining) |
 | `task_list` | List your active tasks |
-| `task_revoke` | Revoke a task and all its tokens |
+| `task_revoke` | Revoke a task and all its tokens (cascading to children) |
 
 Tasks give you **scoped, auditable identity**. When you create a task, you get back a CTT-E (Clauth Task Token - Execution) that you can use as a Bearer token instead of your API key. The task token:
 
@@ -103,6 +104,29 @@ Tasks give you **scoped, auditable identity**. When you create a task, you get b
 ```json
 {"name": "task_revoke", "arguments": {"task_id": "<id>"}}
 ```
+
+**Delegate a child task (Phase 2b):**
+```json
+{"name": "task_create", "arguments": {"description": "Coordinate blog deploy", "ttl": "30m", "can_delegate": true}}
+// Returns: task_id, token (CTT-E), can_delegate: true
+```
+
+```json
+{"name": "task_delegate", "arguments": {
+  "parent_task_id": "<parent-id>",
+  "description": "Read-only check on hugoblog",
+  "ttl": "10m",
+  "envelope": {"targets": ["hugoblog"], "roles": ["read"], "services": [], "remotes": [], "methods": []}
+}}
+// Returns: task_id, parent_task_id, token (CTT-D), depth, envelope
+```
+
+Delegation rules:
+- Parent must have `can_delegate: true`
+- Child envelope must be a subset of (or equal to) parent's -- omit to inherit parent's envelope
+- Child TTL must be <= parent's remaining TTL
+- Maximum delegation depth is 5
+- Revoking a parent cascades to all children
 
 Tasks are optional. API key authentication still works for all tools. Use tasks when you want tighter scoping, audit correlation, or time-bounded access.
 

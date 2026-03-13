@@ -56,7 +56,7 @@ Three isolated processes with strict privilege separation:
 
 - **clauth-signer** -- Holds the Ed25519 CA private key. Signs SSH certificates and delegation certificates via Unix socket IPC. Runs in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. The CA key never leaves this process.
 
-- **clauth-broker** -- The control plane. Loads policy from YAML, evaluates requests, manages sessions/grants/certificates, serves the MCP endpoint (14 tools), proxies HTTP requests with credential injection, federates remote MCP servers, issues and validates task identity tokens, exports Prometheus metrics, and writes structured audit logs.
+- **clauth-broker** -- The control plane. Loads policy from YAML, evaluates requests, manages sessions/grants/certificates, serves the MCP endpoint (15 tools), proxies HTTP requests with credential injection, federates remote MCP servers, issues and validates task identity tokens, exports Prometheus metrics, and writes structured audit logs.
 
 - **clauth** (CLI) -- Agent-side tool for direct SSH operations from the broker host.
 
@@ -107,9 +107,10 @@ JSON-RPC 2.0 over Streamable HTTP, implementing [MCP 2025-03-26](https://modelco
 | Tool | Description |
 |------|-------------|
 | `task_create` | Create a task and receive a signed CTT-E token with capability envelope |
+| `task_delegate` | Delegate a child task with attenuated capabilities (returns CTT-D token) |
 | `task_info` | Get task details, status, and lineage |
 | `task_list` | List active tasks for this agent |
-| `task_revoke` | Revoke a task and all its tokens via epoch watermark |
+| `task_revoke` | Revoke a task and all its tokens via epoch watermark (cascading to children) |
 
 **Federated Tools:**
 
@@ -135,17 +136,19 @@ Ed25519 CA issuing ephemeral, per-request certificates. Default TTL is 5 minutes
 
 Persistent sessions reduce per-command latency from ~850ms to ~14ms for sequential operations.
 
-### Task-Scoped Identity (v0.2)
+### Task-Scoped Identity (v0.2) and Delegation (v0.3)
 
-Agents create tasks via `task_create` and receive a signed CTT-E (Clauth Task Token - Envelope) JWT. The token carries:
+Agents create tasks via `task_create` and receive a signed CTT-E (Clauth Task Token - Execution) JWT. The token carries:
 
 - **Task ID** -- ULID (lexicographically sortable, encodes creation time)
 - **Capability envelope** -- Upper-bound permissions (targets, roles, services, remotes, methods) resolved from RBAC policy at creation time
 - **Lineage** -- Parent task reference for sub-task delegation
 
+**Delegation with attenuation (v0.3):** Parent tasks created with `can_delegate: true` can spawn child tasks via `task_delegate`. Children receive CTT-D (delegation) tokens with capability envelopes that are equal to or a strict subset of the parent's. Maximum chain depth is 5. Child TTL cannot exceed parent's remaining TTL.
+
 **Tiered trust model:** The signer issues delegation certificates to the broker. The broker signs task tokens locally using its delegation key -- no IPC round-trip per token. Delegation keys auto-rotate before expiry.
 
-**Epoch watermark revocation:** `task_revoke` invalidates all tokens for a task by setting an epoch timestamp. Validation checks the watermark in O(depth) with no per-token blocklists. Cascading revocation propagates to child tasks.
+**Epoch watermark revocation:** `task_revoke` invalidates all tokens for a task by setting an epoch timestamp. Validation checks the watermark in O(depth) with no per-token blocklists. Cascading revocation propagates to all child tasks in the lineage.
 
 **Full backward compatibility:** Agents without task tokens continue to work in legacy mode with unchanged behavior.
 

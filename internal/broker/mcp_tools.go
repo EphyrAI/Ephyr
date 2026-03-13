@@ -20,6 +20,20 @@ func getStringArg(args map[string]interface{}, key string) (string, bool) {
 	return s, ok
 }
 
+// getBoolArg extracts a boolean value from the untyped arguments map.
+// Returns the default value if the key is missing or not a bool.
+func getBoolArg(args map[string]interface{}, key string, defaultVal bool) bool {
+	v, ok := args[key]
+	if !ok {
+		return defaultVal
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return defaultVal
+	}
+	return b
+}
+
 // getIntArg extracts an integer value from the untyped arguments map.
 // JSON numbers arrive as float64, so both float64 and int are handled.
 func getIntArg(args map[string]interface{}, key string, defaultVal int) int {
@@ -228,8 +242,52 @@ func (s *MCPServer) toolDefinitions() []MCPToolDefinition {
 						"description": "Task TTL as Go duration (default '30m', max '1h')",
 						"default":     "30m",
 					},
+					"can_delegate": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether this task can delegate to child tasks (default false)",
+						"default":     false,
+					},
 				},
 				"required": []string{"description"},
+			},
+		},
+		{
+			Name:        "task_delegate",
+			Description: "Delegate a child task from an existing parent task with attenuated capabilities. The child task receives a CTT-D token with equal or reduced permissions.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"parent_task_id": map[string]interface{}{
+						"type":        "string",
+						"description": "ID of the parent task to delegate from (must have can_delegate=true)",
+					},
+					"description": map[string]interface{}{
+						"type":        "string",
+						"description": "Human-readable description of the child task",
+					},
+					"ttl": map[string]interface{}{
+						"type":        "string",
+						"description": "Child task TTL as Go duration (default '10m', must be <= parent's remaining TTL)",
+						"default":     "10m",
+					},
+					"envelope": map[string]interface{}{
+						"type":        "object",
+						"description": "Attenuated capability envelope (must be subset of parent's). If omitted, inherits parent's envelope.",
+						"properties": map[string]interface{}{
+							"targets":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+							"roles":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+							"services": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+							"remotes":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+							"methods":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+						},
+					},
+					"can_delegate": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether the child task can further delegate (default false)",
+						"default":     false,
+					},
+				},
+				"required": []string{"parent_task_id", "description"},
 			},
 		},
 		{
@@ -298,6 +356,8 @@ func (s *MCPServer) handleToolCall(ctx context.Context, agent *MCPAgent, toolNam
 	// v0.2: Task identity tool dispatch.
 	case "task_create":
 		return s.toolTaskCreate(ctx, agent, args)
+	case "task_delegate":
+		return s.toolTaskDelegate(ctx, agent, args)
 	case "task_info":
 		return s.toolTaskInfo(ctx, agent, args)
 	case "task_revoke":

@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -551,5 +552,518 @@ func TestBuildEnvelopeFromPolicyWildcardSSH(t *testing.T) {
 	// Roles should be just "read" (from wildcard, intersected with each target).
 	if len(env.Roles) != 1 || env.Roles[0] != "read" {
 		t.Errorf("expected [read], got %v", env.Roles)
+	}
+}
+
+// --- CreateChildTask delegation tests ---
+
+// helper to create a delegating parent task with standard envelope.
+func createDelegatingParent(tm *TaskManager) *Task {
+	return tm.CreateTask(CreateTaskParams{
+		AgentName:   "agent-1",
+		Description: "parent task",
+		TTL:         10 * time.Minute,
+		InitiatedBy: "clauth:local:uid:1000",
+		Envelope: TaskEnvelope{
+			Targets:  []string{"dockerhost", "hugoblog"},
+			Roles:    []string{"read", "operator"},
+			Services: []string{"grafana", "portainer"},
+			Remotes:  []string{"demo-tools"},
+			Methods:  []string{"GET", "POST"},
+		},
+		CanDelegate: true,
+	})
+}
+
+func TestCreateChildTask_Basic(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "child task",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify child properties.
+	if !token.ValidateULID(child.ID) {
+		t.Errorf("invalid child ULID: %s", child.ID)
+	}
+	if child.Depth != 1 {
+		t.Errorf("expected depth 1, got %d", child.Depth)
+	}
+	if child.RootID != parent.ID {
+		t.Errorf("expected RootID %s, got %s", parent.ID, child.RootID)
+	}
+	if child.ParentID != parent.ID {
+		t.Errorf("expected ParentID %s, got %s", parent.ID, child.ParentID)
+	}
+	if len(child.Lineage) != 2 {
+		t.Fatalf("expected lineage length 2, got %d", len(child.Lineage))
+	}
+	if child.Lineage[0] != parent.ID {
+		t.Errorf("lineage[0] should be parent ID %s, got %s", parent.ID, child.Lineage[0])
+	}
+	if child.Lineage[1] != child.ID {
+		t.Errorf("lineage[1] should be child ID %s, got %s", child.ID, child.Lineage[1])
+	}
+	if child.AgentName != "agent-1" {
+		t.Errorf("expected agent-1, got %s", child.AgentName)
+	}
+	if child.CanDelegate != false {
+		t.Error("expected CanDelegate false")
+	}
+
+	// Child should be retrievable.
+	got := tm.GetTask(child.ID)
+	if got == nil {
+		t.Fatal("child task not found via GetTask")
+	}
+}
+
+func TestCreateChildTask_LineageChain(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "child",
+		TTL:         5 * time.Minute,
+		CanDelegate: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating child: %v", err)
+	}
+
+	grandchild, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    child.ID,
+		AgentName:   "agent-1",
+		Description: "grandchild",
+		TTL:         3 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating grandchild: %v", err)
+	}
+
+	// Verify lineage chain.
+	if grandchild.Depth != 2 {
+		t.Errorf("expected depth 2, got %d", grandchild.Depth)
+	}
+	if grandchild.RootID != parent.ID {
+		t.Errorf("expected RootID %s, got %s", parent.ID, grandchild.RootID)
+	}
+	if grandchild.ParentID != child.ID {
+		t.Errorf("expected ParentID %s, got %s", child.ID, grandchild.ParentID)
+	}
+	expectedLineage := []string{parent.ID, child.ID, grandchild.ID}
+	if len(grandchild.Lineage) != 3 {
+		t.Fatalf("expected lineage length 3, got %d: %v", len(grandchild.Lineage), grandchild.Lineage)
+	}
+	for i, id := range expectedLineage {
+		if grandchild.Lineage[i] != id {
+			t.Errorf("lineage[%d] = %s, want %s", i, grandchild.Lineage[i], id)
+		}
+	}
+}
+
+func TestCreateChildTask_DepthLimit(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	// Create a chain up to max depth.
+	parent := createDelegatingParent(tm)
+	current := parent
+
+	// DefaultMaxChildDepth is 5, so we can create children at depths 1..5.
+	for i := 1; i <= DefaultMaxChildDepth; i++ {
+		child, err := tm.CreateChildTask(CreateChildTaskParams{
+			ParentID:    current.ID,
+			AgentName:   "agent-1",
+			Description: "chain link",
+			TTL:         5 * time.Minute,
+			CanDelegate: true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error at depth %d: %v", i, err)
+		}
+		if child.Depth != i {
+			t.Errorf("expected depth %d, got %d", i, child.Depth)
+		}
+		current = child
+	}
+
+	// The next one (depth 6) should fail.
+	_, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    current.ID,
+		AgentName:   "agent-1",
+		Description: "one too many",
+		TTL:         1 * time.Minute,
+		CanDelegate: false,
+	})
+	if err == nil {
+		t.Fatal("expected error for exceeding max depth")
+	}
+	if !strings.Contains(err.Error(), "maximum delegation depth") {
+		t.Errorf("expected 'maximum delegation depth' error, got: %v", err)
+	}
+}
+
+func TestCreateChildTask_TTLConstraint(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := tm.CreateTask(CreateTaskParams{
+		AgentName:   "agent-1",
+		TTL:         2 * time.Minute,
+		Envelope:    TaskEnvelope{Targets: []string{"host1"}},
+		CanDelegate: true,
+	})
+
+	// Child TTL exceeds parent remaining TTL.
+	_, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:  parent.ID,
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+	})
+	if err == nil {
+		t.Fatal("expected error for excessive child TTL")
+	}
+	if !strings.Contains(err.Error(), "child TTL exceeds parent's remaining TTL") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+
+	// Child TTL within parent remaining TTL should succeed.
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:  parent.ID,
+		AgentName: "agent-1",
+		TTL:       1 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if child.ExpiresAt.After(parent.ExpiresAt) {
+		t.Error("child expiry should not exceed parent expiry")
+	}
+}
+
+func TestCreateChildTask_EnvelopeAttenuation(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	// Subset envelope: fewer targets, fewer roles.
+	subset := &TaskEnvelope{
+		Targets:  []string{"dockerhost"},
+		Roles:    []string{"read"},
+		Services: []string{"grafana"},
+		Remotes:  []string{"demo-tools"},
+		Methods:  []string{"GET"},
+	}
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:  parent.ID,
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+		Envelope:  subset,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify child has the attenuated envelope.
+	if len(child.Envelope.Targets) != 1 || child.Envelope.Targets[0] != "dockerhost" {
+		t.Errorf("expected [dockerhost], got %v", child.Envelope.Targets)
+	}
+	if len(child.Envelope.Roles) != 1 || child.Envelope.Roles[0] != "read" {
+		t.Errorf("expected [read], got %v", child.Envelope.Roles)
+	}
+}
+
+func TestCreateChildTask_EnvelopeViolation(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	// Superset envelope: includes target not in parent.
+	superset := &TaskEnvelope{
+		Targets:  []string{"dockerhost", "hugoblog", "mandrake-rack"},
+		Roles:    []string{"read"},
+		Services: []string{"grafana"},
+		Methods:  []string{"GET"},
+	}
+
+	_, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:  parent.ID,
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+		Envelope:  superset,
+	})
+	if err == nil {
+		t.Fatal("expected error for superset envelope")
+	}
+	if !strings.Contains(err.Error(), "child envelope exceeds parent envelope") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCreateChildTask_EnvelopeInheritance(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	// nil envelope should inherit parent's.
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:  parent.ID,
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+		Envelope:  nil,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify inherited envelope matches parent's.
+	if len(child.Envelope.Targets) != len(parent.Envelope.Targets) {
+		t.Errorf("targets count mismatch: child %d, parent %d",
+			len(child.Envelope.Targets), len(parent.Envelope.Targets))
+	}
+	for i, tgt := range parent.Envelope.Targets {
+		if child.Envelope.Targets[i] != tgt {
+			t.Errorf("target[%d]: child %s != parent %s", i, child.Envelope.Targets[i], tgt)
+		}
+	}
+	if len(child.Envelope.Roles) != len(parent.Envelope.Roles) {
+		t.Errorf("roles count mismatch: child %d, parent %d",
+			len(child.Envelope.Roles), len(parent.Envelope.Roles))
+	}
+	if len(child.Envelope.Services) != len(parent.Envelope.Services) {
+		t.Errorf("services count mismatch: child %d, parent %d",
+			len(child.Envelope.Services), len(parent.Envelope.Services))
+	}
+	if len(child.Envelope.Methods) != len(parent.Envelope.Methods) {
+		t.Errorf("methods count mismatch: child %d, parent %d",
+			len(child.Envelope.Methods), len(parent.Envelope.Methods))
+	}
+}
+
+func TestCreateChildTask_CanDelegateRequired(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	// Parent with CanDelegate: false.
+	parent := tm.CreateTask(CreateTaskParams{
+		AgentName:   "agent-1",
+		TTL:         10 * time.Minute,
+		Envelope:    TaskEnvelope{Targets: []string{"host1"}},
+		CanDelegate: false,
+	})
+
+	_, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:  parent.ID,
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+	})
+	if err == nil {
+		t.Fatal("expected error when parent does not permit delegation")
+	}
+	if !strings.Contains(err.Error(), "parent task does not permit delegation") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCreateChildTask_DifferentAgentRejected(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	_, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:  parent.ID,
+		AgentName: "agent-2", // different from parent's "agent-1"
+		TTL:       5 * time.Minute,
+	})
+	if err == nil {
+		t.Fatal("expected error for different agent")
+	}
+	if !strings.Contains(err.Error(), "agent name mismatch") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCreateChildTask_ParentNotFound(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	_, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:  "01BOGUS0000000000000000000",
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent parent")
+	}
+	if !strings.Contains(err.Error(), "parent task not found") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCreateChildTask_ParentExpired(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := tm.CreateTask(CreateTaskParams{
+		AgentName:   "agent-1",
+		TTL:         1 * time.Millisecond,
+		Envelope:    TaskEnvelope{Targets: []string{"host1"}},
+		CanDelegate: true,
+	})
+
+	// Wait for parent to expire.
+	time.Sleep(5 * time.Millisecond)
+
+	_, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:  parent.ID,
+		AgentName: "agent-1",
+		TTL:       1 * time.Millisecond,
+	})
+	if err == nil {
+		t.Fatal("expected error for expired parent")
+	}
+	if !strings.Contains(err.Error(), "expired") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCreateChildTask_ConcurrentCreation(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	const numGoroutines = 50
+	var wg sync.WaitGroup
+	errs := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := tm.CreateChildTask(CreateChildTaskParams{
+				ParentID:  parent.ID,
+				AgentName: "agent-1",
+				TTL:       5 * time.Minute,
+			})
+			if err != nil {
+				errs <- err
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Errorf("unexpected error in concurrent creation: %v", err)
+	}
+
+	// Should have parent + 50 children = 51 total.
+	count := tm.TaskCount()
+	if count != numGoroutines+1 {
+		t.Errorf("expected %d tasks, got %d", numGoroutines+1, count)
+	}
+
+	// Verify all child IDs are unique.
+	tasks := tm.ListTasks("agent-1")
+	ids := make(map[string]bool)
+	for _, task := range tasks {
+		if ids[task.ID] {
+			t.Errorf("duplicate task ID: %s", task.ID)
+		}
+		ids[task.ID] = true
+	}
+}
+
+func TestCreateChildTask_LineageCopySafety(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "child",
+		TTL:         5 * time.Minute,
+		CanDelegate: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Save copies of lineages before mutation.
+	parentLineageBefore := make([]string, len(parent.Lineage))
+	copy(parentLineageBefore, parent.Lineage)
+	childLineageBefore := make([]string, len(child.Lineage))
+	copy(childLineageBefore, child.Lineage)
+
+	// Create a second child from the same parent — this should not affect
+	// the first child's lineage.
+	child2, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "child2",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error creating child2: %v", err)
+	}
+
+	// Verify parent lineage unchanged.
+	if len(parent.Lineage) != len(parentLineageBefore) {
+		t.Fatalf("parent lineage length changed: %d -> %d", len(parentLineageBefore), len(parent.Lineage))
+	}
+	for i, id := range parentLineageBefore {
+		if parent.Lineage[i] != id {
+			t.Errorf("parent lineage[%d] changed: %s -> %s", i, id, parent.Lineage[i])
+		}
+	}
+
+	// Verify first child's lineage unchanged.
+	if len(child.Lineage) != len(childLineageBefore) {
+		t.Fatalf("child lineage length changed: %d -> %d", len(childLineageBefore), len(child.Lineage))
+	}
+	for i, id := range childLineageBefore {
+		if child.Lineage[i] != id {
+			t.Errorf("child lineage[%d] changed: %s -> %s", i, id, child.Lineage[i])
+		}
+	}
+
+	// Verify child2 has its own lineage.
+	if len(child2.Lineage) != 2 {
+		t.Fatalf("expected child2 lineage length 2, got %d", len(child2.Lineage))
+	}
+	if child2.Lineage[0] != parent.ID || child2.Lineage[1] != child2.ID {
+		t.Errorf("unexpected child2 lineage: %v", child2.Lineage)
+	}
+
+	// Mutate child's lineage and verify parent is unaffected (no shared backing array).
+	child.Lineage[0] = "MUTATED"
+	if parent.Lineage[0] == "MUTATED" {
+		t.Error("child lineage mutation affected parent — backing array is shared!")
 	}
 }

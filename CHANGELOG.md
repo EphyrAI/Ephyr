@@ -4,6 +4,29 @@ All notable changes to Clauth are documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] -- 2026-03-13
+
+Delegation with attenuation: parent tasks can spawn scoped child tasks with monotonically reduced capabilities.
+
+### Added
+
+- **Delegation with attenuation (Phase 2b)**: Parent tasks can delegate child tasks via `task_delegate` with capability envelopes that are equal to or a strict subset of the parent's
+- **`task_delegate` MCP tool**: Creates a child task under an existing parent, returns a CTT-D (delegation) token -- bringing the total to 15 local tools
+- **CTT-D token type**: New delegation token signed by the broker, validated alongside CTT-E tokens via the shared trust chain
+- **`SignCTTD()` issuer method**: Signs CTT-D tokens with `"ctd_"` JTI prefix and `"CTT-D"` type header
+- **`Validate()` validator method**: Accepts both CTT-E and CTT-D token types; `ValidateCTTE()` remains backward compatible (rejects CTT-D)
+- **`CreateChildTask()` task manager method**: Enforces agent match, `CanDelegate` permission, depth limit (max 5), TTL constraint, and envelope attenuation
+- **`TaskEnvelope.IsSubsetOf()`**: Delegates to `token.Envelope.IsSubsetOf()` for broker-layer attenuation checks
+- **`can_delegate` parameter on `task_create`**: Opt-in flag to allow a root task to spawn children (default false)
+- **`TokensDelegated` Prometheus counter**: `clauth_tokens_delegated_total` tracks CTT-D token issuance
+- **7 delegation integration tests**: Create, attenuation enforcement, cascading revocation, depth limit, TTL constraint, `can_delegate` requirement, envelope inheritance
+- **13 delegation unit tests**: Covering child creation, lineage chains, depth limits, TTL, envelope attenuation/violation/inheritance, agent mismatch, concurrent creation, lineage copy safety
+
+### Changed
+
+- `authenticateWithCTTE()` now calls `Validate()` instead of `ValidateCTTE()`, accepting both CTT-E and CTT-D tokens for MCP authentication
+- MCP tool count increased from 14 to 15 (9 core + 5 task + federated)
+
 ## [0.2.0] -- 2026-03-13
 
 Task-scoped portable identity, auth caching, Prometheus metrics, and integration test suite.
