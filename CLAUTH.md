@@ -68,6 +68,42 @@ Use sessions when running multiple commands on the same target. Always close ses
 
 Credentials are injected automatically. You do not provide authentication. Optional: `method`, `headers` (object), `body` (string), `timeout` (seconds).
 
+### Task Identity
+
+| Tool | Description |
+|------|-------------|
+| `task_create` | Create a scoped task and receive a CTT-E token |
+| `task_info` | Get task details (envelope, lineage, TTL remaining) |
+| `task_list` | List your active tasks |
+| `task_revoke` | Revoke a task and all its tokens |
+
+Tasks give you **scoped, auditable identity**. When you create a task, you get back a CTT-E (Clauth Task Token - Execution) that you can use as a Bearer token instead of your API key. The task token:
+
+- Is tied to a specific purpose (the description you provide)
+- Has a short TTL (default 30 min, max 1 hour)
+- Can be revoked instantly
+- Creates an audit trail linking all actions back to the task
+
+**Create a task:**
+```json
+{"name": "task_create", "arguments": {"description": "Deploy blog update to hugoblog", "ttl": "30m"}}
+// Returns: task_id, token (CTT-E), expires_at
+```
+
+**Use the token** -- replace your API key with the returned CTT-E token in the `Authorization: Bearer` header for subsequent requests. All actions performed with the task token are scoped and audited under that task.
+
+**Check task status:**
+```json
+{"name": "task_info", "arguments": {"task_id": "<id>"}}
+```
+
+**Revoke when done:**
+```json
+{"name": "task_revoke", "arguments": {"task_id": "<id>"}}
+```
+
+Tasks are optional. API key authentication still works for all tools. Use tasks when you want tighter scoping, audit correlation, or time-bounded access.
+
 ### MCP Federation
 
 | Tool | Description |
@@ -96,6 +132,7 @@ Federated tools are namespaced as `{server}.{tool}`. Example: a remote named "ut
 - **Role-scoped** -- You can only use roles listed in `list_targets` for each target. Role escalation is not possible.
 - **Toggleable** -- Hosts, services, and remotes can be disabled by admins. If something returns a "disabled" error, it was intentionally turned off.
 - **Network-isolated** -- Direct connections to backends are blocked. All access goes through the broker.
+- **Task-scoped** -- When using task tokens, all actions are correlated under a single task ID in the audit log. Tasks can be revoked to instantly cut access.
 
 ## RBAC
 
@@ -118,3 +155,7 @@ The discovery tools (`list_targets`, `list_services`, `list_remotes`) automatica
 | `remote X is disabled` | Admin has toggled this MCP server off |
 | `service disabled` | Admin has toggled this service off |
 | `proxy: url not allowed by network policy` | URL is outside allowed network ranges |
+| `task not found` | Task ID doesn't exist or has expired |
+| `task revoked` | Task was revoked; token is no longer valid |
+| `token expired` | CTT-E token TTL has elapsed |
+| `envelope violation: ...` | Task token doesn't permit the requested target/service/remote |
