@@ -40,6 +40,7 @@ type BrokerConfig struct {
 	DashboardToken string   // API token for dashboard authentication
 	DashboardDir   string   // directory for serving static dashboard files
 	MCPAddr        string   // TCP address for MCP listener (e.g. ":8554")
+	AuthCacheTTL   time.Duration // TTL for auth result cache (0 = disabled, default 60s)
 }
 
 // BrokerServer is the central broker service that ties together policy
@@ -429,6 +430,16 @@ func (bs *BrokerServer) startMCPListener() {
 
 	// Build authenticator from policy.
 	auth := NewMCPAuthenticator()
+	if bs.cfg.AuthCacheTTL != 0 {
+		auth.SetCacheTTL(bs.cfg.AuthCacheTTL)
+	}
+	if bs.cfg.AuthCacheTTL < 0 {
+		log.Printf("[mcp] auth cache: disabled")
+	} else if bs.cfg.AuthCacheTTL > 0 {
+		log.Printf("[mcp] auth cache: %s", bs.cfg.AuthCacheTTL)
+	} else {
+		log.Printf("[mcp] auth cache: 60s (default)")
+	}
 	bs.policyMu.RLock()
 	for name, agent := range bs.policyCfg.Raw.Agents {
 		if agent.APIKeyHash == "" {

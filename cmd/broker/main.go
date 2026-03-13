@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"time"
 	"strconv"
 	"strings"
 	"syscall"
@@ -99,6 +100,20 @@ func main() {
 	log.Printf("[broker] dashboard dir:   %s", *dashboardDir)
 	log.Printf("[broker] mcp:           %s", *mcpListen)
 
+	// Parse auth cache TTL. Default 60s, set to "0" to disable.
+	var authCacheTTL time.Duration
+	if v := os.Getenv("CLAUTH_AUTH_CACHE_TTL"); v != "" {
+		if v == "0" || v == "off" || v == "false" {
+			authCacheTTL = -1 // sentinel: explicitly disabled
+		} else {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				log.Fatalf("invalid CLAUTH_AUTH_CACHE_TTL: %v", err)
+			}
+			authCacheTTL = d
+		}
+	}
+
 	cfg := broker.BrokerConfig{
 		PolicyPath:     *policyPath,
 		SignerSocket:   *signerSocket,
@@ -110,6 +125,7 @@ func main() {
 		DashboardDir:   *dashboardDir,
 		SocketGroup:    *socketGroup,
 		MCPAddr:        *mcpListen,
+		AuthCacheTTL:   authCacheTTL,
 	}
 
 	srv, err := broker.NewBrokerServer(cfg)
