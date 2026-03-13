@@ -562,7 +562,7 @@ func createDelegatingParent(tm *TaskManager) *Task {
 	return tm.CreateTask(CreateTaskParams{
 		AgentName:   "agent-1",
 		Description: "parent task",
-		TTL:         10 * time.Minute,
+		TTL:         60 * time.Minute,
 		InitiatedBy: "clauth:local:uid:1000",
 		Envelope: TaskEnvelope{
 			Targets:  []string{"dockerhost", "hugoblog"},
@@ -686,12 +686,14 @@ func TestCreateChildTask_DepthLimit(t *testing.T) {
 	current := parent
 
 	// DefaultMaxChildDepth is 5, so we can create children at depths 1..5.
+	// Each child uses a decreasing TTL to stay within its parent's remaining TTL.
 	for i := 1; i <= DefaultMaxChildDepth; i++ {
+		childTTL := time.Duration(DefaultMaxChildDepth+1-i) * time.Minute
 		child, err := tm.CreateChildTask(CreateChildTaskParams{
 			ParentID:    current.ID,
 			AgentName:   "agent-1",
 			Description: "chain link",
-			TTL:         5 * time.Minute,
+			TTL:         childTTL,
 			CanDelegate: true,
 		})
 		if err != nil {
