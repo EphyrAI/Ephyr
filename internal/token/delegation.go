@@ -2,10 +2,10 @@ package token
 
 import (
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"encoding/base64"
 	"time"
 )
 
