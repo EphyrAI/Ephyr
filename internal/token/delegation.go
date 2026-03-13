@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"encoding/base64"
 	"time"
 )
 
@@ -18,29 +18,29 @@ type DelegationPayload struct {
 	ExpiresAt int64  `json:"expires_at"` // Unix timestamp
 }
 
+// canonicalDelegationPayload mirrors the signer's delegationPayload struct
+// exactly, ensuring the same JSON field ordering for signature verification.
+type canonicalDelegationPayload struct {
+	CertID    string `json:"cert_id"`
+	BrokerID  string `json:"broker_id"`
+	PublicKey string `json:"public_key"`
+	IssuedAt  int64  `json:"issued_at"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
 // CreateDelegationPayload builds the canonical byte representation
-// that the signer signs. Uses deterministic JSON marshaling with sorted keys.
+// that the signer signs. Uses struct-based JSON marshaling to match
+// the signer's field ordering exactly.
 func CreateDelegationPayload(p DelegationPayload) ([]byte, error) {
-	// Marshal to map for deterministic key ordering.
-	m := map[string]interface{}{
-		"broker_id":  p.BrokerID,
-		"cert_id":    p.CertID,
-		"expires_at": p.ExpiresAt,
-		"issued_at":  p.IssuedAt,
-		"public_key": p.PublicKey,
+	cp := canonicalDelegationPayload{
+		CertID:    p.CertID,
+		BrokerID:  p.BrokerID,
+		PublicKey: base64.StdEncoding.EncodeToString(p.PublicKey),
+		IssuedAt:  p.IssuedAt,
+		ExpiresAt: p.ExpiresAt,
 	}
 
-	// Sort keys for deterministic output.
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	// Build deterministic JSON manually to ensure consistent output.
-	// json.Marshal already sorts map keys in Go 1.12+, but we do it
-	// explicitly for clarity and safety.
-	data, err := json.Marshal(m)
+	data, err := json.Marshal(cp)
 	if err != nil {
 		return nil, fmt.Errorf("token: failed to marshal delegation payload: %w", err)
 	}

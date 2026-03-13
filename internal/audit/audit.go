@@ -55,6 +55,9 @@ type AuditEvent struct {
 	Reason        string            `json:"reason,omitempty"`
 	PolicyVersion string            `json:"policy_version,omitempty"`
 	Details       map[string]string `json:"details,omitempty"`
+	TaskID        string            `json:"task_id,omitempty"`
+	TaskRootID    string            `json:"task_root_id,omitempty"`
+	InitiatedBy   string            `json:"initiated_by,omitempty"`
 }
 
 // AuditLogger writes structured JSON audit events to a file and optionally

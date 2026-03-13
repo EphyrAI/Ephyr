@@ -12,6 +12,7 @@ import (
 
 	"github.com/sprawl/clauth/internal/audit"
 	"github.com/sprawl/clauth/internal/policy"
+	"github.com/sprawl/clauth/internal/token"
 )
 
 // MCPServer wraps the broker and provides MCP protocol handling via
@@ -126,6 +127,20 @@ type MCPAgent struct {
 	MaxConcurrent int
 	AutoApprove   bool
 	Perms         *policy.ResolvedAgentPerms
+	TaskClaims    *token.TaskClaims // non-nil when authenticated via CTT-E token
+}
+
+// HasTaskIdentity returns true if this agent authenticated with a task token.
+func (a *MCPAgent) HasTaskIdentity() bool {
+	return a.TaskClaims != nil
+}
+
+// TaskID returns the task ID if present, empty string otherwise.
+func (a *MCPAgent) TaskID() string {
+	if a.TaskClaims == nil {
+		return ""
+	}
+	return a.TaskClaims.Task.ID
 }
 
 // --- Standard MCP / JSON-RPC error codes ---
@@ -223,14 +238,20 @@ func (s *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Audit log the MCP request.
-	s.broker.auditLog.LogEvent(audit.AuditEvent{
+	mcpReqEvent := audit.AuditEvent{
 		Severity:  audit.SeverityInfo,
 		EventType: "mcp_request",
 		Agent:     agent.Name,
 		Details: map[string]string{
 			"method": req.Method,
 		},
-	})
+	}
+	if agent.HasTaskIdentity() {
+		mcpReqEvent.TaskID = agent.TaskClaims.Task.ID
+		mcpReqEvent.TaskRootID = agent.TaskClaims.Task.RootID
+		mcpReqEvent.InitiatedBy = agent.TaskClaims.Task.InitiatedBy
+	}
+	s.broker.auditLog.LogEvent(mcpReqEvent)
 
 	log.Printf("[mcp] agent=%s method=%s", agent.Name, req.Method)
 
@@ -344,14 +365,20 @@ func (s *MCPServer) handleToolsCall(ctx context.Context, w http.ResponseWriter, 
 	log.Printf("[mcp] agent=%s tool=%s", agent.Name, params.Name)
 
 	// Audit log the tool call.
-	s.broker.auditLog.LogEvent(audit.AuditEvent{
+	toolCallEvent := audit.AuditEvent{
 		Severity:  audit.SeverityInfo,
 		EventType: "mcp_tool_call",
 		Agent:     agent.Name,
 		Details: map[string]string{
 			"tool": params.Name,
 		},
-	})
+	}
+	if agent.HasTaskIdentity() {
+		toolCallEvent.TaskID = agent.TaskClaims.Task.ID
+		toolCallEvent.TaskRootID = agent.TaskClaims.Task.RootID
+		toolCallEvent.InitiatedBy = agent.TaskClaims.Task.InitiatedBy
+	}
+	s.broker.auditLog.LogEvent(toolCallEvent)
 
 	// Check for federated tool call (remote.toolname pattern).
 	if s.federator != nil && s.federator.IsFederatedTool(params.Name) {
@@ -459,6 +486,15 @@ func (s *MCPServer) handleFederatedToolCall(ctx context.Context, w http.Response
 		return
 	}
 
+	// Enforce task envelope if present.
+	if err := enforceFederationEnvelope(agent, remoteName); err != nil {
+		if s.broker.metrics != nil {
+			s.broker.metrics.TokensRejected.Add(1)
+		}
+		s.writeJSONRPC(w, req.ID, errorResult(fmt.Sprintf("envelope violation: %s", err)), nil)
+		return
+	}
+
 	// Check/issue MCP access grant (unless passthrough mode).
 	if s.broker.grantStore != nil {
 		grantMode := s.broker.grantStore.Mode
@@ -516,7 +552,7 @@ func (s *MCPServer) handleFederatedToolCall(ctx context.Context, w http.Response
 	}
 
 	// Audit log.
-	s.broker.auditLog.LogEvent(audit.AuditEvent{
+	fedEvent := audit.AuditEvent{
 		Severity:  audit.SeverityInfo,
 		EventType: "mcp_federation",
 		Agent:     agent.Name,
@@ -524,7 +560,13 @@ func (s *MCPServer) handleFederatedToolCall(ctx context.Context, w http.Response
 			"remote": remoteName,
 			"tool":   toolName,
 		},
-	})
+	}
+	if agent.HasTaskIdentity() {
+		fedEvent.TaskID = agent.TaskClaims.Task.ID
+		fedEvent.TaskRootID = agent.TaskClaims.Task.RootID
+		fedEvent.InitiatedBy = agent.TaskClaims.Task.InitiatedBy
+	}
+	s.broker.auditLog.LogEvent(fedEvent)
 
 	result := &MCPToolsCallResult{Content: content, IsError: isError}
 	s.writeJSONRPC(w, req.ID, result, nil)
@@ -542,8 +584,9 @@ func (s *MCPServer) isStreamingTool(name string) bool {
 	}
 }
 
-// authenticateRequest extracts and validates the Bearer API key from the
-// Authorization header.
+// authenticateRequest extracts and validates the Bearer token from the
+// Authorization header. Tries CTT-E task token first, then falls through
+// to API key authentication.
 func (s *MCPServer) authenticateRequest(r *http.Request) (*MCPAgent, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
@@ -554,17 +597,30 @@ func (s *MCPServer) authenticateRequest(r *http.Request) (*MCPAgent, error) {
 		return nil, fmt.Errorf("Authorization header must use Bearer scheme")
 	}
 
-	apiKey := authHeader[7:]
-	if apiKey == "" {
+	bearerToken := authHeader[7:]
+	if bearerToken == "" {
 		return nil, fmt.Errorf("empty API key")
 	}
 
-	agent, err := s.auth.Authenticate(apiKey)
+	// Try CTT-E task token authentication first.
+	agent, err := s.authenticateWithCTTE(bearerToken)
 	if err != nil {
+		// CTT-E was presented but invalid — reject with metrics.
+		if s.broker.metrics != nil {
+			s.broker.metrics.TokensRejected.Add(1)
+		}
 		return nil, err
 	}
+	if agent != nil {
+		// Successfully authenticated via CTT-E — track metrics.
+		if s.broker.metrics != nil {
+			s.broker.metrics.TokensValidated.Add(1)
+		}
+		return agent, nil
+	}
 
-	return agent, nil
+	// Fall through to API key authentication.
+	return s.auth.Authenticate(bearerToken)
 }
 
 // writeJSONRPC writes a JSON-RPC 2.0 response. If both result and rpcErr are nil,

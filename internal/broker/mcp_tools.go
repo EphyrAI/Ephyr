@@ -453,6 +453,14 @@ func (s *MCPServer) toolExec(ctx context.Context, agent *MCPAgent, args map[stri
 		return errorResult(fmt.Sprintf("target %q is currently disabled", target)), nil
 	}
 
+	// Enforce task envelope if present.
+	if err := enforceExecEnvelope(agent, target, role); err != nil {
+		if s.broker.metrics != nil {
+			s.broker.metrics.TokensRejected.Add(1)
+		}
+		return errorResult(fmt.Sprintf("envelope violation: %s", err)), nil
+	}
+
 	// Check that the exec pool is available.
 	if s.execPool == nil {
 		return errorResult("exec subsystem is not available"), nil
@@ -688,6 +696,18 @@ func (s *MCPServer) toolHTTPRequest(ctx context.Context, agent *MCPAgent, args m
 		if svc := s.proxyEngine.matchService(rawURL); svc != nil {
 			if !perms.CanAccessService(svc.Name, method) {
 				return errorResult(fmt.Sprintf("access denied to service %q with method %s", svc.Name, method)), nil
+			}
+		}
+	}
+
+	// Enforce task envelope if present.
+	if s.proxyEngine != nil {
+		if svc := s.proxyEngine.matchService(rawURL); svc != nil {
+			if err := enforceProxyEnvelope(agent, svc.Name, method); err != nil {
+				if s.broker.metrics != nil {
+					s.broker.metrics.TokensRejected.Add(1)
+				}
+				return errorResult(fmt.Sprintf("envelope violation: %s", err)), nil
 			}
 		}
 	}
