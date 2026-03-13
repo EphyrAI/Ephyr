@@ -8,12 +8,14 @@ Clauth is an access broker for AI agents. You connect to one MCP endpoint and ge
 
 ## Connecting
 
-Configure your MCP client with:
+> **Already seeing Clauth tools?** If tools like `list_targets` and `exec` are available in your tool list, you are already connected -- skip to **First Steps**. Your MCP client was pre-configured with the broker URL and API key.
+
+For new setups, configure your MCP client with:
 - **Type:** `url`
 - **URL:** `http://<broker-host>:8554/mcp`
 - **Auth:** `Authorization: Bearer <your-api-key>`
 
-Your API key and the broker URL are provided by your administrator.
+The broker URL and API key are set in your MCP client configuration (e.g., Claude Code's `settings.json`, Cursor's MCP config). Ask your administrator if you don't have them.
 
 ## First Steps
 
