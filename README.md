@@ -2,9 +2,9 @@
 
 *pronounced "eh-feer"*
 
-**Ephemeral infrastructure access for AI agents.**
+**Cryptographically bounded agent authority with centralized audit.**
 
-A broker that gives AI agents ephemeral, auditable, policy-controlled access to infrastructure -- without standing credentials.
+The first open-source implementation of the Delegation Capability Token (DCT) architecture proposed in Google DeepMind's ["Intelligent AI Delegation"](https://arxiv.org/abs/2602.11865) framework (February 2026).
 
 [![Go 1.24+](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](#quick-start)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue)](#license)
@@ -12,46 +12,50 @@ A broker that gives AI agents ephemeral, auditable, policy-controlled access to 
 
 ---
 
+## The Problem
+
+MCP gives AI agents access to tools. It does not govern what happens when agents delegate to sub-agents, when permissions need to attenuate across delegation chains, or when every action needs to be correlated back to the task that initiated it. Static credentials -- SSH keys, API tokens, service accounts -- don't expire, can't be scoped per-task, and persist after the agent session ends.
+
+When agent A delegates to agent B, and B delegates to C, the question is: **who authorized C to do what, and can you prove the authority only narrowed?**
+
 ## What Ephyr Does
 
-Ephyr sits between AI agents and your infrastructure. Agents connect to one MCP endpoint. Ephyr handles credentials, policy, and proxying. No SSH keys scattered across hosts. No API tokens in agent runtimes. No standing access.
+Ephyr is an access broker that sits between AI agents and infrastructure. It replaces scattered credentials with a single MCP endpoint that enforces policy, issues ephemeral certificates, and produces SIEM-ready structured audit logs. Every action is scoped to a task, time-bounded, and cryptographically traceable through the delegation chain.
 
-A single MCP connection replaces N different authentication mechanisms with one unified, policy-governed interface. Every action is scoped, time-limited, and logged.
+- **HMAC-chained macaroon tokens** make restriction removal cryptographically impossible. The broker's effective envelope reducer derives the most-restrictive authority from accumulated caveats using set intersection, minimums, and boolean AND. Capabilities can only narrow across delegation hops.
+- **Epoch watermark revocation** invalidates an entire task tree instantly -- revoking a parent cascades to all descendants with O(depth) validation and no per-token blocklists.
+- **Centralized audit with ULID correlation** ties every SSH command, HTTP proxy request, and MCP federation call back to its originating task tree. "What happened during this deployment?" is a single query.
+- **Three proxy paths through one endpoint** -- SSH certificates, HTTP APIs with credential injection, and federated MCP servers. Agents connect once; the broker handles authentication, authorization, and proxying.
 
-## Why Ephyr Exists
-
-Static credentials for AI agents are a liability. SSH keys don't expire. API tokens can't be scoped per-task. When an agent session ends, the access remains. And when agents delegate to sub-agents, the permission model breaks entirely -- MCP has no policy layer for permission propagation across delegation chains.
-
-Ephyr replaces that model with brokered, ephemeral access and -- in its delegation tier -- implements the Delegation Capability Token architecture that DeepMind's "Intelligent AI Delegation" framework (arXiv:2602.11865, February 2026) identified as the missing primitive for secure agent delegation.
-
-## Intended Deployment Model
-
-Ephyr is designed for:
-
-- **Homelabs and power users** who give AI agents (Claude Code, etc.) access to their infrastructure
-- **Internal engineering teams** managing dev/staging/prod environments with AI-assisted operations
-- **Single-tenant environments** where a small number of trusted operators control the broker
-
-Ephyr is **not** designed for multi-tenant SaaS, public-facing agent platforms, or environments where the broker operator is untrusted. It assumes a trusted administrator who defines policy and manages the broker.
-
-## Architecture
+## How It Works
 
 ```
-+------------------+  Unix socket  +------------------+  Unix socket  +------------------+
-|   Agent (CLI)    +-------------->|   ephyr-broker   +-------------->|   ephyr-signer   |
-+------------------+               |                  |               |  CA key holder   |
-                                   |  Policy engine   |               |  Signs certs     |
-+------------------+  HTTP :8554   |  Task identity   |               |  Never on network|
-|   Agent (MCP)    +-------------->|  Audit logger    |               +------------------+
-|  Claude, etc.    |               |  MCP server      |
-+------------------+               |  HTTP proxy      |
-                                   |  MCP federation  |
-                                   +------------------+
+Agent (MCP client)
+    │
+    │ Bearer: mac_<base64url macaroon>
+    │
+    ▼
+┌──────────────────┐           ┌──────────────────┐
+│  ephyr-broker    │  IPC      │  ephyr-signer    │
+│                  ├──────────►│                  │
+│  Policy engine   │           │  CA key custody  │
+│  Macaroon verify │           │  SSH cert signing│
+│  HMAC reducer    │           │  Never on network│
+│  Audit logger    │           └──────────────────┘
+│  HTTP proxy      │
+│  MCP federation  │
+│  Task identity   │
+└────┬───────┬─────┘
+     │       │
+  SSH certs  HTTP proxy    MCP federation
+     │       │                  │
+     ▼       ▼                  ▼
+  Targets  Services       Remote MCP servers
 ```
 
-**ephyr-signer** holds the Ed25519 CA private key. Listens on a Unix socket. Systemd sandbox. Never on the network.
+**ephyr-signer** holds the Ed25519 CA private key in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. Unix socket IPC only. The CA key never leaves this process, never touches the network.
 
-**ephyr-broker** handles everything else: policy evaluation, task token issuance, SSH certificate requests, HTTP proxy with credential injection, MCP federation, structured audit logging.
+**ephyr-broker** handles everything else: HMAC chain verification, caveat reduction, policy evaluation, SSH certificate requests via signer IPC, HTTP proxy with credential injection, MCP federation, task tree management, structured audit logging, and the admin dashboard.
 
 ## Capability Tiers
 
