@@ -341,18 +341,26 @@ attacks. The protocol is deliberately simpler than JSON-RPC 2.0 -- there is
 no multiplexing, no streaming, and no session state.
 
 ```json
-// Request (broker -> signer)
+// Request: SSH certificate signing (broker -> signer)
 {"action":"sign","public_key":"ssh-ed25519 AAAA...","principals":["agent-read"],
- "duration":"5m","key_id":"claude@webserver/read","force_command":""}
+ "duration":"5m","key_id":"ephyr:claude@webserver/read","force_command":""}
 
-// Response (signer -> broker)
-{"certificate":"<base64>","serial":"a1b2c3d4e5f60718",
+// Response: SSH certificate (signer -> broker)
+{"certificate":"<base64 SSH certificate>","serial":"a1b2c3d4e5f60718",
  "expires_at":"2026-03-10T14:35:00Z"}
+
+// Request: delegation certificate (broker -> signer)
+{"action":"sign_delegation","public_key":"<base64 broker Ed25519 pubkey>",
+ "broker_id":"broker-01","ttl":"1h"}
+
+// Response: delegation cert with root signature (signer -> broker)
+{"cert_id":"deleg-a1b2","signature":"<base64 Ed25519 sig>",
+ "expires_at":"2026-03-10T15:30:00Z","root_public_key":"<base64>"}
 ```
 
 Four actions are supported:
-- `sign` -- sign an SSH user certificate
-- `sign_delegation` -- sign a delegation certificate for broker token authority
+- `sign` -- sign an SSH user certificate for ephemeral target access
+- `sign_delegation` -- sign a delegation certificate granting the broker's ephemeral Ed25519 public key short-lived token signing authority (used for JWT legacy path; macaroon path uses HMAC root keys generated locally)
 - `root_public_key` -- return the signer's Ed25519 public key for pinning
 - `ping` -- health check
 
@@ -1502,8 +1510,15 @@ Digital Signature Algorithm over Curve25519):
 - Delegation certificate signing
 - Ephemeral SSH keypair generation
 
-Task tokens use HMAC-SHA256 (symmetric) for their caveat chain. See
-Section 7.1 for details on the macaroon token format.
+Task tokens use HMAC-SHA256 (symmetric) for their caveat chain. The
+macaroon implementation is bespoke — written from scratch using only
+Go's standard library `crypto/hmac` and `crypto/sha256` packages (~300
+lines in `internal/macaroon/types.go`). No external macaroon library
+(e.g., `gopkg.in/macaroon.v2`) is used. This keeps the dependency
+count at three and the cryptographic surface area auditable. The binary
+serialization format (version 0x02) is a custom length-prefixed
+encoding, not the standard macaroon V2 wire format. See Section 7.1
+for details.
 
 **Why Ed25519:**
 
@@ -1767,12 +1782,15 @@ Ordered by impact:
    `InsecureIgnoreHostKey`. Until host key pinning is implemented in
    policy, ensure the network path between the broker and all targets
    is trusted (same VLAN, no untrusted L2 neighbors). This is the
-   highest-priority item to address.
+   highest-priority item to address. **These are prioritized for
+   immediate remediation and are the most likely blockers for
+   enterprise adoption.**
 
 3. **Enable TLS verification for services.** The HTTP proxy uses
    `InsecureSkipVerify: true`. Deploy proper TLS certificates or a
    private CA for internal services. Place a TLS-terminating reverse
-   proxy in front of the dashboard and MCP ports.
+   proxy in front of the dashboard and MCP ports. **Like T6 above,
+   this is prioritized for the next release cycle.**
 
 **High:**
 
