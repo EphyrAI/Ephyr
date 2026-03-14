@@ -28,6 +28,7 @@ Usage:
   ephyr services                    List HTTP proxy services
   ephyr remotes                     List federated MCP servers
   ephyr whoami                      Show agent identity
+  ephyr inspect [--token] [--json]  Inspect a macaroon token
 
 Global:
   --socket PATH    Broker socket (default: /run/ephyr/broker.sock)
@@ -61,6 +62,8 @@ func main() {
 		cmdRemotes(os.Args[2:])
 	case "whoami":
 		cmdWhoami(os.Args[2:])
+	case "inspect":
+		cmdInspect(os.Args[2:])
 	case "help", "--help", "-h":
 		fmt.Fprint(os.Stdout, usage)
 	default:

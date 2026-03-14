@@ -19,6 +19,8 @@ type Metrics struct {
 	SSHCertLatency        LatencyHistogram
 	DelegationIPCLatency  LatencyHistogram
 	ExecE2ELatency        LatencyHistogram
+	MacaroonMintLatency   LatencyHistogram // time to mint a macaroon
+	MacaroonVerifyLatency LatencyHistogram // time to verify a macaroon (HMAC chain + reduce)
 
 	// Counters
 	TasksCreated         atomic.Int64
@@ -32,6 +34,11 @@ type Metrics struct {
 	LegacyRequests       atomic.Int64 // requests without CTT (legacy mode)
 	AuthCacheHits        atomic.Int64
 	AuthCacheMisses      atomic.Int64
+	MacaroonsMinted      atomic.Int64 // total macaroons minted (root + delegated)
+	MacaroonsVerified    atomic.Int64 // total successful macaroon verifications
+	MacaroonsRejected    atomic.Int64 // total failed macaroon verifications
+	ReducerInvocations   atomic.Int64 // total reducer calls
+	TokenSizeWarnings    atomic.Int64 // tokens exceeding 4KB warning threshold
 
 	// Gauges
 	ActiveWatermarks    atomic.Int64
@@ -221,6 +228,8 @@ func (m *Metrics) ServePrometheus(w http.ResponseWriter, r *http.Request) {
 		{"ephyr_ssh_cert_seconds", "SSH certificate signing latency", &m.SSHCertLatency},
 		{"ephyr_delegation_ipc_seconds", "Delegation IPC latency", &m.DelegationIPCLatency},
 		{"ephyr_exec_e2e_seconds", "End-to-end exec latency", &m.ExecE2ELatency},
+		{"ephyr_macaroon_mint_seconds", "Macaroon minting latency", &m.MacaroonMintLatency},
+		{"ephyr_macaroon_verify_seconds", "Macaroon verification latency (HMAC chain + reduce)", &m.MacaroonVerifyLatency},
 	}
 
 	for _, hd := range histograms {
@@ -245,6 +254,11 @@ func (m *Metrics) ServePrometheus(w http.ResponseWriter, r *http.Request) {
 		{"ephyr_legacy_requests_total", "Requests without CTT (legacy mode)", &m.LegacyRequests},
 		{"ephyr_auth_cache_hits_total", "Auth cache hits (bcrypt bypassed)", &m.AuthCacheHits},
 		{"ephyr_auth_cache_misses_total", "Auth cache misses (bcrypt required)", &m.AuthCacheMisses},
+		{"ephyr_macaroons_minted_total", "Total macaroons minted", &m.MacaroonsMinted},
+		{"ephyr_macaroons_verified_total", "Total successful macaroon verifications", &m.MacaroonsVerified},
+		{"ephyr_macaroons_rejected_total", "Total failed macaroon verifications", &m.MacaroonsRejected},
+		{"ephyr_reducer_invocations_total", "Total reducer invocations", &m.ReducerInvocations},
+		{"ephyr_token_size_warnings_total", "Tokens exceeding size warning threshold", &m.TokenSizeWarnings},
 	}
 
 	for _, c := range counters {

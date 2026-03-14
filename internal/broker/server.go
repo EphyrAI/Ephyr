@@ -23,6 +23,7 @@ import (
 
 	"github.com/ben-spanswick/ephyr/internal/audit"
 	"github.com/ben-spanswick/ephyr/internal/auth"
+	"github.com/ben-spanswick/ephyr/internal/macaroon"
 	"github.com/ben-spanswick/ephyr/internal/policy"
 	"github.com/ben-spanswick/ephyr/internal/signer"
 	"github.com/ben-spanswick/ephyr/internal/token"
@@ -104,6 +105,11 @@ type BrokerServer struct {
 	metrics        *Metrics
 	tokenIssuer    *token.Issuer
 	tokenValidator *token.Validator
+
+	// v0.2b: Macaroon-based task tokens.
+	rootKeyStore     *macaroon.RootKeyStore
+	macaroonMinter   *macaroon.Minter
+	macaroonVerifier *macaroon.Verifier
 }
 
 // NewBrokerServer initializes all components and returns a ready-to-start server.
@@ -193,6 +199,11 @@ func NewBrokerServer(cfg BrokerConfig) (*BrokerServer, error) {
 	bs.taskMgr = NewTaskManager()
 	bs.revocation = NewRevocationMap(30 * time.Minute) // max task TTL from policy
 	bs.metrics = NewMetrics()
+
+	// v0.2b: Initialize macaroon components (always available, no signer dependency).
+	bs.rootKeyStore = macaroon.NewRootKeyStore()
+	bs.macaroonMinter = macaroon.NewMinter(bs.rootKeyStore)
+	bs.macaroonVerifier = macaroon.NewVerifier(bs.rootKeyStore)
 
 	// Wire up task expiry callback for WebSocket broadcasts and metrics.
 	bs.taskMgr.OnExpire = func(task *Task) {
@@ -623,8 +634,11 @@ func (bs *BrokerServer) InitTaskIdentity() error {
 }
 
 // TaskIdentityEnabled returns true if the v0.2 task identity subsystem is active.
+// Returns true if either the JWT delegation chain or macaroon minting is available.
 func (bs *BrokerServer) TaskIdentityEnabled() bool {
-	return bs.tokenIssuer != nil && bs.delegation != nil && bs.delegation.IsReady()
+	jwtReady := bs.tokenIssuer != nil && bs.delegation != nil && bs.delegation.IsReady()
+	macReady := bs.macaroonMinter != nil && bs.rootKeyStore != nil
+	return jwtReady || macReady
 }
 
 // generateBrokerID creates a random 8-byte hex identifier for this broker instance.

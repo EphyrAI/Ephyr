@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ben-spanswick/ephyr/internal/audit"
+	macaroonpkg "github.com/ben-spanswick/ephyr/internal/macaroon"
 	"github.com/ben-spanswick/ephyr/internal/policy"
 	"github.com/ben-spanswick/ephyr/internal/token"
 )
@@ -127,7 +128,8 @@ type MCPAgent struct {
 	MaxConcurrent int
 	AutoApprove   bool
 	Perms         *policy.ResolvedAgentPerms
-	TaskClaims    *token.TaskClaims // non-nil when authenticated via CTT-E token
+	TaskClaims    *token.TaskClaims      // non-nil when authenticated via CTT-E/CTT-D JWT token
+	RawMacaroon   *macaroonpkg.Macaroon  // preserved from auth for delegation (v0.2b)
 }
 
 // HasTaskIdentity returns true if this agent authenticated with a task token.
@@ -585,8 +587,8 @@ func (s *MCPServer) isStreamingTool(name string) bool {
 }
 
 // authenticateRequest extracts and validates the Bearer token from the
-// Authorization header. Tries CTT-E task token first, then falls through
-// to API key authentication.
+// Authorization header. Tries macaroon (mac_ prefix) first, then JWT
+// (CTT-E/CTT-D), then falls through to API key authentication.
 func (s *MCPServer) authenticateRequest(r *http.Request) (*MCPAgent, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
@@ -602,7 +604,22 @@ func (s *MCPServer) authenticateRequest(r *http.Request) (*MCPAgent, error) {
 		return nil, fmt.Errorf("empty API key")
 	}
 
-	// Try CTT-E task token authentication first.
+	// 1. Try macaroon authentication (mac_ prefix).
+	if strings.HasPrefix(bearerToken, "mac_") {
+		agent, err := s.authenticateWithMacaroon(strings.TrimPrefix(bearerToken, "mac_"))
+		if err != nil {
+			if s.broker.metrics != nil {
+				s.broker.metrics.MacaroonsRejected.Add(1)
+			}
+			return nil, err
+		}
+		if s.broker.metrics != nil {
+			s.broker.metrics.MacaroonsVerified.Add(1)
+		}
+		return agent, nil
+	}
+
+	// 2. Try CTT-E/CTT-D JWT task token authentication.
 	agent, err := s.authenticateWithCTTE(bearerToken)
 	if err != nil {
 		// CTT-E was presented but invalid — reject with metrics.
@@ -619,7 +636,7 @@ func (s *MCPServer) authenticateRequest(r *http.Request) (*MCPAgent, error) {
 		return agent, nil
 	}
 
-	// Fall through to API key authentication.
+	// 3. Fall through to API key authentication.
 	return s.auth.Authenticate(bearerToken)
 }
 

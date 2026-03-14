@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -1314,4 +1315,105 @@ func TestListAllTasks_MultiAgent(t *testing.T) {
 	if !agents["agent-1"] || !agents["agent-2"] || !agents["agent-3"] {
 		t.Errorf("expected all 3 agents represented, got %v", agents)
 	}
+}
+
+// --- Signature index tests ---
+
+func TestSignatureIndex_RegisterAndLookup(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	task := tm.CreateTask(CreateTaskParams{
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+		Envelope:  TaskEnvelope{Targets: []string{"host1"}},
+	})
+
+	digest := "abc123deadbeef"
+	task.MacaroonSigDigest = digest
+	tm.RegisterSignature(digest, task.ID)
+
+	got := tm.LookupBySignature(digest)
+	if got == nil {
+		t.Fatal("expected to find task by signature")
+	}
+	if got.ID != task.ID {
+		t.Errorf("expected task %s, got %s", task.ID, got.ID)
+	}
+}
+
+func TestSignatureIndex_NotFound(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	got := tm.LookupBySignature("nonexistent")
+	if got != nil {
+		t.Error("expected nil for nonexistent digest")
+	}
+}
+
+func TestSignatureIndex_Unregister(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	task := tm.CreateTask(CreateTaskParams{
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+		Envelope:  TaskEnvelope{Targets: []string{"host1"}},
+	})
+
+	digest := "abc123"
+	tm.RegisterSignature(digest, task.ID)
+	tm.UnregisterSignature(digest)
+
+	if tm.LookupBySignature(digest) != nil {
+		t.Error("expected nil after unregister")
+	}
+}
+
+func TestSignatureIndex_RevokeCleansSig(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	task := tm.CreateTask(CreateTaskParams{
+		AgentName: "agent-1",
+		TTL:       5 * time.Minute,
+		Envelope:  TaskEnvelope{Targets: []string{"host1"}},
+	})
+
+	digest := "revoke-test-sig"
+	task.MacaroonSigDigest = digest
+	tm.RegisterSignature(digest, task.ID)
+
+	tm.RevokeTask(task.ID)
+
+	if tm.LookupBySignature(digest) != nil {
+		t.Error("expected nil after revoke")
+	}
+}
+
+func TestSignatureIndex_ConcurrentAccess(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	// Create multiple tasks and register signatures concurrently
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			task := tm.CreateTask(CreateTaskParams{
+				AgentName: "agent-1",
+				TTL:       5 * time.Minute,
+				Envelope:  TaskEnvelope{Targets: []string{"host1"}},
+			})
+			digest := fmt.Sprintf("sig-%d", i)
+			task.MacaroonSigDigest = digest
+			tm.RegisterSignature(digest, task.ID)
+
+			// Also lookup
+			tm.LookupBySignature(digest)
+		}(i)
+	}
+	wg.Wait()
 }

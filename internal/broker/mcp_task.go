@@ -2,14 +2,17 @@ package broker
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"time"
 
 	"github.com/ben-spanswick/ephyr/internal/audit"
+	"github.com/ben-spanswick/ephyr/internal/macaroon"
 	"github.com/ben-spanswick/ephyr/internal/token"
 )
 
-// toolTaskCreate creates a new task with scoped identity and returns a CTT-E token.
+// toolTaskCreate creates a new task with scoped identity and returns a macaroon token.
+// Falls back to JWT (CTT-E) if macaroon minting is not available.
 func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args map[string]interface{}) (*MCPToolsCallResult, error) {
 	if !s.broker.TaskIdentityEnabled() {
 		return errorResult("task identity not available (signer does not support delegation)"), nil
@@ -60,34 +63,89 @@ func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args ma
 		CanDelegate: canDelegate,
 	})
 
-	// Build token claims.
-	claims := &token.TaskClaims{
-		Subject: agent.Name,
-		Task: token.TaskIdentity{
-			ID:          task.ID,
-			RootID:      task.RootID,
-			ParentID:    task.ParentID,
-			Depth:       task.Depth,
-			Lineage:     task.Lineage,
-			InitiatedBy: task.InitiatedBy,
-			Description: task.Description,
-		},
-		Envelope: token.Envelope{
-			Targets:  envelope.Targets,
-			Roles:    envelope.Roles,
-			Services: envelope.Services,
-			Remotes:  envelope.Remotes,
-			Methods:  envelope.Methods,
-		},
-		ExpiresAt: task.ExpiresAt,
+	// Determine default delegation depth.
+	delegationDepth := 0
+	if canDelegate {
+		delegationDepth = DefaultMaxChildDepth
 	}
 
-	// Sign CTT-E.
-	tokenStr, err := s.broker.tokenIssuer.SignCTTE(claims)
-	if err != nil {
-		// Clean up task on signing failure.
+	// Try macaroon minting first (v0.2b primary path).
+	var tokenStr string
+	var tokenType string
+	if s.broker.macaroonMinter != nil {
+		defer s.broker.metrics.ObserveTiming(&s.broker.metrics.MacaroonMintLatency)()
+
+		macEnv := macaroon.EffectiveEnvelope{
+			Targets:         envelope.Targets,
+			Roles:           envelope.Roles,
+			Services:        envelope.Services,
+			Remotes:         envelope.Remotes,
+			Methods:         envelope.Methods,
+			CanDelegate:     canDelegate,
+			DelegationDepth: delegationDepth,
+			ExpiresAt:       task.ExpiresAt,
+		}
+
+		mac, mintErr := s.broker.macaroonMinter.MintRoot(task.ID, agent.Name, initiatedBy, macEnv)
+		if mintErr != nil {
+			s.broker.taskMgr.RevokeTask(task.ID)
+			return errorResult(fmt.Sprintf("failed to mint macaroon: %v", mintErr)), nil
+		}
+
+		// Serialize: "mac_" + base64url(binary)
+		macBytes, marshalErr := mac.MarshalBinary()
+		if marshalErr != nil {
+			s.broker.taskMgr.RevokeTask(task.ID)
+			return errorResult(fmt.Sprintf("failed to serialize macaroon: %v", marshalErr)), nil
+		}
+		tokenStr = "mac_" + base64.RawURLEncoding.EncodeToString(macBytes)
+		tokenType = "macaroon"
+
+		// Register signature digest for task lookup during auth.
+		sigDigest := sha256Hex(mac.Signature())
+		task.MacaroonSigDigest = sigDigest
+		s.broker.taskMgr.RegisterSignature(sigDigest, task.ID)
+
+		// Macaroon-specific metrics.
+		s.broker.metrics.MacaroonsMinted.Add(1)
+
+		// Check size warning threshold.
+		if len(macBytes) > macaroon.TokenSizeWarn {
+			s.broker.metrics.TokenSizeWarnings.Add(1)
+		}
+	} else if s.broker.tokenIssuer != nil {
+		// Fallback: JWT signing (legacy path during migration).
+		claims := &token.TaskClaims{
+			Subject: agent.Name,
+			Task: token.TaskIdentity{
+				ID:          task.ID,
+				RootID:      task.RootID,
+				ParentID:    task.ParentID,
+				Depth:       task.Depth,
+				Lineage:     task.Lineage,
+				InitiatedBy: task.InitiatedBy,
+				Description: task.Description,
+			},
+			Envelope: token.Envelope{
+				Targets:  envelope.Targets,
+				Roles:    envelope.Roles,
+				Services: envelope.Services,
+				Remotes:  envelope.Remotes,
+				Methods:  envelope.Methods,
+			},
+			ExpiresAt: task.ExpiresAt,
+		}
+
+		jwtStr, jwtErr := s.broker.tokenIssuer.SignCTTE(claims)
+		if jwtErr != nil {
+			s.broker.taskMgr.RevokeTask(task.ID)
+			return errorResult(fmt.Sprintf("failed to sign task token: %v", jwtErr)), nil
+		}
+		tokenStr = jwtStr
+		tokenType = "jwt"
+	} else {
 		s.broker.taskMgr.RevokeTask(task.ID)
-		return errorResult(fmt.Sprintf("failed to sign task token: %v", err)), nil
+		return errorResult("no token minting backend available"), nil
 	}
 
 	// Update metrics.
@@ -106,6 +164,7 @@ func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args ma
 			"ttl":          ttl.String(),
 			"initiated_by": initiatedBy,
 			"targets":      fmt.Sprintf("%v", envelope.Targets),
+			"token_type":   tokenType,
 		},
 	})
 
@@ -126,6 +185,7 @@ func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args ma
 	result := map[string]interface{}{
 		"task_id":      task.ID,
 		"token":        tokenStr,
+		"token_type":   tokenType,
 		"expires_at":   task.ExpiresAt.Format(time.RFC3339),
 		"ttl_seconds":  int(ttl.Seconds()),
 		"can_delegate": canDelegate,
@@ -196,6 +256,12 @@ func (s *MCPServer) toolTaskRevoke(ctx context.Context, agent *MCPAgent, args ma
 	// Set watermark for cascading revocation.
 	s.broker.revocation.Revoke(taskID)
 	s.broker.metrics.WatermarkRevocations.Add(1)
+
+	// Also delete the root key from the key store to invalidate all
+	// macaroons in this task tree immediately.
+	if s.broker.rootKeyStore != nil {
+		s.broker.rootKeyStore.Delete(task.RootID)
+	}
 
 	// Remove from task manager.
 	s.broker.taskMgr.RevokeTask(taskID)
@@ -307,7 +373,10 @@ func parseEnvelopeArg(args map[string]interface{}, key string) (*TaskEnvelope, e
 	return env, nil
 }
 
-// toolTaskDelegate creates a child task with attenuated capabilities and returns a CTT-D token.
+// toolTaskDelegate creates a child task with attenuated capabilities and returns
+// a macaroon token. Falls back to JWT (CTT-D) if macaroon minting is not available.
+// When the presenting agent authenticated with a macaroon, the child macaroon is
+// derived from the parent's HMAC chain (true macaroon delegation).
 func (s *MCPServer) toolTaskDelegate(ctx context.Context, agent *MCPAgent, args map[string]interface{}) (*MCPToolsCallResult, error) {
 	if !s.broker.TaskIdentityEnabled() {
 		return errorResult("task identity not available (signer does not support delegation)"), nil
@@ -343,7 +412,7 @@ func (s *MCPServer) toolTaskDelegate(ctx context.Context, agent *MCPAgent, args 
 
 	canDelegate := getBoolArg(args, "can_delegate", false)
 
-	// Create child task.
+	// Create child task in the task manager (validates depth, TTL, envelope subset).
 	child, err := s.broker.taskMgr.CreateChildTask(CreateChildTaskParams{
 		ParentID:    parentTaskID,
 		AgentName:   agent.Name,
@@ -356,33 +425,131 @@ func (s *MCPServer) toolTaskDelegate(ctx context.Context, agent *MCPAgent, args 
 		return errorResult(fmt.Sprintf("delegation failed: %v", err)), nil
 	}
 
-	// Build token claims from child task.
-	claims := &token.TaskClaims{
-		Subject: agent.Name,
-		Task: token.TaskIdentity{
-			ID:          child.ID,
-			RootID:      child.RootID,
-			ParentID:    child.ParentID,
-			Depth:       child.Depth,
-			Lineage:     child.Lineage,
-			InitiatedBy: child.InitiatedBy,
-			Description: child.Description,
-		},
-		Envelope: token.Envelope{
-			Targets:  child.Envelope.Targets,
-			Roles:    child.Envelope.Roles,
-			Services: child.Envelope.Services,
-			Remotes:  child.Envelope.Remotes,
-			Methods:  child.Envelope.Methods,
-		},
-		ExpiresAt: child.ExpiresAt,
+	// Determine delegation depth for the child macaroon.
+	childDelegationDepth := 0
+	if canDelegate {
+		// The parent's remaining depth minus 1, bounded by DefaultMaxChildDepth.
+		childDelegationDepth = DefaultMaxChildDepth - child.Depth
+		if childDelegationDepth < 0 {
+			childDelegationDepth = 0
+		}
 	}
 
-	// Sign CTT-D.
-	tokenStr, err := s.broker.tokenIssuer.SignCTTD(claims)
-	if err != nil {
+	// Try macaroon delegation first.
+	var tokenStr string
+	var tokenType string
+	if s.broker.macaroonMinter != nil && agent.RawMacaroon != nil {
+		defer s.broker.metrics.ObserveTiming(&s.broker.metrics.MacaroonMintLatency)()
+
+		childMacEnv := macaroon.EffectiveEnvelope{
+			Targets:         child.Envelope.Targets,
+			Roles:           child.Envelope.Roles,
+			Services:        child.Envelope.Services,
+			Remotes:         child.Envelope.Remotes,
+			Methods:         child.Envelope.Methods,
+			CanDelegate:     canDelegate,
+			DelegationDepth: childDelegationDepth,
+			ExpiresAt:       child.ExpiresAt,
+		}
+
+		childMac, mintErr := s.broker.macaroonMinter.MintDelegated(agent.RawMacaroon, childMacEnv)
+		if mintErr != nil {
+			s.broker.taskMgr.RevokeTask(child.ID)
+			return errorResult(fmt.Sprintf("failed to mint delegated macaroon: %v", mintErr)), nil
+		}
+
+		macBytes, marshalErr := childMac.MarshalBinary()
+		if marshalErr != nil {
+			s.broker.taskMgr.RevokeTask(child.ID)
+			return errorResult(fmt.Sprintf("failed to serialize delegated macaroon: %v", marshalErr)), nil
+		}
+		tokenStr = "mac_" + base64.RawURLEncoding.EncodeToString(macBytes)
+		tokenType = "macaroon"
+
+		// Register signature digest.
+		sigDigest := sha256Hex(childMac.Signature())
+		child.MacaroonSigDigest = sigDigest
+		s.broker.taskMgr.RegisterSignature(sigDigest, child.ID)
+
+		s.broker.metrics.MacaroonsMinted.Add(1)
+
+		if len(macBytes) > macaroon.TokenSizeWarn {
+			s.broker.metrics.TokenSizeWarnings.Add(1)
+		}
+	} else if s.broker.macaroonMinter != nil && agent.RawMacaroon == nil {
+		// Agent authenticated via API key or JWT, but we can still mint a root macaroon
+		// for the child (it becomes its own root in the macaroon HMAC chain).
+		defer s.broker.metrics.ObserveTiming(&s.broker.metrics.MacaroonMintLatency)()
+
+		childMacEnv := macaroon.EffectiveEnvelope{
+			Targets:         child.Envelope.Targets,
+			Roles:           child.Envelope.Roles,
+			Services:        child.Envelope.Services,
+			Remotes:         child.Envelope.Remotes,
+			Methods:         child.Envelope.Methods,
+			CanDelegate:     canDelegate,
+			DelegationDepth: childDelegationDepth,
+			ExpiresAt:       child.ExpiresAt,
+		}
+
+		childMac, mintErr := s.broker.macaroonMinter.MintRoot(
+			child.RootID, agent.Name, child.InitiatedBy, childMacEnv,
+		)
+		if mintErr != nil {
+			s.broker.taskMgr.RevokeTask(child.ID)
+			return errorResult(fmt.Sprintf("failed to mint macaroon for delegated task: %v", mintErr)), nil
+		}
+
+		macBytes, marshalErr := childMac.MarshalBinary()
+		if marshalErr != nil {
+			s.broker.taskMgr.RevokeTask(child.ID)
+			return errorResult(fmt.Sprintf("failed to serialize macaroon: %v", marshalErr)), nil
+		}
+		tokenStr = "mac_" + base64.RawURLEncoding.EncodeToString(macBytes)
+		tokenType = "macaroon"
+
+		sigDigest := sha256Hex(childMac.Signature())
+		child.MacaroonSigDigest = sigDigest
+		s.broker.taskMgr.RegisterSignature(sigDigest, child.ID)
+
+		s.broker.metrics.MacaroonsMinted.Add(1)
+
+		if len(macBytes) > macaroon.TokenSizeWarn {
+			s.broker.metrics.TokenSizeWarnings.Add(1)
+		}
+	} else if s.broker.tokenIssuer != nil {
+		// Fallback: JWT signing (legacy path).
+		claims := &token.TaskClaims{
+			Subject: agent.Name,
+			Task: token.TaskIdentity{
+				ID:          child.ID,
+				RootID:      child.RootID,
+				ParentID:    child.ParentID,
+				Depth:       child.Depth,
+				Lineage:     child.Lineage,
+				InitiatedBy: child.InitiatedBy,
+				Description: child.Description,
+			},
+			Envelope: token.Envelope{
+				Targets:  child.Envelope.Targets,
+				Roles:    child.Envelope.Roles,
+				Services: child.Envelope.Services,
+				Remotes:  child.Envelope.Remotes,
+				Methods:  child.Envelope.Methods,
+			},
+			ExpiresAt: child.ExpiresAt,
+		}
+
+		jwtStr, jwtErr := s.broker.tokenIssuer.SignCTTD(claims)
+		if jwtErr != nil {
+			s.broker.taskMgr.RevokeTask(child.ID)
+			return errorResult(fmt.Sprintf("failed to sign delegation token: %v", jwtErr)), nil
+		}
+		tokenStr = jwtStr
+		tokenType = "jwt"
+	} else {
 		s.broker.taskMgr.RevokeTask(child.ID)
-		return errorResult(fmt.Sprintf("failed to sign delegation token: %v", err)), nil
+		return errorResult("no token minting backend available"), nil
 	}
 
 	// Update metrics.
@@ -402,6 +569,7 @@ func (s *MCPServer) toolTaskDelegate(ctx context.Context, agent *MCPAgent, args 
 			"description":    description,
 			"ttl":            ttl.String(),
 			"depth":          fmt.Sprintf("%d", child.Depth),
+			"token_type":     tokenType,
 		},
 	})
 
@@ -423,6 +591,7 @@ func (s *MCPServer) toolTaskDelegate(ctx context.Context, agent *MCPAgent, args 
 		"task_id":        child.ID,
 		"parent_task_id": parentTaskID,
 		"token":          tokenStr,
+		"token_type":     tokenType,
 		"expires_at":     child.ExpiresAt.Format(time.RFC3339),
 		"depth":          child.Depth,
 		"can_delegate":   canDelegate,
@@ -471,4 +640,3 @@ func (s *MCPServer) toolTaskList(ctx context.Context, agent *MCPAgent, args map[
 		"count": len(summaries),
 	})
 }
-

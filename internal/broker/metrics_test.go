@@ -245,6 +245,13 @@ func TestPrometheusOutputFormat(t *testing.T) {
 	m.TasksCreated.Store(42)
 	m.TokensSigned.Store(250)
 	m.ActiveWatermarks.Store(3)
+	m.MacaroonsMinted.Store(17)
+	m.MacaroonsVerified.Store(15)
+	m.MacaroonsRejected.Store(2)
+	m.ReducerInvocations.Store(10)
+	m.TokenSizeWarnings.Store(1)
+	m.MacaroonMintLatency.Observe(100 * time.Microsecond)
+	m.MacaroonVerifyLatency.Observe(300 * time.Microsecond)
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	rec := httptest.NewRecorder()
@@ -271,6 +278,21 @@ func TestPrometheusOutputFormat(t *testing.T) {
 		"ephyr_active_watermarks 3",
 		"# TYPE ephyr_tasks_created_total counter",
 		"# TYPE ephyr_active_watermarks gauge",
+		// Macaroon counters
+		"ephyr_macaroons_minted_total 17",
+		"ephyr_macaroons_verified_total 15",
+		"ephyr_macaroons_rejected_total 2",
+		"ephyr_reducer_invocations_total 10",
+		"ephyr_token_size_warnings_total 1",
+		"# TYPE ephyr_macaroons_minted_total counter",
+		"# TYPE ephyr_macaroons_rejected_total counter",
+		// Macaroon histograms
+		"# HELP ephyr_macaroon_mint_seconds Macaroon minting latency",
+		"# TYPE ephyr_macaroon_mint_seconds histogram",
+		"ephyr_macaroon_mint_seconds_count 1",
+		"# HELP ephyr_macaroon_verify_seconds",
+		"# TYPE ephyr_macaroon_verify_seconds histogram",
+		"ephyr_macaroon_verify_seconds_count 1",
 	}
 
 	for _, exp := range expectedStrings {
@@ -436,6 +458,8 @@ func TestPrometheusAllHistogramsPresent(t *testing.T) {
 		"ephyr_ssh_cert_seconds",
 		"ephyr_delegation_ipc_seconds",
 		"ephyr_exec_e2e_seconds",
+		"ephyr_macaroon_mint_seconds",
+		"ephyr_macaroon_verify_seconds",
 	}
 
 	for _, name := range expectedHistograms {
@@ -468,6 +492,11 @@ func TestPrometheusAllCountersPresent(t *testing.T) {
 		"ephyr_watermark_revocations_total",
 		"ephyr_delegation_rotations_total",
 		"ephyr_legacy_requests_total",
+		"ephyr_macaroons_minted_total",
+		"ephyr_macaroons_verified_total",
+		"ephyr_macaroons_rejected_total",
+		"ephyr_reducer_invocations_total",
+		"ephyr_token_size_warnings_total",
 	}
 
 	for _, name := range expectedCounters {
@@ -500,6 +529,94 @@ func TestPrometheusAllGaugesPresent(t *testing.T) {
 		}
 		if !strings.Contains(body, typeLine) {
 			t.Errorf("missing TYPE for gauge %s", name)
+		}
+	}
+}
+
+func TestMacaroonMetricsCounterIncrement(t *testing.T) {
+	m := NewMetrics()
+
+	// Verify initial zero state.
+	if m.MacaroonsMinted.Load() != 0 {
+		t.Fatal("expected MacaroonsMinted to start at 0")
+	}
+	if m.MacaroonsVerified.Load() != 0 {
+		t.Fatal("expected MacaroonsVerified to start at 0")
+	}
+	if m.MacaroonsRejected.Load() != 0 {
+		t.Fatal("expected MacaroonsRejected to start at 0")
+	}
+	if m.ReducerInvocations.Load() != 0 {
+		t.Fatal("expected ReducerInvocations to start at 0")
+	}
+	if m.TokenSizeWarnings.Load() != 0 {
+		t.Fatal("expected TokenSizeWarnings to start at 0")
+	}
+
+	// Increment counters.
+	m.MacaroonsMinted.Add(5)
+	m.MacaroonsVerified.Add(3)
+	m.MacaroonsRejected.Add(2)
+	m.ReducerInvocations.Add(7)
+	m.TokenSizeWarnings.Add(1)
+
+	if m.MacaroonsMinted.Load() != 5 {
+		t.Errorf("expected MacaroonsMinted=5, got %d", m.MacaroonsMinted.Load())
+	}
+	if m.MacaroonsVerified.Load() != 3 {
+		t.Errorf("expected MacaroonsVerified=3, got %d", m.MacaroonsVerified.Load())
+	}
+	if m.MacaroonsRejected.Load() != 2 {
+		t.Errorf("expected MacaroonsRejected=2, got %d", m.MacaroonsRejected.Load())
+	}
+	if m.ReducerInvocations.Load() != 7 {
+		t.Errorf("expected ReducerInvocations=7, got %d", m.ReducerInvocations.Load())
+	}
+	if m.TokenSizeWarnings.Load() != 1 {
+		t.Errorf("expected TokenSizeWarnings=1, got %d", m.TokenSizeWarnings.Load())
+	}
+}
+
+func TestMacaroonHistogramsObserve(t *testing.T) {
+	m := NewMetrics()
+
+	// Observe macaroon mint latency.
+	m.MacaroonMintLatency.Observe(75 * time.Microsecond)
+	m.MacaroonMintLatency.Observe(250 * time.Microsecond)
+	m.MacaroonMintLatency.Observe(3 * time.Millisecond)
+
+	if m.MacaroonMintLatency.Count() != 3 {
+		t.Errorf("expected MacaroonMintLatency count=3, got %d", m.MacaroonMintLatency.Count())
+	}
+
+	// Observe macaroon verify latency.
+	m.MacaroonVerifyLatency.Observe(150 * time.Microsecond)
+	m.MacaroonVerifyLatency.Observe(800 * time.Microsecond)
+
+	if m.MacaroonVerifyLatency.Count() != 2 {
+		t.Errorf("expected MacaroonVerifyLatency count=2, got %d", m.MacaroonVerifyLatency.Count())
+	}
+
+	// Verify they appear in Prometheus output.
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	m.ServePrometheus(rec, req)
+
+	body := rec.Body.String()
+
+	expected := []string{
+		`ephyr_macaroon_mint_seconds_bucket{le="0.0001"} 1`,
+		`ephyr_macaroon_mint_seconds_bucket{le="0.0005"} 2`,
+		`ephyr_macaroon_mint_seconds_bucket{le="+Inf"} 3`,
+		"ephyr_macaroon_mint_seconds_count 3",
+		`ephyr_macaroon_verify_seconds_bucket{le="0.0005"} 1`,
+		`ephyr_macaroon_verify_seconds_bucket{le="+Inf"} 2`,
+		"ephyr_macaroon_verify_seconds_count 2",
+	}
+
+	for _, exp := range expected {
+		if !strings.Contains(body, exp) {
+			t.Errorf("Prometheus output missing: %q\n\nFull output:\n%s", exp, body)
 		}
 	}
 }

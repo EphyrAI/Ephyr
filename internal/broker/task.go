@@ -24,7 +24,8 @@ type Task struct {
 	ExpiresAt   time.Time    `json:"expires_at"`
 	Envelope    TaskEnvelope `json:"envelope"`
 	TokenID     string       `json:"token_id"`     // JTI of the CTT-E
-	CanDelegate bool         `json:"can_delegate"` // whether CTT-D was issued (Phase 2b)
+	CanDelegate       bool         `json:"can_delegate"`                  // whether CTT-D was issued (Phase 2b)
+	MacaroonSigDigest string       `json:"macaroon_sig_digest,omitempty"` // SHA-256(macaroon signature)
 }
 
 // TaskEnvelope defines the maximum capabilities for a task.
@@ -51,6 +52,7 @@ type TaskManager struct {
 	mu       sync.RWMutex
 	tasks    map[string]*Task           // task ID -> task
 	byAgent  map[string]map[string]bool // agent name -> set of task IDs
+	sigIndex map[string]string          // SHA-256(macaroon_signature) -> task ID
 	stopCh   chan struct{}
 	OnExpire func(*Task) // called when a task expires during cleanup
 }
@@ -59,9 +61,10 @@ type TaskManager struct {
 // goroutine that removes expired tasks every 30 seconds.
 func NewTaskManager() *TaskManager {
 	tm := &TaskManager{
-		tasks:   make(map[string]*Task),
-		byAgent: make(map[string]map[string]bool),
-		stopCh:  make(chan struct{}),
+		tasks:    make(map[string]*Task),
+		byAgent:  make(map[string]map[string]bool),
+		sigIndex: make(map[string]string),
+		stopCh:   make(chan struct{}),
 	}
 	go tm.cleanupLoop()
 	return tm
@@ -178,6 +181,9 @@ func (tm *TaskManager) RevokeTask(id string) *Task {
 			delete(tm.byAgent, task.AgentName)
 		}
 	}
+	if task.MacaroonSigDigest != "" {
+		delete(tm.sigIndex, task.MacaroonSigDigest)
+	}
 
 	return task
 }
@@ -185,6 +191,41 @@ func (tm *TaskManager) RevokeTask(id string) *Task {
 // IsTaskActive returns true if the task exists and hasn't expired.
 func (tm *TaskManager) IsTaskActive(id string) bool {
 	return tm.GetTask(id) != nil
+}
+
+// RegisterSignature maps a macaroon signature digest to a task ID.
+// Called when minting a new macaroon for a task.
+func (tm *TaskManager) RegisterSignature(sigDigest string, taskID string) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.sigIndex[sigDigest] = taskID
+}
+
+// LookupBySignature returns the task for a macaroon signature digest.
+// Returns nil if not found.
+func (tm *TaskManager) LookupBySignature(sigDigest string) *Task {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	taskID, ok := tm.sigIndex[sigDigest]
+	if !ok {
+		return nil
+	}
+	task, exists := tm.tasks[taskID]
+	if !exists {
+		return nil
+	}
+	// Check expiry
+	if time.Now().After(task.ExpiresAt) {
+		return nil
+	}
+	return task
+}
+
+// UnregisterSignature removes a signature mapping.
+func (tm *TaskManager) UnregisterSignature(sigDigest string) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	delete(tm.sigIndex, sigDigest)
 }
 
 // TaskCount returns the number of active (non-expired) tasks.
@@ -304,6 +345,9 @@ func (tm *TaskManager) cleanup() {
 				if len(agents) == 0 {
 					delete(tm.byAgent, task.AgentName)
 				}
+			}
+			if task.MacaroonSigDigest != "" {
+				delete(tm.sigIndex, task.MacaroonSigDigest)
 			}
 		}
 	}
