@@ -263,7 +263,23 @@ func (s *MCPServer) toolTaskRevoke(ctx context.Context, agent *MCPAgent, args ma
 		s.broker.rootKeyStore.Delete(task.RootID)
 	}
 
-	// Remove from task manager.
+	// Remove from task manager — also cascade to all children in the tree.
+	children := s.broker.taskMgr.GetTaskTree(task.RootID)
+	cascadeCount := 0
+	for _, child := range children {
+		if child.ID != taskID {
+			// Check if this child is a descendant of the revoked task
+			for _, ancestor := range child.Lineage {
+				if ancestor == taskID {
+					s.broker.revocation.Revoke(child.ID)
+					s.broker.taskMgr.RevokeTask(child.ID)
+					s.broker.metrics.TasksActive.Add(-1)
+					cascadeCount++
+					break
+				}
+			}
+		}
+	}
 	s.broker.taskMgr.RevokeTask(taskID)
 	s.broker.metrics.TasksActive.Add(-1)
 
@@ -288,8 +304,9 @@ func (s *MCPServer) toolTaskRevoke(ctx context.Context, agent *MCPAgent, args ma
 	}
 
 	return jsonResult(map[string]interface{}{
-		"revoked": taskID,
-		"status":  "all tokens invalidated",
+		"revoked":       taskID,
+		"cascade_count": cascadeCount,
+		"status":        "all tokens invalidated",
 	})
 }
 
