@@ -8,7 +8,7 @@ The first open-source implementation of the Delegation Capability Token (DCT) ar
 
 [![Go 1.24+](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](#quick-start)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue)](#license)
-[![Build](https://img.shields.io/github/actions/workflow/status/ben-spanswick/Ephyr/ci.yml?branch=main)](https://github.com/ben-spanswick/Ephyr/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/EphyrAI/Ephyr/ci.yml?branch=main)](https://github.com/EphyrAI/Ephyr/actions)
 
 ---
 
@@ -311,7 +311,7 @@ Benchmarked on a Debian 12 LXC (1 vCPU, 512MB RAM):
 ### 1. Build
 
 ```bash
-git clone https://github.com/ben-spanswick/Ephyr.git
+git clone https://github.com/EphyrAI/Ephyr.git
 cd Ephyr
 make build
 # Output: bin/ephyr-broker  bin/ephyr-signer  bin/ephyr
