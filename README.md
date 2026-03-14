@@ -30,37 +30,35 @@ Ephyr is an access broker that sits between AI agents and infrastructure. It rep
 ## How It Works
 
 ```mermaid
-graph TD
-    Agent["Agent (MCP client)"]
-    Agent -->|"Bearer: mac_&lt;base64url macaroon&gt;"| Broker
+graph LR
+    Agent(("🤖 Agent")):::agent
 
-    subgraph Broker["ephyr-broker"]
-        B1["Policy engine"]
-        B2["Macaroon verify"]
-        B3["HMAC reducer"]
-        B4["Audit logger"]
-        B5["HTTP proxy"]
-        B6["MCP federation"]
-        B7["Task identity"]
+    Agent -- "Bearer: mac_…" --> Broker
+
+    subgraph Broker [" ephyr-broker "]
+        direction TB
+        Policy["Policy ∙ RBAC"]:::core
+        Macaroon["Macaroon verify\n+ HMAC reducer"]:::core
+        TaskID["Task identity\n+ delegation"]:::core
+        Audit["Audit logger"]:::core
+        Proxy["HTTP proxy\n+ MCP federation"]:::core
     end
 
-    subgraph Signer["ephyr-signer"]
-        S1["CA key custody"]
-        S2["SSH cert signing"]
-        S3["Never on network"]
+    Broker -- "Unix socket IPC" --> Signer
+
+    subgraph Signer [" ephyr-signer "]
+        direction TB
+        CA["Ed25519 CA key\nNever on network"]:::signer
     end
 
-    Broker -->|IPC| Signer
+    Broker -- "SSH certs" --> T["🖥 Targets"]:::downstream
+    Broker -- "Credential injection" --> S["🌐 Services"]:::downstream
+    Broker -- "Proxied tool calls" --> R["🔗 Remote MCP"]:::downstream
 
-    subgraph Downstream["Downstream"]
-        Targets
-        Services
-        RemoteMCP["Remote MCP servers"]
-    end
-
-    Broker -->|SSH certs| Targets
-    Broker -->|HTTP proxy| Services
-    Broker -->|MCP federation| RemoteMCP
+    classDef agent fill:#7c3aed,stroke:#7c3aed,color:#fff,font-weight:bold
+    classDef core fill:#1e293b,stroke:#3b82f6,color:#e2e8f0
+    classDef signer fill:#1e293b,stroke:#22c55e,color:#e2e8f0
+    classDef downstream fill:#1e293b,stroke:#64748b,color:#94a3b8
 ```
 
 **ephyr-signer** holds the Ed25519 CA private key in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. Unix socket IPC only. The CA key never leaves this process, never touches the network.
