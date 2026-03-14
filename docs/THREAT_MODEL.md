@@ -247,14 +247,44 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 | **Residual risk** | Within the TTL window, a revoked API key could still authenticate from cache. An agent whose `api_key_hash` is updated in policy will retain cached access until the TTL expires or a full policy reload triggers cache invalidation. |
 | **Mitigation** | Set `EPHYR_AUTH_CACHE_TTL=0` in environments requiring immediate key revocation. For most deployments, the 60-second default is an acceptable tradeoff between security and performance (bcrypt is ~200ms per comparison). |
 
-### T14: Delegation Key Compromise
+### T14: Bearer Token Replay
 
-**Threat:** An attacker obtains the broker's ephemeral delegation key, enabling them to forge CTT-E task tokens.
+**Threat:** An attacker intercepts a task token (macaroon or JWT) and replays it to impersonate the original holder.
 
 | Aspect | Detail |
 |--------|--------|
-| **Current mitigation** | The delegation key is an ephemeral Ed25519 keypair generated in-memory at broker startup. It is never written to disk. The delegation certificate (signed by the signer's root CA key) authorizes this key to sign CTT-E tokens and has a limited validity period. CTT-E tokens carry a capability envelope that bounds what they can authorize, and the existing policy pipeline still evaluates every brokered request independently. |
-| **Residual risk** | An attacker with broker process memory access (e.g., via /proc/pid/mem on a compromised host, or a memory dump) could extract the delegation private key and forge CTT-E tokens within the delegation certificate's validity period. These forged tokens would pass signature verification. However, the policy engine still independently evaluates each request, so the forged token cannot exceed the agent's policy-defined permissions. |
+| **Current mitigation** | Task tokens have short TTLs (max 1 hour) and are subject to epoch watermark revocation. Revoked tokens are immediately rejected regardless of TTL. TLS protects tokens in transit on the MCP endpoint. Ephyr Bind (v0.3) adds holder-bound tokens with DPoP-style proof-of-possession: each request must include an Ed25519 signature over a nonce, making replayed tokens useless without the holder's private key. |
+| **Residual risk** | Bearer-mode tokens (without Bind) can be replayed within their TTL window if intercepted. The bind deadline window (default 30 seconds) during two-phase delegation creates a brief period where a delegated token is in bearer mode. During this window, an attacker with network access could replay the token. |
+| **Mitigation** | Use Ephyr Bind (`holder_pub_key` on `task_create`, or `task_bind` for delegated tasks) for sensitive operations. Keep TTLs short. Ensure TLS is used on the MCP endpoint. |
+
+### T15: Bind Deadline Window
+
+**Threat:** During two-phase delegation, a 30-second unbound period exists where the delegated token is in bearer mode, before the child agent calls `task_bind`.
+
+| Aspect | Detail |
+|--------|--------|
+| **Current mitigation** | The bind deadline defaults to 30 seconds. After the deadline expires, the unbound token becomes permanently invalid (tracked by `ephyr_bind_deadline_expired_total` metric). The short window limits exposure. TLS on the MCP endpoint prevents network interception during this period. |
+| **Residual risk** | An attacker who obtains the token during the 30-second window (e.g., from broker memory, logs, or the parent agent's process) could use it before binding occurs. Once the child binds the token, the attacker's copy becomes useless (PoP verification will fail). |
+| **Planned** | Configurable bind deadline (allow operators to reduce from 30s). Optional immediate-bind mode where the parent provides the child's public key at delegation time, eliminating the unbound window entirely. |
+
+### T16: Body Tampering Without Bind
+
+**Threat:** An attacker modifies the body of an MCP request in transit, altering tool call arguments (e.g., changing the target host or command in an `exec` call) without the broker detecting the modification.
+
+| Aspect | Detail |
+|--------|--------|
+| **Current mitigation** | TLS on the MCP endpoint provides integrity protection for requests in transit. Ephyr Bind's PoP signature covers a nonce but does not currently include the request body in the signed payload. The broker validates all tool call arguments against RBAC policy independently, so a modified request must still pass policy evaluation. |
+| **Residual risk** | If TLS is not used (e.g., plaintext HTTP on a trusted network), request bodies could be modified in transit. Even with Bind, the PoP signature does not cover the request body, so a MITM with TLS termination capability could modify arguments while preserving the PoP signature. |
+| **Planned** | Include a hash of the request body in the PoP signature payload (body binding). This would detect any tampering of tool call arguments. |
+
+### T17: Delegation Key Compromise
+
+**Threat:** An attacker obtains the broker's ephemeral delegation key, enabling them to forge task tokens (macaroons and CTT-E JWTs).
+
+| Aspect | Detail |
+|--------|--------|
+| **Current mitigation** | The delegation key is an ephemeral Ed25519 keypair generated in-memory at broker startup. It is never written to disk. The delegation certificate (signed by the signer's root CA key) authorizes this key to sign task tokens and has a limited validity period. For macaroons, the attacker would also need the HMAC root key (derived per task tree). Task tokens carry a capability envelope that bounds what they can authorize, and the existing policy pipeline still evaluates every brokered request independently. Holder-bound tokens (Ephyr Bind) provide additional protection: forged tokens without the holder's private key will fail PoP verification. |
+| **Residual risk** | An attacker with broker process memory access (e.g., via /proc/pid/mem on a compromised host, or a memory dump) could extract the delegation private key and macaroon root keys, and forge task tokens within the delegation certificate's validity period. These forged tokens would pass signature verification. However, the policy engine still independently evaluates each request, so the forged token cannot exceed the agent's policy-defined permissions. Holder-bound tokens add a further barrier since the attacker would also need the holder's private key. |
 | **Planned** | Delegation key rotation on a configurable interval. Shorter delegation certificate lifetimes (currently bounded by the signer's max TTL). Memory protection for the delegation key (mlock). |
 
 ---
@@ -330,6 +360,9 @@ The following table provides a consolidated view of the most significant residua
 | 10 | Network bypass possible for remote (non-co-located) agents | **Low** | B0r | Accepted -- architectural |
 | 11 | Auth cache allows revoked key to authenticate for up to TTL window | **Low** | B0r | Mitigated -- TTL-bounded, auto-invalidation on policy change, disable with TTL=0 |
 | 12 | Delegation key in broker memory could be extracted | **Low** | B1 | Accepted -- bounded by delegation cert validity + policy enforcement |
+| 13 | Bearer token replay within TTL window | **Medium** | B0r | Mitigated -- short TTLs + watermark revocation; addressed by Ephyr Bind PoP |
+| 14 | Bind deadline window (30s unbound period) | **Low** | B0r | Accepted -- TLS protects transit; deadline is configurable; unbound tokens expire |
+| 15 | Body tampering without Bind | **Low** | B3 | Mitigated -- TLS provides integrity; PoP body binding planned |
 
 ---
 
@@ -338,3 +371,4 @@ The following table provides a consolidated view of the most significant residua
 | Date | Author | Description |
 |------|--------|-------------|
 | 2026-03-12 | Initial | Initial threat model based on architecture review |
+| 2026-03-14 | Update | Added T14-T16: bearer token replay, bind deadline window, body tampering; renumbered delegation key compromise to T17 |

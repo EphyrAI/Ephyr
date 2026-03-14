@@ -99,10 +99,41 @@ Every certificate request passes through these steps in order:
 Expired certs are purged before evaluation so stale entries do not affect
 concurrency counts.
 
+### Macaroon Token Security
+
+As of Ephyr Delegation (v0.2b), task tokens are macaroon-based (`mac_` prefix)
+rather than JWTs. Macaroons provide several security advantages:
+
+- **HMAC caveat chain** -- each delegation adds caveats via HMAC-SHA256,
+  creating a chain that proves caveats were added in order and cannot be removed.
+- **One root key per task tree** -- the macaroon's identifier is always the root
+  task ULID, and verification requires the root key held only by the broker.
+- **Monotonic attenuation** -- the effective envelope reducer uses set intersection
+  and minimum operations, guaranteeing each delegation can only narrow capabilities.
+- **Bearer semantics** -- tokens are bearer by default with TTL + watermark
+  revocation (v0.2). Ephyr Bind (v0.3) upgrades to holder-bound tokens.
+
+### Proof-of-Possession (Ephyr Bind)
+
+Ephyr Bind (v0.3) adds holder-bound tokens with DPoP-style proof-of-possession:
+
+- **Ephemeral keypair per task** -- the holder generates an Ed25519 keypair and
+  binds the public key to the macaroon via `task_bind` or the `holder_pub_key`
+  parameter on `task_create`.
+- **Replay resistance** -- each request must include a PoP signature over a
+  nonce, preventing token replay even if the macaroon is intercepted.
+- **Two-phase binding** -- for delegated tasks, the parent creates the token
+  without knowing the child's key. The child has a 30-second bind deadline to
+  call `task_bind` and bind its public key. After the deadline, the unbound
+  token becomes invalid.
+- **Bind deadline window** -- the 30-second unbound period is a deliberate
+  tradeoff between security and operational flexibility. During this window,
+  the token is bearer-mode. TLS protects against network interception.
+
 ### Epoch Watermark Revocation
 
-Task tokens (CTT-E) are revoked using epoch watermarking rather than per-token
-blocklists. When a task is revoked via `task_revoke`, the task ID is recorded
+Task tokens (macaroons and legacy CTT-E JWTs) are revoked using epoch
+watermarking rather than per-token blocklists. When a task is revoked via `task_revoke`, the task ID is recorded
 with a timestamp in the revocation table. During token validation, the broker
 walks the token's lineage array; if any ancestor ID appears in the revocation
 table with a timestamp before the token's issuance time, the token is rejected.
@@ -300,6 +331,9 @@ resistance, and universal OpenSSH support.
 
 - **MCP API keys:** bcrypt (`golang.org/x/crypto/bcrypt`, cost 10)
 - **Dashboard token:** `crypto/subtle.ConstantTimeCompare`
+- **Macaroon caveat chain:** HMAC-SHA256 (one root key per task tree, derived
+  from broker secret)
+- **Auth cache keys:** SHA-256 fingerprint of API key (raw key never stored)
 
 ---
 
@@ -313,7 +347,8 @@ Key event types: `startup`, `shutdown`, `cert_issued`, `cert_denied`,
 `cert_pending`, `cert_approved`, `cert_revoked`, `session_start`,
 `rate_limited`, `policy_reload`, `host_toggle`, `mcp_exec`,
 `mcp_session_create`, `mcp_session_close`, `http_proxy`,
-`http_proxy_denied`, `anomaly_detected`, `task_create`, `task_revoke`.
+`http_proxy_denied`, `anomaly_detected`, `task_create`, `task_delegate`,
+`task_revoke`, `task_bind`, `pop_rejected`.
 
 Each entry includes: timestamp, severity (INFO/WARN/ERROR/ALERT), event type,
 agent, target, role, serial, duration, reason, and arbitrary details map.

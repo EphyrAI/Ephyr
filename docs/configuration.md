@@ -492,6 +492,14 @@ ephyr exec -t myhost -r operator -- systemctl status nginx
 
 **whoami:** No additional flags. Shows agent name, UID, session info.
 
+**inspect:**
+```
+  --token TOKEN          Macaroon token to inspect (mac_ prefix)
+```
+Displays macaroon caveat chain, holder binding status, and effective envelope
+for a given task token. Useful for debugging delegation attenuation and
+verifying that caveats were applied correctly.
+
 ---
 
 ## Target Host Provisioning
@@ -840,6 +848,7 @@ TCP address configured by EPHYR_MCP_LISTEN (default :8554):
 | task_info | Get task details, envelope, and lineage. | task_id |
 | task_list | List active tasks for this agent. | (none) |
 | task_revoke | Revoke a task and cascade to all children. | task_id |
+| task_bind | Bind a delegated token to a holder key (two-phase PoP binding). | task_id, holder_pub_key |
 
 MCP protocol version: 2025-03-26 (Streamable HTTP transport).
 

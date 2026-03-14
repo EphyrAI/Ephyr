@@ -874,7 +874,7 @@ Single endpoint handling all MCP JSON-RPC 2.0 methods.
 |--------|-------------|
 | `initialize` | Protocol handshake -- returns server capabilities (tools, resources) |
 | `notifications/initialized` | Client acknowledgment (no response) |
-| `tools/list` | List all 15 available tools with JSON Schema parameters |
+| `tools/list` | List all 16 available tools with JSON Schema parameters |
 | `tools/call` | Execute a tool by name with arguments |
 | `resources/list` | List all 7 available resources with URIs and descriptions |
 | `resources/read` | Read a specific resource by URI, returns Markdown content |
@@ -996,7 +996,7 @@ curl -s -X POST http://BROKER:8554/mcp \
 | `ephyr://services` | HTTP Proxy Services | Per-service details: URL prefix, auth type, allowed methods/paths, usage examples |
 | `ephyr://roles` | Roles & Permissions | Role-to-principal mappings, per-role capabilities, role selection guide |
 | `ephyr://status` | Agent Status | Agent's active certs (count), active sessions (list), last 10 activity entries |
-| `ephyr://tools` | Tools Reference | All 15 tools with parameters, return types, and usage hints |
+| `ephyr://tools` | Tools Reference | All 16 tools with parameters, return types, and usage hints |
 | `ephyr://remotes` | Federated Servers | Configured MCP federation servers, status, and available tools |
 
 Resources return dynamically generated Markdown content reflecting the current policy
@@ -1033,6 +1033,7 @@ RBAC permissions. Returns a signed task token (macaroon with `mac_` prefix, or J
 |-----------|------|----------|---------|-------------|
 | `description` | string | Yes | -- | Human-readable description of the task |
 | `ttl` | string | No | `"30m"` | Task TTL as Go duration. Maximum `"1h"`. |
+| `holder_pub_key` | string | No | -- | Base64-encoded Ed25519 public key for holder binding (Ephyr Bind). When provided, the returned macaroon is bound to this key and requires proof-of-possession on every use. |
 
 **Example request:**
 
@@ -1224,6 +1225,8 @@ remaining TTL. If `task_id` is omitted, lists all active tasks for the agent
 | `task` | object | Full task object (ID, agent, description, timestamps, lineage, envelope) |
 | `remaining_ttl` | string | Human-readable time remaining (Go duration) |
 | `is_revoked` | bool | Whether this task has been revoked via epoch watermark |
+| `holder_bound` | bool | Whether this task's token is holder-bound (Ephyr Bind). If true, all requests must include a proof-of-possession signature. |
+| `bind_deadline` | string | RFC3339 deadline for binding a delegated token. Present only on unbound delegated tasks. After this deadline, the token becomes invalid if not yet bound via `task_bind`. |
 
 **Response** (no task_id -- list all):
 
@@ -1358,6 +1361,68 @@ List all active (non-expired, non-revoked) tasks for the calling agent.
 | `count` | int | Total number of active tasks |
 
 
+#### `task_bind`
+
+Bind a delegated task token to a holder key (two-phase delegation key
+binding). This completes the Ephyr Bind flow: a parent delegates a task
+without knowing the child's key, the child generates an ephemeral keypair,
+and calls `task_bind` to bind the token to its public key before the bind
+deadline expires.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | Yes | Task ID of the delegated task to bind |
+| `holder_pub_key` | string | Yes | Base64-encoded Ed25519 public key to bind as the token holder |
+
+**Example request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 16,
+  "method": "tools/call",
+  "params": {
+    "name": "task_bind",
+    "arguments": {
+      "task_id": "01JQABC...",
+      "holder_pub_key": "MCowBQYDK2VwAyEA..."
+    }
+  }
+}
+```
+
+**Response** (success):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 16,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"task_id\":\"01JQABC...\",\"holder_bound\":true,\"status\":\"token bound to holder key\"}"
+      }
+    ]
+  }
+}
+```
+
+**Errors:**
+
+| Condition | Response |
+|-----------|----------|
+| Missing task_id | `"task_id is required"` |
+| Missing holder_pub_key | `"holder_pub_key is required"` |
+| Task not found or expired | `"task not found or expired"` |
+| Task already bound | `"task is already holder-bound"` |
+| Bind deadline expired | `"bind deadline has expired"` |
+| Invalid public key | `"invalid holder public key"` |
+
+---
+
 ### GET /v1/metrics
 
 Returns Prometheus-format metrics for monitoring. Includes latency histograms
@@ -1376,3 +1441,19 @@ No authentication required (intended for Prometheus scraping).
 These counters allow monitoring the cache hit rate. A consistently low hit rate
 may indicate the cache TTL is too short or agents are rotating API keys
 frequently. The hit ratio is: `hits / (hits + misses)`.
+
+**Macaroon metrics:**
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `ephyr_macaroons_minted_total` | counter | Total macaroon tokens minted (root + delegated) |
+| `ephyr_macaroons_verified_total` | counter | Total macaroon tokens successfully verified |
+| `ephyr_macaroons_rejected_total` | counter | Total macaroon tokens rejected (invalid HMAC, expired, bad caveats) |
+
+**Proof-of-Possession (Bind) metrics:**
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `ephyr_pop_verified_total` | counter | Total proof-of-possession signatures verified successfully |
+| `ephyr_pop_rejected_total` | counter | Total proof-of-possession signatures rejected (invalid signature, wrong key) |
+| `ephyr_bind_deadline_expired_total` | counter | Total delegated tokens that expired before being bound via `task_bind` |

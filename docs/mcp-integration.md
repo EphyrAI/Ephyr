@@ -277,7 +277,7 @@ the lifetime of the connection.
 }
 ```
 
-**Response:** Returns array of 10 tool definitions with names, descriptions, and
+**Response:** Returns array of 16 tool definitions with names, descriptions, and
 JSON Schema for input parameters. See "Available Tools" below for details.
 
 ### Call Tool
@@ -1008,6 +1008,12 @@ compact cheat-sheet without reading full documentation.
 | http_request | url | method, headers, body | Proxied HTTP request |
 | list_services | (none) | | List proxy services |
 | list_remotes | (none) | | List federated MCP servers |
+| task_create | description | ttl, holder_pub_key | Create scoped task with macaroon token |
+| task_delegate | parent_task_id, description | ttl, envelope | Delegate child task with attenuation |
+| task_info | (none) | task_id | Get task details or list all tasks |
+| task_list | (none) | | List active tasks |
+| task_revoke | task_id | | Revoke task and cascade to children |
+| task_bind | task_id, holder_pub_key | | Bind delegated token to holder key |
 ```
 
 ---
@@ -1442,26 +1448,32 @@ systemctl restart ephyr-signer && systemctl restart ephyr-broker
 
 ---
 
-## Task Identity Tools (v0.2)
+## Task Identity Tools (v0.2+)
 
-Task identity is implemented in Phase 2a. These four tools manage task-scoped
-identity using CTT-E (Execution Token) JWTs signed by the broker's delegated
-key. They require the signer to support delegation (v0.2+). If the signer is
-v0.1, these tools return an error indicating task identity is unavailable.
+These six tools manage task-scoped identity. As of Ephyr Delegation (v0.2b),
+task tokens are macaroon-based (prefixed `mac_`) with HMAC caveat chains that
+guarantee monotonic attenuation. Legacy JWT tokens (CTT-E) are also accepted
+for backward compatibility. Ephyr Bind (v0.3) adds holder-bound tokens with
+proof-of-possession via the `task_bind` tool. They require the signer to
+support delegation (v0.2+). If the signer is v0.1, these tools return an error
+indicating task identity is unavailable.
 
 | Tool | Description |
 |------|-------------|
-| `task_create` | Create a task and receive a CTT-E token |
+| `task_create` | Create a task and receive a macaroon token (or legacy CTT-E JWT) |
+| `task_delegate` | Delegate a child task with attenuated capabilities |
 | `task_info` | Get task details, envelope, and remaining TTL |
 | `task_revoke` | Revoke a task (cascading invalidation via epoch watermark) |
 | `task_list` | List active tasks for this agent |
+| `task_bind` | Bind a delegated token to a holder key (two-phase PoP binding) |
 
 ### 11. `task_create`
 
 Creates a new root task with a scoped capability envelope derived from the
 agent's RBAC permissions. The envelope lists the maximum targets, roles,
 services, remotes, and methods the task can access. Wildcards in policy are
-resolved to explicit literal arrays at token issuance time.
+resolved to explicit literal arrays at token issuance time. Returns a macaroon
+token (`mac_` prefix) by default; legacy JWT tokens are also supported.
 
 **Parameters:**
 
@@ -1469,6 +1481,7 @@ resolved to explicit literal arrays at token issuance time.
 |-----------|------|----------|---------|-------------|
 | `description` | string | Yes | -- | Human-readable task description |
 | `ttl` | string | No | `"30m"` | Task TTL as Go duration (max `"1h"`) |
+| `holder_pub_key` | string | No | -- | Base64-encoded Ed25519 public key for holder binding (Ephyr Bind). When provided, the macaroon is bound to this key and requires proof-of-possession on every use. |
 
 **Example call:**
 
@@ -1509,7 +1522,7 @@ resolved to explicit literal arrays at token issuance time.
 | Field | Description |
 |-------|-------------|
 | `task_id` | ULID identifier (26 characters, time-sortable) |
-| `token` | Signed CTT-E JWT (EdDSA, 3 base64url segments) |
+| `token` | Signed task token -- macaroon (`mac_` prefix) by default, or legacy CTT-E JWT |
 | `expires_at` | RFC3339 expiry timestamp |
 | `envelope` | Resolved capability envelope (explicit targets, roles, services, remotes, methods) |
 
@@ -1668,6 +1681,141 @@ Returns a summary for each task including its remaining TTL and revocation statu
 
 ---
 
+### 15. `task_delegate`
+
+Delegates a child task under an existing parent task. The child receives a
+macaroon with additional caveats that further restrict the capability envelope.
+The HMAC chain guarantees caveats cannot be removed (monotonic attenuation).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `parent_task_id` | string | Yes | -- | Task ID of the parent (must have delegation permission) |
+| `description` | string | Yes | -- | Human-readable description of the delegated task |
+| `ttl` | string | No | `"30m"` | Task TTL. Cannot exceed parent's remaining TTL. Max `"1h"`. |
+| `envelope` | object | No | (parent) | Capability envelope for the child. Must be a subset of parent's. |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 15,
+  "method": "tools/call",
+  "params": {
+    "name": "task_delegate",
+    "arguments": {
+      "parent_task_id": "01JQXYZ...",
+      "description": "Read-only check on dockerhost",
+      "ttl": "10m",
+      "envelope": {"targets": ["dockerhost"], "roles": ["read"], "services": [], "remotes": [], "methods": []}
+    }
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 15,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"task_id\":\"01JQABC...\",\"parent_task_id\":\"01JQXYZ...\",\"token\":\"mac_...\",\"depth\":1,\"expires_at\":\"2026-03-14T15:10:00Z\",\"envelope\":{\"targets\":[\"dockerhost\"],\"roles\":[\"read\"],\"services\":[],\"remotes\":[],\"methods\":[]}}"
+      }
+    ]
+  }
+}
+```
+
+**Key response fields:**
+
+| Field | Description |
+|-------|-------------|
+| `task_id` | ULID of the child task |
+| `parent_task_id` | ULID of the parent task |
+| `token` | Macaroon token for the child task (`mac_` prefix) |
+| `depth` | Delegation depth (1 = direct child of root, max 5) |
+| `envelope` | Resolved capability envelope (intersection of parent and requested) |
+
+**Validation errors:**
+
+- Missing `parent_task_id`: `"parent_task_id is required"`
+- Parent not found: `"parent task not found or expired"`
+- Parent cannot delegate: `"parent task does not have delegation permission"`
+- Envelope exceeds parent: `"child envelope exceeds parent envelope"`
+- TTL exceeds parent remaining: `"child ttl exceeds parent remaining ttl"`
+- Max depth exceeded: `"maximum delegation depth (5) exceeded"`
+
+---
+
+### 16. `task_bind`
+
+Binds a delegated task token to a holder key, completing the two-phase Ephyr
+Bind flow. A parent delegates a task without knowing the child's key (the
+token is initially unbound), the child generates an ephemeral Ed25519 keypair,
+and calls `task_bind` to bind the token to its public key before the bind
+deadline expires (default 30 seconds).
+
+After binding, all requests using this token must include a proof-of-possession
+signature (DPoP-style) signed by the corresponding private key.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | Yes | Task ID of the delegated task to bind |
+| `holder_pub_key` | string | Yes | Base64-encoded Ed25519 public key to bind as the token holder |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 16,
+  "method": "tools/call",
+  "params": {
+    "name": "task_bind",
+    "arguments": {
+      "task_id": "01JQABC...",
+      "holder_pub_key": "MCowBQYDK2VwAyEA..."
+    }
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 16,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"task_id\":\"01JQABC...\",\"holder_bound\":true,\"status\":\"token bound to holder key\"}"
+      }
+    ]
+  }
+}
+```
+
+**Validation errors:**
+
+- Missing `task_id`: `"task_id is required"`
+- Missing `holder_pub_key`: `"holder_pub_key is required"`
+- Task not found: `"task not found or expired"`
+- Already bound: `"task is already holder-bound"`
+- Deadline expired: `"bind deadline has expired"`
+- Invalid key: `"invalid holder public key"`
+
+---
+
 ## Performance
 
 ### MCP Authentication: Auth Cache
@@ -1719,11 +1867,29 @@ Measured from the integration test benchmark (10 iterations each):
 
 | Operation | Typical Latency | Notes |
 |-----------|----------------|-------|
-| `task_create` | ~5--10ms | Includes RBAC envelope resolution + EdDSA signing |
+| `task_create` | ~5--10ms | Includes RBAC envelope resolution + macaroon minting |
+| `task_delegate` | ~5--10ms | Caveat addition + HMAC chain extension |
 | `task_info` | ~2--5ms | In-memory lookup |
 | `task_list` | ~2--5ms | Filters by agent name |
 | `task_revoke` | ~2--5ms | Sets watermark + removes from task manager |
+| `task_bind` | ~1--3ms | Adds holder caveat + stores public key |
+
+### Macaroon and PoP Operations
+
+Measured from benchmarks (Go `testing.B`, 1000 iterations):
+
+| Operation | Typical Latency | Notes |
+|-----------|----------------|-------|
+| Macaroon mint (root) | ~50us | HMAC-SHA256 key derivation + caveat encoding |
+| Macaroon mint (delegated) | ~80us | Additional caveats extend HMAC chain |
+| Macaroon verify | ~30us | HMAC chain walk + caveat evaluation |
+| PoP signature verify | ~15us | Ed25519 signature verification |
+| `ephyr inspect` (CLI) | ~1ms | Decode + display caveat chain |
+
+Macaroon operations are significantly faster than JWT signing because they
+use symmetric HMAC-SHA256 rather than asymmetric Ed25519. PoP verification
+adds minimal overhead (~15us) per request for holder-bound tokens.
 
 Task operations are significantly faster than SSH operations because they
-involve no IPC to the signer (the broker signs CTT-E tokens locally using
-the delegated key).
+involve no IPC to the signer (the broker mints macaroons and signs legacy
+CTT-E tokens locally using the delegated key).

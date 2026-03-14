@@ -1,8 +1,8 @@
 # Ephyr Architecture Whitepaper
 
-**Version:** 0.2
-**Date:** 2026-03-13
-**Codebase:** ~23,000 lines Go, 3 direct dependencies
+**Version:** 0.3
+**Date:** 2026-03-14
+**Codebase:** ~24,000 lines Go, 3 direct dependencies, 512 tests
 
 ---
 
@@ -15,13 +15,14 @@
 5. [HTTP Proxy Engine](#5-http-proxy-engine)
 6. [MCP Federation](#6-mcp-federation)
 7. [Policy Engine](#7-policy-engine)
-8. [Task Identity System (v0.2)](#8-task-identity-system-v02)
-9. [Dashboard](#9-dashboard)
-10. [Metrics and Observability](#10-metrics-and-observability)
-11. [Audit System](#11-audit-system)
-12. [Performance Characteristics](#12-performance-characteristics)
-13. [Deployment Topology](#13-deployment-topology)
-14. [Extension Points](#14-extension-points)
+8. [Task Identity System](#8-task-identity-system)
+9. [Ephyr Bind (v0.3)](#9-ephyr-bind-v03)
+10. [Dashboard](#10-dashboard)
+11. [Metrics and Observability](#11-metrics-and-observability)
+12. [Audit System](#12-audit-system)
+13. [Performance Characteristics](#13-performance-characteristics)
+14. [Deployment Topology](#14-deployment-topology)
+15. [Extension Points](#15-extension-points)
 
 ---
 
@@ -55,9 +56,11 @@ Ephyr is built around five core principles:
 dependencies: `gorilla/websocket` for the dashboard WebSocket, `x/crypto`
 for bcrypt and SSH certificate operations, and `gopkg.in/yaml.v3` for policy
 file parsing. Cryptographic primitives (ULID generation, JWT signing, Ed25519
-delegation chains) are implemented from scratch using only the Go standard
-library's `crypto/ed25519` and `crypto/rand`. This reduces supply chain risk
-and keeps the attack surface small for a security-critical component.
+delegation chains, HMAC-SHA256 macaroon minting/verification, and Ed25519
+proof-of-possession) are implemented from scratch using only the Go standard
+library's `crypto/ed25519`, `crypto/hmac`, `crypto/sha256`, and `crypto/rand`.
+This reduces supply chain risk and keeps the attack surface small for a
+security-critical component.
 
 **Process isolation.** The system is split into three OS processes with
 distinct privilege levels. The CA private key is held by a single process
@@ -81,11 +84,12 @@ arrives without authentication headers, and the broker adds them before
 forwarding. Even federated MCP calls go through the broker, which can
 inject credentials for remote servers transparently.
 
-**Graceful degradation.** The v0.2 task identity system is designed to
-work alongside the v0.1 authentication model. A v0.2 broker can serve
-agents that do not present CTT tokens (legacy mode), and a v0.1 signer
-that does not support delegation signing will simply disable the task
-identity subsystem at startup without affecting core functionality.
+**Graceful degradation.** The task identity system is designed to work
+alongside the v0.1 authentication model. Dual-mode auth accepts three
+token types concurrently: macaroons (`mac_` prefix), JWTs (legacy CTT-E/D),
+and API keys. A signer that does not support delegation signing will simply
+disable the task identity subsystem at startup without affecting core
+functionality.
 
 ### 1.3 Dependency Inventory
 
@@ -97,9 +101,10 @@ golang.org/x/sys v0.41.0               -- (indirect, via x/crypto)
 ```
 
 No external dependencies for: ULID generation, JWT (EdDSA), token signing,
-delegation certificates, epoch-based revocation, Prometheus metrics exposition,
-JSON-RPC 2.0 protocol handling, MCP Streamable HTTP transport, or lock-free
-histograms.
+delegation certificates, epoch-based revocation, HMAC-SHA256 macaroon
+minting/verification, effective envelope reduction, Ed25519
+proof-of-possession, Prometheus metrics exposition, JSON-RPC 2.0 protocol
+handling, MCP Streamable HTTP transport, or lock-free histograms.
 
 ---
 
@@ -147,9 +152,10 @@ address families to `AF_UNIX` only.
 **ephyr-broker** -- The policy engine and gateway. Listens on three
 interfaces: a Unix socket for local CLI access (`/run/ephyr/broker.sock`),
 TCP port 8553 for the dashboard, and TCP port 8554 for the MCP server.
-Composes 13 internal subsystems to evaluate policy, manage sessions, proxy
-HTTP requests, federate remote MCP servers, issue task identities, and
-maintain real-time metrics. Runs as UID 999 with systemd hardening.
+Composes 19 internal subsystems to evaluate policy, manage sessions, proxy
+HTTP requests, federate remote MCP servers, issue task identities (macaroon
+and legacy JWT), verify proof-of-possession, and maintain real-time metrics.
+Runs as UID 999 with systemd hardening.
 
 **ephyr (CLI)** -- The agent-facing tool. Used by AI agents (or humans)
 to request certificates and execute commands. Communicates with the broker
@@ -244,7 +250,7 @@ sequenceDiagram
 
 ### 3.1 Subsystem Map
 
-The broker composes 13 internal subsystems. Each subsystem is a Go struct
+The broker composes 19 internal subsystems. Each subsystem is a Go struct
 with a well-defined responsibility and thread-safe API. There are no
 circular dependencies between subsystems.
 
@@ -279,13 +285,25 @@ graph TD
             MF["MCPFederator<br/>(remote MCP discovery, namespacing, proxy calls)"]
         end
 
-        subgraph TaskIdentity["v0.2 Task Identity"]
-            TM["TaskManager<br/>(ULID IDs, lineage, expiry)"]
+        subgraph TaskIdentity["Task Identity"]
+            TM["TaskManager<br/>(ULID IDs, lineage, expiry, bind)"]
             DM["DelegationManager<br/>(ephemeral keys, rotation loop)"]
             RM["RevocationMap<br/>(epoch watermark revocation, GC)"]
             MT["Metrics<br/>(lock-free histograms, Prometheus)"]
             GS["GrantStore<br/>(service/MCP access grants, TTL, passthru)"]
             TV["TokenIssuer/Validator<br/>(JWT EdDSA, claim parsing)"]
+        end
+
+        subgraph Macaroons["Macaroon Subsystem"]
+            MN["Minter<br/>(HMAC-SHA256 chain construction)"]
+            MV["Verifier<br/>(HMAC chain verify + Reduce)"]
+            RK["RootKeyStore<br/>(per-tree keys, GC on expiry)"]
+            RD["Reducer<br/>(set intersection, min, AND)"]
+        end
+
+        subgraph Bind["Ephyr Bind (v0.3)"]
+            NC["NonceCache<br/>(replay prevention, TTL cleanup)"]
+            PP["PoP Verifier<br/>(Ed25519 proof-of-possession)"]
         end
     end
 ```
@@ -307,9 +325,13 @@ in dependency order:
 9.  ConfigManager     Load persisted host configs, reconcile with policy targets
 10. ActivityStore     Create 10,000-entry ring buffer
 11. GrantStore        Create grant registry, start cleanup goroutine
-12. TaskManager       Create task registry, start cleanup goroutine (v0.2)
-13. RevocationMap     Create watermark map, start GC goroutine (v0.2)
-14. Metrics           Create counter/histogram structs (v0.2)
+12. TaskManager       Create task registry, start cleanup goroutine
+13. RevocationMap     Create watermark map, start GC goroutine
+14. Metrics           Create counter/histogram structs
+15. RootKeyStore      Create empty root key store (macaroon)
+16. Minter            Create macaroon minter (HMAC-SHA256)
+17. Verifier          Create macaroon verifier (HMAC chain + Reduce)
+18. NonceCache        Create PoP nonce cache with TTL
 ```
 
 After `NewBrokerServer` returns, `ListenAndServe` brings up the network:
@@ -324,12 +346,15 @@ After `NewBrokerServer` returns, `ListenAndServe` brings up the network:
       - NetworkPolicy       Load CIDR rules from /var/lib/ephyr/network_policy.json
       - MCPFederator        Load remotes from /var/lib/ephyr/remotes.json
                             Start background refresh loop
-18. InitTaskIdentity        Request root public key from signer (v0.2)
-      - Generate broker ID
-      - Create TokenIssuer and TokenValidator
-      - Create DelegationManager with rotation callback
-      - Request initial delegation cert from signer
-      - Start rotation loop goroutine
+19. InitTaskIdentity        Initialize task identity subsystem
+      - Macaroon path: RootKeyStore + Minter + Verifier (always available)
+      - JWT path: Request root public key from signer (IPC)
+        - Generate broker ID
+        - Create TokenIssuer and TokenValidator
+        - Create DelegationManager with rotation callback
+        - Request initial delegation cert from signer
+        - Start rotation loop goroutine
+      - PoP: Initialize NonceCache, start cleanup goroutine
 ```
 
 ### 3.3 Request Lifecycle: MCP exec Tool Call
@@ -418,6 +443,8 @@ background goroutine lifecycle).
 | TaskManager      | `sync.RWMutex` | Low; create/revoke infrequent        |
 | RevocationMap    | `sync.RWMutex` | Read-heavy; write on revoke/GC       |
 | DelegationMgr    | `sync.RWMutex` | Read-heavy; write on rotation (~1/h) |
+| RootKeyStore     | `sync.RWMutex` | Low; write on task create/GC         |
+| NonceCache       | `sync.RWMutex` | Moderate; write on every PoP check   |
 | Metrics          | `atomic.Int64` | Lock-free; no mutex contention       |
 | EventHub         | `sync.RWMutex` | Write on broadcast; read on reg/unreg|
 
@@ -480,7 +507,7 @@ Client                                          Server
 
 ### 4.2 Tool Inventory
 
-Ephyr exposes 15 tools (9 core + 5 task identity + federated):
+Ephyr exposes 16 tools (9 core + 6 task identity + federated):
 
 | Tool            | Category   | Description                                 |
 |-----------------|------------|---------------------------------------------|
@@ -493,11 +520,12 @@ Ephyr exposes 15 tools (9 core + 5 task identity + federated):
 | `http_request`  | Proxy      | HTTP request with credential injection       |
 | `list_services` | Proxy      | List configured proxy services               |
 | `list_remotes`  | Federation | List federated MCP servers                   |
-| `task_create`   | Identity   | Create task with scoped identity (v0.2)      |
+| `task_create`   | Identity   | Create task with scoped macaroon identity    |
 | `task_delegate` | Identity   | Delegate child task with attenuated scope    |
-| `task_info`     | Identity   | Get task information and envelope (v0.2)     |
-| `task_revoke`   | Identity   | Revoke task and cascade to children (v0.2)   |
-| `task_list`     | Identity   | List active tasks for agent (v0.2)           |
+| `task_info`     | Identity   | Get task information and envelope            |
+| `task_revoke`   | Identity   | Revoke task and cascade to children          |
+| `task_list`     | Identity   | List active tasks for agent                  |
+| `task_bind`     | Bind       | Bind holder public key to delegated task     |
 | `<remote>.<tool>` | Federated | Namespaced tools from remote MCP servers   |
 
 ### 4.3 Resource Inventory
@@ -560,6 +588,13 @@ disabled entirely with "0").
 
 The cache is invalidated when agents are added or removed (e.g., on
 policy reload), ensuring stale credentials are never served.
+
+**Dual-mode dispatch.** Before API key auth, the Bearer token is checked
+for task token formats: tokens with a `mac_` prefix are routed to
+macaroon verification (HMAC chain + caveat reduction), tokens with
+exactly two dots are routed to JWT validation (delegation cert chain).
+Only tokens matching neither pattern fall through to API key bcrypt
+comparison.
 
 ### 4.5 Agent Configuration in Policy
 
@@ -1011,19 +1046,54 @@ in effect and the error is logged.
 
 ---
 
-## 8. Task Identity System (v0.2)
+## 8. Task Identity System
 
 ### 8.1 Overview
 
-The v0.2 task identity system provides scoped, revocable, hierarchical
+The task identity system provides scoped, revocable, hierarchical
 identity for agent operations. Instead of authenticating each request
 independently with an API key, agents can create "tasks" that receive
-a CTT-E (Ephyr Task Token - Execution) JWT. The token carries a
-capability envelope that bounds what the task can do.
+an HMAC-SHA256 macaroon. The macaroon carries additive caveats that
+constrain what the task can do, and an effective envelope reducer
+derives the resulting authority.
+
+**Dual-mode authentication.** The broker accepts three token types
+concurrently in the `Authorization: Bearer` header:
+
+| Prefix / Format | Token Type | Auth Path |
+|-----------------|------------|-----------|
+| `mac_<base64url>` | macaroon | HMAC chain verify + caveat reduce |
+| `<header>.<payload>.<sig>` (3 dot-separated parts) | JWT (legacy CTT-E/D) | Ed25519 delegation cert chain |
+| anything else | API key | bcrypt hash compare (cached) |
+
+The `mac_` prefix is stripped before decoding. JWTs are detected by
+counting dots. Everything else falls through to API key auth.
 
 ```
-                       Trust Chain
-                       ===========
+                       Trust Chain (macaroon path)
+                       ============================
+
+  +-------------------+
+  | RootKeyStore      |     One HMAC root key per task tree
+  | (broker memory)   |     32 bytes from crypto/rand
+  +-------------------+     garbage-collected on task expiry
+           |
+           | HMAC-SHA256 chain
+           v
+  +-------------------+
+  | Root Macaroon     |     Id = root task ULID
+  | (per root task)   |     Caveats: targets, roles, services, etc.
+  +-------------------+     ~34us to mint
+           |
+           | append caveats (HMAC chain extends)
+           v
+  +-------------------+
+  | Delegated Macaroon|     Additional caveats narrow scope
+  | (per child task)  |     Caveats can only be added, never removed
+  +-------------------+     ~34us to mint, ~32us to verify
+
+                       Trust Chain (legacy JWT path)
+                       ==============================
 
   +-------------------+
   | Root CA Key       |     Ed25519 CA private key
@@ -1093,7 +1163,60 @@ rotation window.
 
 ### 8.3 Token Format
 
-CTT-E tokens are JWTs with the EdDSA algorithm:
+**Macaroons (primary path).** Task tokens are HMAC-SHA256 macaroons
+using pure Go stdlib (`crypto/hmac`, `crypto/sha256`). No external
+macaroon library is used.
+
+```
+Binary format (big-endian):
+  Version   1 byte      = 0x02
+  Id        2-byte len + ULID bytes (root task ULID)
+  Location  2-byte len + bytes (empty for first-party)
+  Signature 32 bytes    HMAC-SHA256
+
+  Caveats (repeated):
+    Id        2-byte len + bytes (caveat string)
+    VId       2-byte len + bytes (empty for first-party)
+    Location  2-byte len + bytes (empty for first-party)
+
+Wire format:
+  mac_<base64url(binary)>
+```
+
+Caveat strings use `key = value` format. The effective envelope reducer
+processes all caveats and derives the resulting authority:
+
+```
+Caveat examples:
+  target = docker-host
+  target = hugoblog
+  role = read
+  role = operator
+  service = github
+  service = grafana
+  method = GET
+  method = POST
+  can_delegate = true
+  delegation_depth = 3
+  expires_before = 2026-03-14T12:00:00Z
+  agent = claude
+  initiated_by = ephyr:apikey:ak_xxx
+```
+
+**Reducer rules (safety-critical):**
+1. Set dimensions (target, role, service, remote, method): intersection
+2. Numeric dimensions (delegation_depth): minimum
+3. Boolean dimensions (can_delegate): AND
+4. Time dimensions (expires_before): earliest
+5. Metadata dimensions (agent, initiated_by): first-value-wins
+6. Unknown caveats: immediate failure (fail closed)
+
+The HMAC chain proves caveat accumulation: caveats can only be added,
+never removed. Each caveat extends the chain:
+`sig_n = HMAC-SHA256(sig_{n-1}, caveat_id)`.
+
+**JWTs (legacy path).** CTT-E tokens are JWTs with the EdDSA algorithm.
+The legacy JWT path remains functional for backward compatibility:
 
 ```
 Header (base64url):
@@ -1156,9 +1279,9 @@ Properties:
 - Validation: `ValidateULID(id) -> bool`
 - No external dependency (no `github.com/oklog/ulid`)
 
-### 8.5 Token Signing Flow
+### 8.5 Token Minting Flow
 
-Token signing is local to the broker (no IPC to signer):
+Token minting is local to the broker (no IPC to signer):
 
 ```
   Agent calls task_create
@@ -1173,6 +1296,22 @@ Token signing is local to the broker (no IPC to signer):
           (tokens never contain "*")
   3. Generate ULID task ID
   4. Create Task in TaskManager (in-memory, with cleanup goroutine)
+
+  Macaroon path (primary):
+  5. RootKeyStore.Generate(rootTaskID, maxExpiry):
+       32 bytes from crypto/rand, stored with expiry for GC
+  6. Minter.Mint(rootKey, taskID, caveats):
+       a. Create macaroon with Id = task ULID
+       b. HMAC-SHA256(rootKey, Id) -> initial signature
+       c. For each caveat: HMAC-SHA256(prev_sig, caveat) -> new sig
+       d. Serialize to binary, base64url encode
+       e. Prepend "mac_" prefix
+       f. Return: mac_<base64url>
+  7. Store SHA-256(macaroon.Signature) as SigDigest on Task
+     (used for task lookup during macaroon auth)
+  8. Record in Metrics (MacaroonsMinted counter, MacaroonMintLatency)
+
+  JWT path (legacy fallback):
   5. Build TaskClaims with envelope, task identity, timestamps
   6. TokenIssuer.SignCTTE:
        a. Serialize header JSON (alg, typ, kid)
@@ -1182,14 +1321,55 @@ Token signing is local to the broker (no IPC to signer):
        e. Base64url encode signature
        f. Return: header.payload.signature
   7. Record in Metrics (TokensSigned counter)
-  8. Return token + task info to agent
+
+  9. Return token + task info to agent
 ```
 
-Since the signing key is a local Ed25519 private key (not the CA key),
-token signing does not require IPC to the signer process. This makes
-signing sub-millisecond.
+**Root key lifecycle.** One root key exists per task tree (keyed by
+root task ULID). The RootKeyStore garbage-collects keys whose
+`maxExpiry` has passed. When a child task is created with a later
+expiry, `ExtendMaxExpiry` updates the key's lifetime. This ensures
+delegated children sharing the same root key keep it alive as long
+as any task in the tree is active.
+
+Macaroon minting takes ~34us. No IPC to the signer is required.
 
 ### 8.6 Token Validation Chain
+
+**Macaroon path:**
+
+```
+  Incoming token: "mac_<base64url>"
+           |
+           v
+  1. Strip "mac_" prefix
+  2. Base64url decode -> binary
+  3. UnmarshalBinary -> Macaroon{Id, Caveats, Signature}
+  4. Verifier.Verify(macaroon):
+       a. Look up root key by macaroon.Id() (= root task ULID)
+            Not found? -> reject "unknown root key"
+       b. Recompute HMAC chain from root key:
+            sig_0 = HMAC-SHA256(rootKey, Id)
+            sig_n = HMAC-SHA256(sig_{n-1}, caveat_n.Id)
+       c. Compare final sig to macaroon.Signature
+            Mismatch? -> reject "HMAC chain verification failed"
+       d. Reduce(caveats) -> EffectiveEnvelope:
+            - Set intersection for targets, roles, services, remotes, methods
+            - Minimum for delegation_depth
+            - AND for can_delegate
+            - Earliest for expires_before
+            - First-value-wins for agent, initiated_by
+            - Unknown caveat -> reject (fail closed)
+       e. Check expires_before > now
+       f. Return ReducerOutput{Envelope, SigDigest}
+  5. Look up Task by SigDigest (SHA-256 of macaroon signature)
+       Not found? -> try GetTask(macaroon.Id)
+       Still not found? -> reject "task not found"
+  6. Check revocation via lineage walk
+  7. Build MCPAgent from task envelope
+```
+
+**JWT path (legacy):**
 
 ```
   Incoming token: "header.payload.signature"
@@ -1211,11 +1391,15 @@ signing sub-millisecond.
   9. Return parsed TaskClaims
 ```
 
-### 8.7 Capability Envelopes
+### 8.7 Capability Envelopes and Caveats
 
-Envelopes define the upper bound of what a task can do. They are
-resolved from the agent's RBAC permissions at task creation time, with
-wildcards expanded to literal lists:
+Envelopes define the upper bound of what a task can do. For macaroons,
+the envelope is encoded as additive caveats in `key = value` format.
+Identity metadata (agent name, initiated_by) is stored in broker state,
+not in the token itself. Caveats are only constraints.
+
+At task creation, the envelope is resolved from the agent's RBAC
+permissions, with wildcards expanded to literal lists:
 
 ```
   Agent RBAC:                      Envelope at issuance:
@@ -1235,8 +1419,15 @@ Wildcard resolution happens once at issuance. This ensures:
 - Adding a new target after token issuance does not expand the token
 - Envelope subset checks are straightforward list comparisons
 
-The `IsSubsetOf` method enables future delegation: a child task's
-envelope must be a subset of its parent's envelope.
+For macaroons, delegation appends additional caveats to the HMAC chain.
+Because caveats can only be added (never removed), and the effective
+envelope reducer uses set intersection, minimum, and AND, the child's
+authority is always a subset of the parent's. This is enforced
+cryptographically by the HMAC chain, not just by policy logic.
+
+The `IsSubsetOf` method on `TaskEnvelope` validates delegation
+requests: a child task's envelope must be a subset of its parent's
+envelope.
 
 ### 8.8 Revocation Model
 
@@ -1285,31 +1476,208 @@ The task identity system is designed for graceful degradation:
   Broker starts
        |
        v
-  Request root_public_key from signer
+  Initialize macaroon RootKeyStore + Minter + Verifier
+       |
+   SUCCESS (always -- pure stdlib, no external dependency)
+       |
+  Request root_public_key from signer (for legacy JWT path)
        |
    SUCCESS                    FAILURE
        |                         |
   Request delegation cert        |
        |                         v
-   SUCCESS        Task identity disabled.
-       |          Log warning. Continue with
-  Task identity   legacy auth (API key only).
-  fully enabled.
-  Both auth modes
-  work simultaneously.
+   SUCCESS        JWT path disabled.
+       |          Macaroon path still works.
+  Both macaroon    Log warning.
+  and JWT paths
+  enabled.
 ```
 
-When task identity is disabled:
-- All 4 task tools return errors explaining the feature is unavailable
-- Existing tools (exec, http_request, etc.) continue to work with API
-  key auth
-- The `LegacyRequests` counter tracks requests without CTT tokens
+When the JWT path is disabled:
+- Macaroon-based task identity (`mac_` tokens) continues to work
+- All 6 task tools function normally with macaroon tokens
+- Legacy JWT tokens are rejected with a clear error
+- API key auth continues to work for non-task requests
+- The `LegacyRequests` counter tracks requests without task tokens
 
 ---
 
-## 9. Dashboard
+## 9. Ephyr Bind (v0.3)
 
-### 9.1 Architecture
+### 9.1 Overview
+
+Ephyr Bind adds holder-bound tokens with proof-of-possession (PoP).
+In the base macaroon model (v0.2b), tokens are bearer tokens -- anyone
+who holds the token can use it. Ephyr Bind ties a token to a specific
+holder via an Ed25519 public key, requiring the holder to prove
+possession of the corresponding private key on every request.
+
+**Ephyr Bind does NOT provide:**
+- Certificate-based mutual TLS authentication (it uses Ed25519 PoP
+  over the existing MCP transport)
+- Hardware key binding (keys are ephemeral software keys)
+- Cross-broker token portability (holder keys are validated by the
+  issuing broker only)
+
+### 9.2 Task Fields for Binding
+
+Three fields on the `Task` struct support holder binding:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `HolderPubKey` | `[]byte` (32 bytes) | Ed25519 public key of the holder |
+| `HolderBound` | `bool` | `true` after a key is registered |
+| `BindDeadline` | `time.Time` | Deadline for calling `task_bind` |
+
+Root tasks created via `task_create` can optionally include a holder
+public key, binding immediately at creation time.
+
+### 9.3 Two-Phase Delegation Key Binding
+
+Delegated tasks use a two-phase binding protocol:
+
+```
+  Parent Agent                     Broker                    Child Agent
+      |                              |                          |
+      | task_delegate                |                          |
+      | (no holder key yet)          |                          |
+      |----------------------------->|                          |
+      |                              |                          |
+      |  child_task_id + macaroon    | Create unbound task      |
+      |  bind_deadline = now + 30s   | HolderBound = false      |
+      |<-----------------------------|                          |
+      |                              |                          |
+      | Pass task ID + token         |                          |
+      | to child agent (out of band) |                          |
+      |----------------------------->|                          |
+      |                              |                          |
+      |                              | task_bind                |
+      |                              | {task_id, public_key}    |
+      |                              |<-------------------------|
+      |                              |                          |
+      |                              | Validate:                |
+      |                              | - task exists            |
+      |                              | - within deadline (30s)  |
+      |                              | - key is 32 bytes        |
+      |                              | - not already bound to   |
+      |                              |   a different key        |
+      |                              |                          |
+      |                              | HolderBound = true       |
+      |                              | HolderPubKey = key       |
+      |                              | BindDeadline = cleared   |
+      |                              |------------------------->|
+      |                              |   OK                     |
+```
+
+The 30-second bind deadline (`DefaultBindDeadline`) limits the window
+during which an unbound delegated token is usable as a bearer token.
+The broker's cleanup goroutine auto-revokes unbound tasks that exceed
+their bind deadline.
+
+**Idempotency.** Binding the same key again succeeds (no-op). Binding
+a different key to an already-bound task fails.
+
+### 9.4 Proof-of-Possession
+
+Once a task is holder-bound, every MCP request must include a PoP proof
+in the request arguments:
+
+```json
+{
+  "proof": {
+    "sig": "<base64url Ed25519 signature>",
+    "payload": {
+      "task_id": "01J5VKRM7P...",
+      "req_type": "ssh_exec",
+      "resource": "docker-host",
+      "method": "operator",
+      "body_hash": "<SHA-256 hex of canonical request body>",
+      "mac_digest": "<SHA-256 hex of serialized macaroon>",
+      "nonce": "<16 bytes hex, unique per request>",
+      "ts": "2026-03-14T10:30:00Z"
+    }
+  }
+}
+```
+
+Verification steps:
+1. Canonicalize the `ProofPayload` as deterministic JSON
+2. `ed25519.Verify(task.HolderPubKey, canonical_json, sig)`
+3. Check timestamp within clock skew tolerance
+4. `NonceCache.CheckAndStore(taskID, nonce)` -- reject replays
+5. Verify `body_hash` matches the actual request body
+6. Verify `mac_digest` matches the macaroon presented in the Bearer header
+
+### 9.5 NonceCache
+
+The `NonceCache` prevents replay of proof-of-possession nonces. It stores
+`"taskID:nonce"` entries with timestamps and garbage-collects expired
+entries periodically.
+
+| Property | Value |
+|----------|-------|
+| Key format | `taskID:nonce` |
+| TTL | Configurable (default matches max task TTL) |
+| Cleanup | Periodic sweep removes entries older than TTL |
+| Concurrency | `sync.RWMutex` protected |
+
+### 9.6 Auto-Revocation
+
+The TaskManager's cleanup goroutine (runs every 30 seconds) checks for
+unbound tasks past their bind deadline:
+
+```
+  if !task.HolderBound && !task.BindDeadline.IsZero() && now.After(task.BindDeadline):
+      remove task (auto-revoke)
+```
+
+This ensures delegated tokens that are never claimed by a child agent
+do not persist indefinitely as usable bearer tokens.
+
+### 9.7 Performance
+
+| Operation | Typical Latency | Notes |
+|-----------|-----------------|-------|
+| PoP full pipeline | ~158us | Canonicalize + verify + nonce check |
+| Ed25519 verify | ~80us | Signature verification only |
+| NonceCache check | <1us | Map lookup + insert |
+
+### 9.8 Invariants
+
+The following 13 invariants are proven by tests:
+
+1. **ULID uniqueness.** 1,000 consecutive task creations produce 1,000
+   unique IDs.
+2. **Cascading revocation.** Revoking a root task invalidates children at
+   depths 1, 2, and 3.
+3. **Independent survival.** Revoking one task does not affect a sibling
+   task by the same agent.
+4. **Envelope monotonicity.** Child wildcard is rejected when parent has
+   no wildcard.
+5. **Key rotation continuity.** After delegation rotation, the new cert
+   ID differs from the old; the old key is preserved as prev.
+6. **Failure resilience.** When rotation fails, the broker keeps the old
+   key and remains ready.
+7. **Concurrent safety.** 50 goroutines performing concurrent revocation
+   and lineage checks complete without race conditions. 100 goroutines
+   performing concurrent signing complete without errors.
+8. **Macaroon HMAC integrity.** Modifying any caveat or the signature
+   causes verification failure.
+9. **Reducer fail-closed.** Unknown caveat keys cause immediate rejection.
+10. **Root key isolation.** Each task tree uses an independent root key;
+    keys are garbage-collected on expiry.
+11. **Delegation attenuation.** Child macaroon caveats produce a strict
+    subset of the parent's effective envelope.
+12. **PoP replay prevention.** Reusing a nonce within the TTL window
+    is rejected.
+13. **Bind deadline enforcement.** Unbound tasks past their bind
+    deadline are auto-revoked by the cleanup goroutine.
+
+---
+
+## 10. Dashboard
+
+### 10.1 Architecture
 
 The dashboard is served on TCP port 8553, separate from the MCP
 endpoint. It provides a real-time view of broker state through a
@@ -1353,7 +1721,7 @@ combination of REST APIs and WebSocket event streaming.
     |<-----------------------------|
 ```
 
-### 9.2 WebSocket Event Hub
+### 10.2 WebSocket Event Hub
 
 The EventHub manages WebSocket connections with backpressure handling:
 
@@ -1379,9 +1747,9 @@ Event format:
 }
 ```
 
-### 9.3 Dashboard Views
+### 10.3 Dashboard Views
 
-The dashboard provides 10 views across 4 groups:
+The dashboard provides 11 views across 4 groups:
 
 | Group            | View           | Description                           |
 |------------------|----------------|---------------------------------------|
@@ -1394,10 +1762,12 @@ The dashboard provides 10 views across 4 groups:
 |                  | Activity       | Searchable activity log               |
 |                  | Sessions       | Active SSH sessions                   |
 |                  | Audit Log      | Structured audit events               |
+|                  | Tasks          | Table/tree view, envelope inspector,  |
+|                  |                | cascade revocation                    |
 | TOOLS            | Terminal       | (Reserved for future terminal access) |
 |                  | Settings       | Configuration management              |
 
-### 9.4 Toggle Operations
+### 10.4 Toggle Operations
 
 Hosts, services, and remote MCP servers can be enabled/disabled via the
 dashboard (or API). Toggles take effect immediately:
@@ -1411,14 +1781,14 @@ dashboard (or API). Toggles take effect immediately:
 
 ---
 
-## 10. Metrics and Observability
+## 11. Metrics and Observability
 
-### 10.1 Prometheus Exposition
+### 11.1 Prometheus Exposition
 
 Metrics are exposed in Prometheus text format at
 `GET /v1/dashboard/metrics` on the dashboard port (8553).
 
-### 10.2 Latency Histograms (8 total)
+### 11.2 Latency Histograms (10 total)
 
 All histograms use 7 fixed buckets with lock-free atomic operations:
 
@@ -1437,6 +1807,8 @@ All histograms use 7 fixed buckets with lock-free atomic operations:
 | `ephyr_ssh_cert`         | SSH cert signing via signer IPC       |
 | `ephyr_delegation_ipc`   | Delegation cert request via IPC       |
 | `ephyr_exec_e2e`         | End-to-end exec latency               |
+| `ephyr_macaroon_mint`    | Macaroon minting (HMAC chain build)   |
+| `ephyr_macaroon_verify`  | Macaroon verification (HMAC + reduce) |
 
 Each histogram provides:
 - Per-bucket cumulative counts
@@ -1444,25 +1816,30 @@ Each histogram provides:
 - Count (total observations)
 - Computed percentiles: p50, p95, p99 (via linear interpolation)
 
-### 10.3 Counters and Gauges
+### 11.3 Counters and Gauges
 
 | Metric                            | Type    | Description                       |
 |-----------------------------------|---------|-----------------------------------|
 | `ephyr_tasks_created_total`      | counter | Total tasks created               |
 | `ephyr_tasks_active`             | gauge   | Currently active tasks            |
-| `ephyr_tokens_signed_total`      | counter | Total CTT-E tokens signed         |
-| `ephyr_tokens_validated_total`   | counter | Total tokens validated            |
-| `ephyr_tokens_rejected_total`    | counter | Total tokens rejected             |
+| `ephyr_tokens_signed_total`      | counter | Total CTT-E tokens signed (JWT)   |
+| `ephyr_tokens_validated_total`   | counter | Total JWT tokens validated        |
+| `ephyr_tokens_rejected_total`    | counter | Total JWT tokens rejected         |
+| `ephyr_macaroons_minted_total`   | counter | Total macaroons minted            |
+| `ephyr_macaroons_verified_total` | counter | Total macaroon verifications      |
+| `ephyr_macaroons_rejected_total` | counter | Total failed macaroon verifications |
+| `ephyr_pop_verified_total`       | counter | Successful PoP verifications      |
+| `ephyr_pop_rejected_total`       | counter | Failed PoP verifications          |
 | `ephyr_watermark_revocations`    | counter | Total watermark revocations       |
 | `ephyr_delegation_rotations`     | counter | Total delegation cert rotations   |
-| `ephyr_legacy_requests_total`    | counter | Requests without CTT (legacy)     |
+| `ephyr_legacy_requests_total`    | counter | Requests without task token       |
 | `ephyr_auth_cache_hits_total`    | counter | Auth cache hits (bcrypt bypassed) |
 | `ephyr_auth_cache_misses_total`  | counter | Auth cache misses (bcrypt needed) |
 | `ephyr_active_watermarks`        | gauge   | Active revocation watermarks      |
 | `ephyr_delegation_cert_age`      | gauge   | Seconds since delegation cert issued |
 | `ephyr_delegation_certs_held`    | gauge   | Delegation certs in memory        |
 
-### 10.4 Lock-Free Histogram Implementation
+### 11.4 Lock-Free Histogram Implementation
 
 The `LatencyHistogram` struct uses `sync/atomic.Int64` for all state,
 ensuring zero lock contention on the hot path:
@@ -1492,7 +1869,7 @@ This design ensures that timing an operation never becomes the
 bottleneck. Multiple goroutines can record observations concurrently
 without any synchronization beyond atomic memory operations.
 
-### 10.5 Per-Request Timing
+### 11.5 Per-Request Timing
 
 Individual request timing is captured in `RequestTiming` structs and
 included in audit log entries:
@@ -1511,9 +1888,9 @@ included in audit log entries:
 
 ---
 
-## 11. Audit System
+## 12. Audit System
 
-### 11.1 Structured JSON Logging
+### 12.1 Structured JSON Logging
 
 The audit system writes structured JSON lines to
 `/var/log/ephyr/audit.json`. Each event is a single JSON object on
@@ -1538,7 +1915,7 @@ aggregators).
 }
 ```
 
-### 11.2 Event Types
+### 12.2 Event Types
 
 | Event Type          | Severity | Description                          |
 |---------------------|----------|--------------------------------------|
@@ -1568,7 +1945,7 @@ aggregators).
 | `request_approved`  | INFO     | Pending request approved             |
 | `request_denied`    | WARN     | Pending request denied               |
 
-### 11.3 Multi-Writer
+### 12.3 Multi-Writer
 
 The AuditLogger supports multiple output writers simultaneously:
 
@@ -1589,7 +1966,7 @@ The AuditLogger supports multiple output writers simultaneously:
 The mutex ensures atomic writes across all writers, preventing
 interleaved JSON lines.
 
-### 11.4 Audit Fields
+### 12.4 Audit Fields
 
 Every audit event carries:
 
@@ -1608,9 +1985,9 @@ Every audit event carries:
 
 ---
 
-## 12. Performance Characteristics
+## 13. Performance Characteristics
 
-### 12.1 Auth Cache: Cold vs. Warm
+### 13.1 Auth Cache: Cold vs. Warm
 
 | Scenario       | Latency         | Operations                          |
 |----------------|-----------------|-------------------------------------|
@@ -1627,7 +2004,7 @@ The cache TTL (default 60s) means the first request in each 60-second
 window pays the bcrypt cost, and subsequent requests from the same
 API key are sub-microsecond.
 
-### 12.2 Session Reuse: 60x Speedup
+### 13.2 Session Reuse: 60x Speedup
 
 | Mode           | Typical Latency | Operations                          |
 |----------------|-----------------|-------------------------------------|
@@ -1647,21 +2024,26 @@ handshake, and SSH handshake.
 Sessions auto-close after 5 minutes idle and are limited to 5 per
 agent.
 
-### 12.3 Token Signing: Sub-Millisecond
+### 13.3 Token Operations
 
-| Operation        | Typical Latency | Notes                             |
-|------------------|-----------------|-----------------------------------|
-| Token signing    | <100us          | Local Ed25519.Sign (no IPC)       |
-| Token validation | <200us          | Delegation cert verify + sig verify |
-| Watermark check  | <10us           | O(depth) map lookups, depth < 5   |
-| Envelope check   | <5us            | List subset comparisons           |
+| Operation           | Typical Latency | Notes                              |
+|---------------------|-----------------|-------------------------------------|
+| Macaroon mint       | ~34us           | HMAC-SHA256 chain construction      |
+| Macaroon verify     | ~32us           | HMAC chain + reducer evaluation     |
+| PoP full pipeline   | ~158us          | Canonicalize + verify + nonce check |
+| JWT signing (legacy)| <100us          | Local Ed25519.Sign (no IPC)         |
+| JWT validation      | <200us          | Delegation cert verify + sig verify |
+| Watermark check     | <10us           | O(depth) map lookups, depth < 5     |
+| Envelope check      | <5us            | List subset comparisons             |
 
-Token operations are local to the broker and never require IPC to the
-signer. The delegation model "pushes" the expensive signer interaction
-to key rotation time (once per hour), leaving per-request operations
-lightweight.
+All token operations are local to the broker and never require IPC to
+the signer. For macaroons, the root key is stored in broker memory and
+the HMAC chain is computed with `crypto/hmac` + `crypto/sha256`. For
+legacy JWTs, the delegation model "pushes" the expensive signer
+interaction to key rotation time (once per hour), leaving per-request
+operations lightweight.
 
-### 12.4 Memory Model
+### 13.4 Memory Model
 
 | Subsystem      | Memory Profile                                   |
 |----------------|--------------------------------------------------|
@@ -1670,15 +2052,17 @@ lightweight.
 | TaskManager    | Proportional to active tasks (cleanup every 30s)  |
 | RevocationMap  | Proportional to revoked tasks (GC every 60s)      |
 | GrantStore     | Proportional to active grants (cleanup every 30s)  |
+| RootKeyStore   | Proportional to active task trees (32 bytes/key)   |
+| NonceCache     | Proportional to active PoP nonces (GC by TTL)      |
 | Auth cache     | Proportional to unique API keys (typically <10)    |
 | EventHub       | 64 * message_size per WebSocket client             |
-| Metrics        | Fixed: ~1KB (atomic integers and histogram arrays) |
+| Metrics        | Fixed: ~2KB (atomic integers and histogram arrays) |
 
 ---
 
-## 13. Deployment Topology
+## 14. Deployment Topology
 
-### 13.1 Single-Host Deployment (Current)
+### 14.1 Single-Host Deployment (Current)
 
 All three processes run on a single LXC container:
 
@@ -1710,7 +2094,7 @@ All three processes run on a single LXC container:
 +-------------------+  +-------------------+
 ```
 
-### 13.2 Multi-Host Deployment (Future)
+### 14.2 Multi-Host Deployment (Future)
 
 For larger deployments, the signer can run on a dedicated hardened host:
 
@@ -1733,7 +2117,7 @@ replaced with a TCP transport secured by mutual TLS. The signer's
 `SO_PEERCRED` validation would be replaced with client certificate
 validation.
 
-### 13.3 Systemd Units
+### 14.3 Systemd Units
 
 **ephyr-signer.service:**
 
@@ -1792,7 +2176,7 @@ Key differences between signer and broker service units:
 - Broker supports `ExecReload` (SIGHUP for policy reload)
 - Both run as the same user (UID 999) with identical hardening
 
-### 13.4 nftables Isolation
+### 14.4 nftables Isolation
 
 The LXC firewall provides two layers of protection:
 
@@ -1819,7 +2203,7 @@ broker's Unix socket (localhost), which the broker then proxies to
 the backend with credential injection. This prevents agents from
 bypassing the broker's RBAC and audit controls.
 
-### 13.5 File System Layout
+### 14.5 File System Layout
 
 ```
 /etc/ephyr/
@@ -1849,15 +2233,16 @@ bypassing the broker's RBAC and audit controls.
   internal/auth/            Session management and peer cred (~200 lines)
   internal/signer/          Signer logic and IPC client (~800 lines)
   internal/token/           Token types, signing, validation, ULID (~800 lines)
+  internal/macaroon/        Macaroon minter, verifier, reducer, root keys (~1,200 lines)
   dashboard/                Static HTML/CSS/JS for dashboard
   docs/                     Documentation
 ```
 
 ---
 
-## 14. Extension Points
+## 15. Extension Points
 
-### 14.1 Adding a New HTTP Proxy Service
+### 15.1 Adding a New HTTP Proxy Service
 
 Services can be added via the dashboard REST API or by editing
 `/var/lib/ephyr/services.json`:
@@ -1892,7 +2277,7 @@ agents:
         methods: [GET]
 ```
 
-### 14.2 Adding a New MCP Tool
+### 15.2 Adding a New MCP Tool
 
 New tools require three changes in the broker code:
 
@@ -1936,7 +2321,7 @@ func (s *MCPServer) toolNewTool(ctx context.Context, agent *MCPAgent,
 }
 ```
 
-### 14.3 Adding a New Federation Remote
+### 15.3 Adding a New Federation Remote
 
 Remotes can be added via the dashboard API:
 
@@ -1972,7 +2357,7 @@ agents:
         tools: [specific_tool]  # or empty for all tools
 ```
 
-### 14.4 Adding a New Auth Provider
+### 15.4 Adding a New Auth Provider
 
 The current auth model uses bcrypt-hashed API keys. To add a new
 authentication method (e.g., mTLS, OIDC), modify `mcp_auth.go`:
@@ -2005,7 +2390,7 @@ The auth cache architecture generalizes naturally: any new auth method
 can use the same SHA-256-keyed cache with configurable TTL, avoiding
 expensive validation on every request.
 
-### 14.5 Adding New SSH Targets
+### 15.5 Adding New SSH Targets
 
 Targets are added in `policy.yaml` and take effect on SIGHUP:
 
@@ -2048,19 +2433,31 @@ agents with appropriate RBAC permissions will see the new target via
 |-------------------|-----------------------------------------------------|
 | CA                | Certificate Authority -- the Ed25519 key that signs  |
 |                   | SSH certificates and delegation certs                |
-| CTT-E             | Ephyr Task Token - Execution: a JWT authorizing     |
+| Caveat            | An additive constraint in a macaroon (`key = value`  |
+|                   | format). Caveats can only narrow authority.           |
+| CTT-E             | Ephyr Task Token - Execution: a legacy JWT authorizing |
 |                   | a specific task's operations                         |
-| CTT-D             | Ephyr Task Token - Delegation: (Phase 2b) a JWT     |
+| CTT-D             | Ephyr Task Token - Delegation: a legacy JWT          |
 |                   | allowing a task to create sub-tasks                  |
 | Delegation Cert   | A certificate from the signer authorizing the broker  |
-|                   | to sign CTT tokens with an ephemeral key             |
+|                   | to sign CTT tokens with an ephemeral key (JWT path)  |
 | Envelope          | Capability bounds for a task: targets, roles,         |
 |                   | services, remotes, and methods                       |
+| Ephyr Bind        | v0.3 holder-bound tokens with Ed25519 PoP            |
 | IPC               | Inter-Process Communication via Unix domain socket    |
 | Lineage           | Array of task IDs from root to current task           |
+| macaroon          | HMAC-SHA256 token with additive caveats. The primary  |
+|                   | task token format (v0.2b+).                          |
 | MCP               | Model Context Protocol -- the transport protocol      |
 |                   | for AI agent tool access                             |
+| PoP               | Proof-of-Possession -- Ed25519 signature proving the  |
+|                   | requester holds the private key bound to the task     |
 | RBAC              | Role-Based Access Control with template inheritance   |
+| Reducer           | The effective envelope reducer that derives authority  |
+|                   | from macaroon caveats via set intersection, minimum,  |
+|                   | and AND operations                                   |
+| Root key          | 32-byte HMAC key per task tree, used to mint and      |
+|                   | verify macaroons. GC'd on task tree expiry.          |
 | SO_PEERCRED       | Linux socket option to retrieve the UID/GID/PID       |
 |                   | of the connected process                             |
 | ULID              | Universally Unique Lexicographically Sortable ID      |
@@ -2115,6 +2512,6 @@ curl -s http://localhost:8554/mcp -X POST \
 
 ---
 
-*This document describes the architecture of Ephyr v0.2. It is derived
+*This document describes the architecture of Ephyr v0.3. It is derived
 from the source code at `/opt/ephyr/` and reflects the implementation
-as of 2026-03-13.*
+as of 2026-03-14. The codebase contains 512 tests across 5 packages.*

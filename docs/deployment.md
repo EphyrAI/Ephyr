@@ -826,7 +826,7 @@ go test ./test/integration/ -v -count=1
 | Test | Description |
 |------|-------------|
 | TestMCPInitialize | MCP protocol handshake and version negotiation |
-| TestToolsList | Confirms all 15 tools are registered (including 5 task identity tools) |
+| TestToolsList | Confirms all 16 tools are registered (including 6 task identity tools) |
 | TestLegacyToolsStillWork | Verifies pre-v0.2 tools (`list_targets`) are unaffected |
 | TestTaskLifecycle | Full create -> info -> list -> revoke -> verify-revoked cycle |
 | TestTaskValidation | Rejects invalid TTLs, empty descriptions, nonexistent task IDs |
@@ -846,7 +846,7 @@ All tests should pass. A summary is printed at the end:
   TEST                            LATENCY   STATUS  DETAIL
   ----------------------------------------------------------------------
   mcp_initialize                    5.20ms  [  OK  ]  server=ephyr protocol=2025-03-26
-  tools_list                        3.15ms  [  OK  ]  15 tools, all 5 task tools present
+  tools_list                        3.15ms  [  OK  ]  16 tools, all 6 task tools present
   ...
   TOTAL: N passed, 0 failed, XXms total latency
   ========================================================================
@@ -945,7 +945,7 @@ After completing all setup steps, verify each component:
     -H "Authorization: Bearer YOUR_MCP_KEY" \
     -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
-    | python3 -c "import sys,json; tools=[t['name'] for t in json.load(sys.stdin)['result']['tools']]; assert 'task_create' in tools, 'missing task_create'; print(f'{len(tools)} tools registered, task identity available')"
+    | python3 -c "import sys,json; tools=[t['name'] for t in json.load(sys.stdin)['result']['tools']]; assert 'task_create' in tools, 'missing task_create'; assert 'task_bind' in tools, 'missing task_bind'; print(f'{len(tools)} tools registered, task identity + bind available')"
   ```
 
 - [ ] **Task create/revoke cycle works**

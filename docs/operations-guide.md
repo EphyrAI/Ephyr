@@ -273,7 +273,7 @@ Authentication uses the dashboard token.
 
 | Metric | Description |
 |--------|-------------|
-| `ephyr_token_sign_seconds` | CTT-E token signing latency |
+| `ephyr_token_sign_seconds` | Task token signing latency (macaroon or legacy CTT-E) |
 | `ephyr_token_validate_seconds` | Token validation latency |
 | `ephyr_watermark_check_seconds` | Revocation watermark check latency |
 | `ephyr_envelope_check_seconds` | Capability envelope check latency |
@@ -287,7 +287,7 @@ Authentication uses the dashboard token.
 | Metric | Description |
 |--------|-------------|
 | `ephyr_tasks_created_total` | Total tasks created |
-| `ephyr_tokens_signed_total` | Total CTT-E tokens signed |
+| `ephyr_tokens_signed_total` | Total task tokens signed (macaroon + legacy CTT-E) |
 | `ephyr_tokens_validated_total` | Total tokens validated |
 | `ephyr_tokens_rejected_total` | Total tokens rejected |
 | `ephyr_watermark_revocations_total` | Total watermark revocations |
@@ -295,6 +295,12 @@ Authentication uses the dashboard token.
 | `ephyr_legacy_requests_total` | Requests without CTT (legacy mode) |
 | `ephyr_auth_cache_hits_total` | Auth cache hits (bcrypt bypassed) |
 | `ephyr_auth_cache_misses_total` | Auth cache misses (bcrypt required) |
+| `ephyr_macaroons_minted_total` | Macaroon tokens minted (root + delegated) |
+| `ephyr_macaroons_verified_total` | Macaroon tokens verified successfully |
+| `ephyr_macaroons_rejected_total` | Macaroon tokens rejected (bad HMAC, expired, bad caveats) |
+| `ephyr_pop_verified_total` | Proof-of-possession signatures verified (Bind) |
+| `ephyr_pop_rejected_total` | Proof-of-possession signatures rejected (Bind) |
+| `ephyr_bind_deadline_expired_total` | Delegated tokens expired before binding |
 
 **Gauges:**
 
@@ -316,6 +322,9 @@ Authentication uses the dashboard token.
 | `ephyr_ssh_cert_seconds` p99 | > 0.05 (50ms) | Warning | Signer IPC is slow; check signer health |
 | `ephyr_exec_e2e_seconds` p99 | > 10s | Warning | SSH exec latency is high; check target host health |
 | `ephyr_active_watermarks` | > 100 | Info | Many revocations active; check for runaway task creation |
+| `ephyr_pop_rejected_total` | Rate > 5/min | Warning | Possible token replay or holder key mismatch |
+| `ephyr_bind_deadline_expired_total` | Rate > 2/min | Warning | Delegated tokens expiring before bind -- child agents may be slow to start |
+| `ephyr_macaroons_rejected_total` | Rate > 10/min | Warning | Invalid macaroons presented -- possible token forgery or corruption |
 
 ### Grafana Dashboard Suggestions
 
@@ -352,6 +361,20 @@ rate(ephyr_delegation_rotations_total[5m])
 ```
 rate(ephyr_auth_cache_hits_total[5m]) /
   (rate(ephyr_auth_cache_hits_total[5m]) + rate(ephyr_auth_cache_misses_total[5m]))
+```
+
+**Panel 6: Macaroon Operations (Counter rate)**
+```
+rate(ephyr_macaroons_minted_total[5m])
+rate(ephyr_macaroons_verified_total[5m])
+rate(ephyr_macaroons_rejected_total[5m])
+```
+
+**Panel 7: Proof-of-Possession / Bind (Counter rate)**
+```
+rate(ephyr_pop_verified_total[5m])
+rate(ephyr_pop_rejected_total[5m])
+rate(ephyr_bind_deadline_expired_total[5m])
 ```
 
 ### Health Checks
@@ -603,9 +626,29 @@ If an agent's task token is compromised:
      | jq 'select(.severity == "WARN" or .severity == "ERROR")'
    ```
 
+### Inspecting a Macaroon Token
+
+Use the `ephyr inspect` CLI command to display a macaroon's caveat chain,
+holder binding status, and effective envelope:
+
+```bash
+ephyr inspect --token "mac_..."
+```
+
+This shows:
+- Root task ULID (macaroon identifier)
+- Caveat chain with each delegation's constraints
+- Effective envelope after all caveats are applied
+- Holder binding status (bound/unbound, deadline if applicable)
+- Token expiry and remaining TTL
+
+This is useful for debugging delegation attenuation and verifying that
+caveats were applied correctly during multi-hop delegation.
+
 ### Verifying Delegation Key Status
 
-The delegation key is what the broker uses to sign CTT-E tokens. It rotates
+The delegation key is what the broker uses to sign task tokens (macaroons
+and legacy CTT-E). It rotates
 automatically (default: every 50 minutes, with 1-hour TTL).
 
 ```bash
@@ -951,8 +994,8 @@ curl -s -X POST http://localhost:8554/mcp \
 
 ### Delegation Certificate Rotation
 
-The broker's delegation certificate is used to sign CTT-E tokens (task
-identity). It rotates automatically:
+The broker's delegation certificate is used to sign task tokens (macaroons
+and legacy CTT-E JWTs). It rotates automatically:
 
 - **TTL**: 1 hour (default)
 - **Refresh**: Every 50 minutes (default)

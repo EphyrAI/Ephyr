@@ -2,7 +2,7 @@
 
 **Secure Infrastructure Access for AI Agents**
 
-Version 0.2 | March 2026
+Version 0.3 | March 2026
 
 ---
 
@@ -34,11 +34,12 @@ Version 0.2 | March 2026
    - 6.4 [Capability Envelopes](#64-capability-envelopes)
    - 6.5 [Wildcard Resolution](#65-wildcard-resolution)
 7. [Token Architecture](#7-token-architecture)
-   - 7.1 [CTT-E Format](#71-ctt-e-format)
+   - 7.1 [Macaroon-Based Task Tokens](#71-macaroon-based-task-tokens)
    - 7.2 [Delegation Certificates](#72-delegation-certificates)
    - 7.3 [Validation Chain](#73-validation-chain)
    - 7.4 [Identity URN Scheme](#74-identity-urn-scheme)
    - 7.5 [ULID Task Identifiers](#75-ulid-task-identifiers)
+   - 7.6 [Ephyr Bind (Planned)](#76-ephyr-bind-planned)
 8. [Revocation](#8-revocation)
    - 8.1 [Epoch Watermark Model](#81-epoch-watermark-model)
    - 8.2 [Lineage-Walk Validation](#82-lineage-walk-validation)
@@ -131,7 +132,7 @@ connections, and injects credentials on the agent's behalf.
 | **Unforgeable identity** | SO_PEERCRED kernel verification for co-located agents |
 | **Zero credential exposure** | HTTP proxy injects credentials invisibly; agents cannot extract tokens |
 | **Task-scoped audit** | Every operation tied to a ULID-identified task with hierarchical lineage |
-| **Minimal dependencies** | 22,832 lines of Go; 3 external libraries (gorilla/websocket, x/crypto, yaml.v3) |
+| **Minimal dependencies** | ~33,000 lines of Go (377 tests, 2 fuzz tests); 3 external libraries (gorilla/websocket, x/crypto, yaml.v3) |
 
 ### Intended Audience
 
@@ -456,24 +457,25 @@ of each layer:
            v
   +-------------------+
   | Delegation Cert   |    Tier 1: Broker's ephemeral Ed25519 key + signed cert
-  | (Broker memory)   |    Scope: Can sign CTT-E tokens within envelope bounds
+  | (Broker memory)   |    Scope: Can mint macaroon root keys within envelope bounds
   +--------+----------+    Lifetime: 1 hour (configurable)
            |
-           | signs (no IPC needed, local Ed25519)
+           | derives root key (no IPC needed)
            v
   +-------------------+
-  | CTT-E Task Token  |    Tier 2: JWT with EdDSA signature
-  | (Agent memory)    |    Scope: Single task, bounded by capability envelope
-  +-------------------+    Lifetime: Up to 1 hour (configurable, max of delegation TTL)
+  | Macaroon Token    |    Tier 2: HMAC-SHA256 chained bearer token
+  | (CTT-E / CTT-D)  |    Scope: Single task, bounded by capability envelope caveats
+  | (Agent memory)    |    Lifetime: Up to 1 hour (configurable, max of delegation TTL)
+  +-------------------+    Delegation: clone + add caveats (CTT-D, max depth 5)
 ```
 
 **Why three tiers?** The root CA key is the most sensitive secret. If the
 broker had to contact the signer for every task token, the IPC channel would
 be a high-frequency target. By introducing a delegation certificate, the
-broker can sign task tokens locally using an ephemeral key that is itself
-signed by the root CA. This reduces IPC to approximately once per hour
-(delegation rotation), while the signer validates every delegation request
-against its peer credential check.
+broker can mint macaroon task tokens locally using root keys derived from
+an ephemeral key that is itself signed by the root CA. This reduces IPC
+to approximately once per hour (delegation rotation), while the signer
+validates every delegation request against its peer credential check.
 
 ### 4.2 Key Custody and Lifecycle
 
@@ -491,12 +493,15 @@ against its peer credential check.
   `crypto/rand.Reader` as entropy source
 - Exists only in broker process memory; never written to disk
 - Replaced every 50 minutes (default `refreshAt`); the old key is retained
-  as `prevKey` for graceful rollover until tokens signed with it expire
+  as `prevKey` for graceful rollover until tokens derived from it expire
 
 **Task Token Keys:**
-- CTT-E tokens are signed with the current delegation key
-- No additional key generation per token -- the delegation key signs all
-  tokens during its lifetime
+- Task tokens are HMAC-SHA256 macaroons, not signed JWTs
+- Each task tree gets one root key derived from the delegation key
+- The HMAC chain proves caveat accumulation -- caveats cannot be removed
+  without knowledge of the root key
+- Delegation (CTT-D) works by cloning a parent macaroon and appending
+  narrowing caveats; no additional key material is generated per delegation
 
 ### 4.3 Broker Compromise Containment
 
@@ -510,7 +515,8 @@ must be bounded in scope.
    maximum TTL of 24 hours independently)
 2. Access to plaintext service credentials in `/var/lib/ephyr/services.json`
    and federated MCP credentials in `/var/lib/ephyr/remotes.json`
-3. The ability to sign CTT-E task tokens using the current delegation key
+3. The ability to mint macaroon task tokens using root keys derived from
+   the current delegation key
 4. Read/write access to the audit log (within the broker's ReadWritePaths)
 5. The ability to toggle hosts, services, and remotes on/off
 
@@ -526,8 +532,18 @@ must be bounded in scope.
 
 **Temporal bound:** A broker compromise is bounded by the delegation
 certificate's remaining TTL. After rotation, the old delegation key is
-discarded and any tokens signed with it become unverifiable once the cert
-expires. The maximum window is the delegation TTL (default 1 hour).
+discarded and any macaroon root keys derived from it become invalid once
+the cert expires. The maximum window is the delegation TTL (default
+1 hour).
+
+**What a broker compromise does NOT provide:**
+- The CA private key (isolated in the signer process)
+- The ability to extend delegation certificate lifetime beyond the
+  current cert's expiry
+- Persistence beyond a broker restart (delegation key rotates)
+- The ability to modify policy (`/etc/ephyr/policy.yaml` is read-only)
+- Protection against detection (audit log and WebSocket event hub
+  record all broker operations)
 
 ### 4.4 Key Rotation
 
@@ -543,7 +559,7 @@ The `DelegationManager` implements automatic key rotation:
    - New Ed25519 keypair generated
    - New delegation certificate requested from signer
    - Previous key moved to `prevKey` for graceful rollover
-   - Token issuer updated with new signing key
+   - Token minter updated with new delegation key for root key derivation
    - Metrics incremented (`DelegationRotations`)
 4. If rotation fails (signer unreachable), the broker continues using the
    existing key and retries at the next interval
@@ -944,11 +960,12 @@ issuance time. Every brokered request must satisfy both the capability
 envelope AND the policy engine -- the envelope is a pre-check that runs
 before full policy evaluation.
 
-**Subset enforcement:** When delegation tokens (CTT-D, planned for
-Phase 2b) are introduced, child tokens must have envelopes that are
-strict subsets of their parent's envelope. The `IsSubsetOf()` method
+**Subset enforcement:** Delegation tokens (CTT-D) require child
+envelopes to be strict subsets of their parent's envelope. The
+effective envelope reducer derives semantic narrowing via set
+intersection and minimum operations. The `IsSubsetOf()` method
 validates this at issuance time, ensuring that delegation never
-amplifies privileges.
+amplifies privileges. Delegation depth is capped at 5 levels.
 
 ### 6.5 Wildcard Resolution
 
@@ -971,70 +988,122 @@ needing to resolve wildcards against the current policy.
 
 ## 7. Token Architecture
 
-### 7.1 CTT-E Format
+### 7.1 Macaroon-Based Task Tokens
 
-CTT-E (Ephyr Task Token - Execution) is a compact JWT with EdDSA
-(Ed25519) signatures:
+Task tokens (CTT-E for root tasks, CTT-D for delegated tasks) are
+HMAC-SHA256 macaroons serialized in a compact binary format. Macaroons
+replace the earlier JWT-based token design, providing cryptographic
+proof of caveat accumulation combined with deterministic semantic
+narrowing via the effective envelope reducer.
 
 ```
-  Header.Payload.Signature
+  Macaroon Structure:
+  +---------------------------------------------------------+
+  | Location: "ephyr-broker"                                |
+  | Id:       <root task ULID bytes>                        |
+  |                                                         |
+  | Caveats (HMAC-chained):                                 |
+  |   "targets = dockerhost"                                |
+  |   "roles = read"                                        |
+  |   "services = grafana"                                  |
+  |   "methods = GET"                                       |
+  |   "expires = 1741870200"                                |
+  |   "agent = claude"                                      |
+  |   "initiated_by = ephyr:apikey:ak_claud"                |
+  |   "can_delegate = true"                                 |
+  |   "delegation_depth = 5"                                |
+  |                                                         |
+  | Signature: HMAC-SHA256 chain                            |
+  |   sig_0 = HMAC(root_key, id)                            |
+  |   sig_1 = HMAC(sig_0, caveat_0)                         |
+  |   sig_N = HMAC(sig_{N-1}, caveat_{N-1})                 |
+  +---------------------------------------------------------+
 
-  Header (base64url):
-  {
-    "alg": "EdDSA",        // Ed25519 signature algorithm
-    "typ": "CTT-E",        // Token type identifier
-    "kid": "<deleg-cert-id>" // Links to delegation cert for verification
-  }
-
-  Payload (base64url):
-  {
-    "iss": "ephyr:<broker-id>",     // Issuer (broker instance)
-    "sub": "claude",                  // Subject (agent name)
-    "aud": "ephyr-broker",           // Audience
-    "iat": 1741868400,                // Issued At (Unix timestamp)
-    "exp": 1741870200,                // Expires At (Unix timestamp)
-    "jti": "cte_01JQXYZ...",          // Token ID (ULID-based)
-
-    "task": {
-      "id":           "01JQXYZ...",   // ULID
-      "root_id":      "01JQXYZ...",   // Root task ULID
-      "parent_id":    "",              // Empty for root tasks
-      "depth":        0,               // Nesting depth
-      "lineage":      ["01JQXYZ..."], // Full ancestor chain
-      "initiated_by": "ephyr:apikey:ak_claud",
-      "description":  "Check disk usage on dockerhost"
-    },
-
-    "envelope": {
-      "targets":  ["dockerhost"],
-      "roles":    ["read"],
-      "services": ["grafana"],
-      "remotes":  [],
-      "methods":  ["GET"]
-    }
-  }
-
-  Signature: Ed25519(base64url(header) + "." + base64url(payload))
+  Binary format (version 0x02):
+  [1B version][4B id_len][id][4B loc_len][loc]
+  [4B num_caveats][4B cav_len][cav]...[32B signature]
+  Maximum: 8192 bytes
 ```
+
+**HMAC chain properties:**
+
+- **Caveat accumulation is cryptographically enforced.** Each caveat
+  updates the signature: `sig_new = HMAC-SHA256(sig_old, caveat)`.
+  Removing a caveat produces a different chain, and the final signature
+  will not match. An agent cannot widen its permissions by stripping
+  caveats.
+
+- **Delegation by attenuation.** A delegating agent clones the parent
+  macaroon, appends narrowing caveats, and passes the result. The child
+  token is strictly more constrained than the parent. The
+  `IsSubsetOf()` method in the effective envelope reducer validates
+  that delegation never amplifies privileges.
+
+- **One root key per task tree.** The macaroon's `Id()` is always the
+  root task ULID. All tokens in a delegation chain share the same root
+  key, which only the broker possesses. Agents hold the token (with its
+  chained signature) but never the root key.
+
+**Effective envelope reducer:**
+
+The reducer walks the caveat list and derives the effective
+authorization envelope via deterministic semantic narrowing:
+
+- **Set intersection** for multi-valued dimensions (targets, roles,
+  services, remotes, methods). Each successive caveat can only narrow
+  the permitted set.
+- **Minimum** for numeric dimensions (delegation_depth). Each
+  successive caveat can only decrease the remaining depth.
+- **Logical AND** for boolean dimensions (can_delegate). Once
+  delegation is disabled, it cannot be re-enabled.
+- **Earliest** for temporal dimensions (expires). Each successive
+  caveat can only bring the expiry forward.
+
+If any dimension reduces to an empty set, the token is rejected with
+`ErrEmptyDimension` -- a token that authorizes nothing is invalid.
+
+**Bearer token semantics:** Task tokens are bearer credentials. Any
+entity possessing the serialized token can present it to the broker.
+This is an explicit design choice for Ephyr Core and Ephyr Delegation.
+The risk of token replay is mitigated by short TTLs (default 5 minutes)
+and epoch watermark revocation. Ephyr Bind (Section 7.6) addresses
+this by adding proof-of-possession binding.
+
+**What macaroon tokens provide:**
+
+- Cryptographic proof of caveat accumulation (HMAC chain)
+- Deterministic semantic narrowing (effective envelope reducer)
+- Delegation without broker involvement (clone + add caveats)
+- Compact binary serialization (typically under 1 KB)
+
+**What macaroon tokens do NOT provide:**
+
+- Protection against bearer token theft (mitigated by TTL + watermark)
+- Protection against a compromised agent runtime replaying the token
+- Body integrity (the token does not bind to a specific request body)
+- TLS channel binding
+- Holder binding (addressed by Ephyr Bind, Section 7.6)
 
 **Design decisions:**
 
-- **EdDSA over RS256/ES256:** Ed25519 provides 128-bit security with
-  32-byte keys and 64-byte signatures. Signing and verification are
-  fast (tens of microseconds) and constant-time. No nonce generation
-  required (unlike ECDSA, where nonce reuse is catastrophic).
+- **HMAC-SHA256 over EdDSA signatures for tokens:** Macaroons use
+  symmetric HMAC, which is faster than asymmetric Ed25519 signing and
+  enables delegation without broker involvement. The broker holds
+  the root key and can verify any token in the chain. Agents cannot
+  forge tokens because they lack the root key.
 
-- **ULID-based JTI:** Token IDs use the `cte_` prefix plus a ULID,
+- **Binary format over JWT encoding:** The compact binary format
+  (version 0x02) avoids base64url overhead and JSON parsing. Tokens
+  are smaller and faster to serialize/deserialize.
+
+- **ULID-based identifiers:** Token IDs use the root task ULID,
   providing lexicographic sortability by creation time and
-  cryptographic randomness.
-
-- **Explicit timestamps:** `iat` and `exp` use Unix timestamps (integer
-  seconds) for unambiguous time comparison across systems.
+  cryptographic randomness (80 bits from `crypto/rand`).
 
 ### 7.2 Delegation Certificates
 
-Delegation certificates authorize the broker to sign CTT-E tokens. They
-are not JWTs -- they use a simpler canonical JSON format signed by the
+Delegation certificates authorize the broker to derive macaroon root
+keys for task trees. They use a canonical JSON format signed by the
 root CA:
 
 ```
@@ -1066,40 +1135,44 @@ regardless of the platform.
 
 ### 7.3 Validation Chain
 
-Every CTT-E token is validated through an eight-step chain:
+Every macaroon task token is validated through a multi-step chain:
 
 ```
-  CTT-E Token String
+  Serialized Macaroon Token
        |
-  [1] Parse JWT (split on dots, base64url decode)
+  [1] Deserialize binary format (version check, bounds checks)
        |
-  [2] Extract kid from header
-      Look up DelegationCert by kid
+  [2] Extract root task ULID from macaroon Id()
+      Look up root key from broker's key store
+       |                                  -----> REJECT: "unknown task
+       |                                          root key"
+  [3] Verify HMAC chain:
+      sig = HMAC(root_key, id)
+      for each caveat:
+        sig = HMAC(sig, caveat)
+      Compare final sig to token sig ----> REJECT: "invalid signature"
        |
-  [3] Verify delegation cert signature
-      against pinned root public key -----> REJECT: "delegation cert
-       |                                     verification failed"
-  [4] Verify delegation cert not expired -> REJECT: "delegation cert
-       |                                     expired"
-  [5] Verify CTT-E signature against
-      delegated public key ---------------> REJECT: "invalid token
-       |                                     signature"
-  [6] Verify CTT-E not expired -----------> REJECT: "token expired"
+  [4] Run effective envelope reducer:
+      Walk caveats, apply set intersection,
+      minimum, AND, earliest rules ------> REJECT: "empty dimension"
        |
-  [7] Verify audience == "ephyr-broker" -> REJECT: "unexpected audience"
+  [5] Check expiry caveat (expires < now) -> REJECT: "token expired"
        |
-  [8] Return parsed TaskClaims (valid)
+  [6] Check revocation watermarks
+      (lineage walk) --------------------> REJECT: "task revoked"
+       |
+  [7] Return ReducerOutput (envelope + metadata)
 ```
 
-Steps 3-5 form the trust chain: the root public key (pinned at broker
-startup) validates the delegation certificate, and the delegation
-certificate's public key validates the CTT-E token. If the root key is
-rotated, the broker must be restarted to pin the new key.
+Steps 2-3 form the cryptographic trust chain: the broker derives the
+root key from the delegation key, and the HMAC chain proves that every
+caveat was legitimately added. If any caveat is removed, reordered, or
+modified, the HMAC chain breaks and verification fails.
 
 ### 7.4 Identity URN Scheme
 
-Agent identity in CTT-E tokens uses a URN scheme that encodes the
-authentication method:
+Agent identity in task tokens uses a URN scheme (embedded as a caveat)
+that encodes the authentication method:
 
 | Authentication Method | Identity URN |
 |----------------------|--------------|
@@ -1136,6 +1209,49 @@ characters:
 **Implementation detail:** Ephyr implements ULID generation natively
 (no external dependency) using `crypto/rand` for the random component,
 ensuring cryptographic-quality randomness.
+
+### 7.6 Ephyr Bind (Planned)
+
+Ephyr Bind (v0.3 tier) extends bearer macaroon tokens with holder
+binding via DPoP-style proof-of-possession. This is planned but not
+yet implemented.
+
+**Holder binding mechanism:**
+- Each task generates an ephemeral Ed25519 keypair
+- The public key is embedded as a caveat in the macaroon
+- Each request includes a proof-of-possession signature over a
+  challenge (nonce + timestamp + body_hash)
+- The broker verifies that the presenter holds the corresponding
+  private key
+
+**Security properties Bind provides:**
+
+- **Holder binding:** A stolen token is useless without the holder's
+  private key. The token is cryptographically bound to the agent
+  process that created it.
+- **Body integrity:** The `body_hash` field in the PoP proof binds
+  each request to its specific payload, preventing request body
+  tampering by intermediaries.
+- **Replay prevention:** A nonce cache at the broker rejects duplicate
+  proof presentations. Combined with short TTLs, this eliminates
+  replay attacks.
+- **Two-phase delegation:** The delegating parent never sees the
+  child's private key. The parent mints a token with a placeholder,
+  and the child binds it to its own keypair. This prevents the parent
+  from impersonating the child.
+- **BindDeadline auto-revocation:** Unbound tokens (minted but not
+  yet bound to a holder key) are automatically revoked after a
+  configurable deadline, preventing orphaned unbound tokens from
+  accumulating.
+
+**What Bind does NOT provide:**
+
+- Protection against a compromised agent runtime (the private key
+  lives in agent process memory; a compromised runtime can extract it)
+- TLS channel binding (Bind operates at the application layer, not
+  the transport layer)
+- Protection against a compromised broker (the broker verifies proofs
+  but also holds the macaroon root key)
 
 ---
 
@@ -1379,13 +1495,15 @@ for the dashboard.
 
 ### 10.1 Ed25519 for All Signing Operations
 
-Every signing operation in Ephyr uses Ed25519 (Edwards-curve Digital
-Signature Algorithm over Curve25519):
+Every asymmetric signing operation in Ephyr uses Ed25519 (Edwards-curve
+Digital Signature Algorithm over Curve25519):
 
 - Root CA certificate signing
 - Delegation certificate signing
-- CTT-E task token signing
 - Ephemeral SSH keypair generation
+
+Task tokens use HMAC-SHA256 (symmetric) for their caveat chain. See
+Section 7.1 for details on the macaroon token format.
 
 **Why Ed25519:**
 
@@ -1396,7 +1514,7 @@ Signature Algorithm over Curve25519):
 | Constant-time operations | Immune to timing side-channels by design |
 | Fast verification (~70us) | Suitable for per-request token validation on hot paths |
 | Universal SSH support | OpenSSH 6.5+ supports Ed25519; no compatibility issues on modern systems |
-| Compact signatures (64 bytes) | Minimal overhead in JWT tokens and SSH certificates |
+| Compact signatures (64 bytes) | Minimal overhead in delegation certificates and SSH certificates |
 
 **What was NOT chosen:**
 
@@ -1757,7 +1875,7 @@ SVIDs (SPIFFE Verifiable Identity Documents).
 | Agent identity | Workload attestation (k8s, AWS, process) | SO_PEERCRED UID verification (Linux) |
 | Certificate format | X.509 | OpenSSH user certificates |
 | Signing architecture | Server with upstream CAs, nested topology | Two-process (signer + broker), single CA |
-| Token support | JWT-SVIDs | CTT-E (EdDSA JWT with delegation chain) |
+| Token support | JWT-SVIDs | HMAC-SHA256 macaroons with caveat chain (CTT-E/CTT-D) |
 | Policy model | Registration entries + RBAC | YAML policy with 8-step evaluation pipeline |
 | Target integration | mTLS between workloads | SSH `TrustedUserCAKeys` on target hosts |
 | Operational complexity | High (control plane, agents, registration API) | Low (two systemd services, one YAML file) |
@@ -1878,6 +1996,18 @@ remains valid on the target until its TTL expires.
 (mTLS, OIDC) is supported on the MCP TCP endpoint. A stolen API key
 grants full access for the impersonated agent's policy scope.
 
+**Task tokens are bearer tokens.** Macaroon task tokens (CTT-E/CTT-D)
+are bearer credentials until Ephyr Bind is implemented. Any entity
+possessing a serialized token can present it to the broker. Short TTLs
+and epoch watermark revocation mitigate replay risk, but do not
+eliminate it. Specifically, bearer tokens do not provide:
+
+- Protection against a compromised agent runtime replaying the token
+- Body integrity (the token does not bind to a specific request body)
+- TLS channel binding (not implemented)
+
+These limitations are addressed by Ephyr Bind (Section 7.6).
+
 ### 14.2 Planned Improvements
 
 | Improvement | Addresses | Priority |
@@ -1886,12 +2016,12 @@ grants full access for the impersonated agent's policy scope.
 | Per-service TLS CA configuration | T7 (HTTPS MITM) | High |
 | Credential encryption at rest | T10 (plaintext creds) | High |
 | mTLS client certificates for MCP | T1 (API key theft) | Medium |
-| OIDC/JWT authentication option | T1 (API key theft) | Medium |
+| OIDC authentication option | T1 (API key threat) | Medium |
 | Remote audit log shipping | T11 (log tampering) | Medium |
 | Log entry signing (HMAC/Ed25519) | T11 (log tampering) | Medium |
 | WebSocket message-based auth | T9 (dashboard token leak) | Medium |
 | Per-agent rate limiting on MCP TCP | T12 (DoS) | Medium |
-| CTT-D delegation tokens (Phase 2b) | Subtask delegation | Low |
+| Ephyr Bind (holder-bound tokens via DPoP-style PoP) | Bearer token replay, body integrity | Medium |
 | `RevokedKeys` file distribution | T5 (target-side revocation) | Low |
 
 ### 14.3 Research Directions
@@ -1998,13 +2128,16 @@ at startup without it ever existing in a regular file.
 | T10 | Credential exposure at rest | High | -- | Partially mitigated (file permissions); residual (plaintext JSON) |
 | T11 | Audit log tampering | Medium | -- | Partially mitigated (append-only, WebSocket secondary); residual (no signing) |
 | T12 | Denial of service | Medium | B0r | Partially mitigated (rate limiting, bcrypt cost); residual (no per-agent MCP limits) |
+| T13 | Task token replay (bearer theft) | Medium | B2 | Partially mitigated (TTL + watermark); residual (bearer semantics until Bind) |
+| T14 | Compromised agent runtime | High | B0 | Not mitigated -- agent holds token and can replay it. Bind limits exposure but cannot prevent extraction from same-process memory |
 
 ---
 
 ## 17. Appendix C: Dependency Analysis
 
 Ephyr maintains a minimal dependency footprint. The entire project
-(22,832 lines of Go) depends on only three external libraries:
+(~33,000 lines of Go, including 377 tests and 2 fuzz tests) depends on
+only three external libraries:
 
 ```
 module github.com/ben-spanswick/ephyr
@@ -2036,7 +2169,7 @@ require golang.org/x/sys v0.41.0 // indirect
 - Cloud provider SDKs
 
 This minimal dependency surface significantly reduces supply chain risk.
-The project can be audited by reading approximately 23,000 lines of Go
+The project can be audited by reading approximately 33,000 lines of Go
 plus the four dependencies listed above.
 
 ---
@@ -2046,8 +2179,8 @@ plus the four dependencies listed above.
 | Field | Value |
 |-------|-------|
 | Project | Ephyr -- Secure Agent Access Broker |
-| Version | 0.2 |
-| Codebase | ~22,832 lines of Go |
+| Version | 0.3 |
+| Codebase | ~33,000 lines of Go (377 tests, 2 fuzz tests) |
 | License | Apache 2.0 |
 | Repository | https://github.com/ben-spanswick/ephyr |
 | Last Updated | March 2026 |
@@ -2056,7 +2189,7 @@ plus the four dependencies listed above.
 ---
 
 *This document describes the security architecture of Ephyr as implemented
-in version 0.2. It is intended as a reference for security teams evaluating
+in version 0.3. It is intended as a reference for security teams evaluating
 the project. For deployment instructions, see `docs/deployment.md`. For
 API reference, see `docs/api-reference.md`. For the full threat model, see
 `docs/THREAT_MODEL.md`.*

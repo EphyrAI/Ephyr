@@ -1,6 +1,6 @@
 # Task-Scoped Portable Identity for AI Agents
 
-**Ephyr v0.2 Whitepaper**
+**Ephyr v0.3 Whitepaper**
 
 *March 2026*
 
@@ -31,17 +31,18 @@ As AI agents move from single-turn API consumers to multi-step infrastructure
 operators, the identity systems we use to govern their access have not kept
 pace. Agents today authenticate as coarse-grained service accounts or API key
 holders, with no concept of a discrete "task run" as a security boundary.
-Ephyr v0.2 introduces **task-scoped portable identity** as a first-class
+Ephyr introduces **task-scoped portable identity** as a first-class
 primitive: each agent task receives a cryptographically signed token (CTT-E)
 that carries a ULID-based task identifier, a capability envelope constraining
 what the task may do, and a lineage chain that enables hierarchical revocation
 without per-token blocklists. The system is built on a three-tier Ed25519
 trust model with delegation certificates, epoch watermark revocation, and
-monotonic capability attenuation -- all implemented in ~3,500 lines of Go with
-zero external cryptographic dependencies beyond the standard library. This
-paper describes the design, rationale, implementation, and measured performance
-of the task identity system, and situates it against existing approaches to
-workload identity.
+monotonic capability attenuation, macaroon-based delegation with HMAC chain
+integrity, and holder-bound tokens with Ed25519 proof-of-possession -- all
+implemented in Go with zero external cryptographic dependencies beyond the
+standard library. This paper describes the design, rationale, implementation,
+and measured performance of the task identity system, and situates it against
+existing approaches to workload identity.
 
 ---
 
@@ -129,7 +130,7 @@ task**. Service accounts, API keys, OAuth2 client credentials, and even
 SPIFFE workload identities all operate at the workload or service level. None
 of them model the concept of a discrete task run as an identity boundary.
 
-This is the gap Ephyr v0.2 fills.
+This is the gap Ephyr fills.
 
 ---
 
@@ -169,10 +170,11 @@ task down to itself. This enables:
 ### 3.4 Zero External Dependencies
 
 The cryptographic stack uses only the Go standard library (`crypto/ed25519`,
-`crypto/rand`, `crypto/sha256`, `encoding/json`) and `golang.org/x/crypto`
-for SSH certificate signing and bcrypt. There are no external JWT libraries,
-no JOSE frameworks, no Protocol Buffer dependencies. The ULID implementation
-is written from scratch. This is a deliberate choice: every line of
+`crypto/rand`, `crypto/sha256`, `crypto/hmac`, `encoding/json`) and
+`golang.org/x/crypto` for SSH certificate signing and bcrypt. There are no
+external JWT libraries, no JOSE frameworks, no Protocol Buffer dependencies,
+and no external macaroon libraries. The ULID implementation and the macaroon
+engine are written from scratch. This is a deliberate choice: every line of
 security-critical code is auditable in the repository.
 
 ### 3.5 Graceful Degradation
@@ -344,7 +346,7 @@ A CTT-E token is three Base64url-encoded segments separated by dots:
 | Field | Type   | Description                                           |
 |-------|--------|-------------------------------------------------------|
 | `alg` | string | Always `EdDSA` (Ed25519). No algorithm negotiation.   |
-| `typ` | string | `CTT-E` for execution tokens, `CTT-D` for delegation (Phase 2b). |
+| `typ` | string | `CTT-E` for execution tokens, `CTT-D` for delegation. |
 | `kid` | string | Delegation certificate ID. Links the token to the signing key's delegation cert, which chains to the root CA. |
 
 **Algorithm fixed at EdDSA.** There is no algorithm negotiation. The
@@ -450,29 +452,41 @@ is bound in the delegation certificate.
   others, we eliminate algorithm confusion attacks entirely. This is the
   single most common JWT vulnerability, and we close it by construction.
 
-### 5.6 Why Not Macaroons?
+### 5.6 JWT and Macaroons
 
-Macaroons (Birgisson et al., 2014) are an attractive alternative for
-capability-bearing tokens. They support contextual caveats, third-party
-attenuation, and efficient verification. We considered them and may adopt
-them in a future version. The current design uses JWT for three reasons:
+Ephyr v0.2 used JWT-based CTT-E/CTT-D tokens exclusively. Starting with
+Ephyr Delegation (v0.2b), the system implements macaroon-based task tokens
+using a pure-stdlib HMAC-SHA256 chain (`internal/macaroon/` package). The
+broker now supports dual-mode auth: tokens with a `mac_` prefix are
+validated as macaroons; tokens without are validated as legacy JWTs.
 
-1. **Familiarity.** Security teams reviewing Ephyr are far more likely to
-   have JWT experience than macaroon experience. Lowering the audit barrier
-   is worth the tradeoff.
+**Why macaroons were added:**
 
-2. **Explicit envelopes.** Ephyr's capability model uses explicit arrays
-   (targets, roles, services, methods, remotes), not arbitrary predicates.
-   Macaroon caveats are more expressive than we need today, and that
-   expressiveness creates a larger verification surface.
+Macaroons (Birgisson et al., 2014) provide cryptographic caveat
+accumulation via HMAC chaining. Each caveat appended to a macaroon
+produces a new HMAC that depends on all prior caveats -- caveats cannot
+be removed without breaking the chain. This proves that constraints
+were accumulated monotonically. The effective envelope reducer then
+derives semantic narrowing from those caveats using set intersection,
+minimum, and AND rules. The HMAC chain proves accumulation; the reducer
+proves attenuation.
 
-3. **Lineage in payload.** Macaroons do not natively carry hierarchical
-   identity metadata (task ID, root ID, lineage chain). We would need to
-   encode this as caveats, which is possible but awkward.
+**Why JWTs are retained (legacy):**
 
-If Ephyr evolves to support third-party attenuation (e.g., an external
-policy service adding caveats to a token), macaroons become the natural
-choice. This is noted in the roadmap.
+Existing agents with JWT-based CTT-E tokens continue to work. The
+dual-mode auth path ensures backward compatibility during migration.
+JWT tokens remain useful for debugging (paste into jwt.io) and for
+environments where macaroon tooling is unavailable.
+
+**Implementation details:**
+
+- Pure stdlib: `crypto/hmac`, `crypto/sha256` -- no `gopkg.in/macaroon.v2`
+- One root key per task tree (macaroon's `Id()` is always root task ULID)
+- Caveats are constraints only -- identity stays in broker state
+- Effective envelope reducer with set intersection, minimum, AND rules
+- Fuzz-tested reducer (`internal/macaroon/`)
+- Performance: ~34us mint, ~32us verify
+- 77 macaroon tests + 2 fuzz tests + 10 benchmarks
 
 ### 5.7 Why Not X.509?
 
@@ -560,13 +574,12 @@ Examples:
 ephyr:oidc:google:user@example.com   -- OIDC identity (future)
 ephyr:spiffe:cluster-a:workload-id   -- SPIFFE identity (future)
 ephyr:mtls:cn:agent-prod-01          -- mTLS client cert (future)
-ephyr:task:01JQKX...:delegated       -- Parent task delegation (Phase 2b)
+ephyr:task:01JQKX...:delegated       -- Parent task delegation
 ```
 
 **Policy matching:** The URN format enables policy rules like "only allow
 tasks initiated by API keys" or "tasks initiated by OIDC must have 2FA."
-This is not yet implemented but the identity format is designed to support
-it.
+This is not yet implemented but the identity format supports it.
 
 ---
 
@@ -769,7 +782,7 @@ runtime cost is negligible compared to the network operations they gate.
 
 ### 8.4 Subset Validation for Delegation
 
-When a parent task delegates to a child (Phase 2b), the child's envelope
+When a parent task delegates to a child, the child's envelope
 must be a subset of the parent's:
 
 ```go
@@ -1143,7 +1156,9 @@ unit test coverage:
 | `internal/broker/revocation_test.go` | 16 | Basic revoke/check; exact watermark timing; lineage walk; unrelated task isolation; cascading revocation; GC (expired, recent, all-expired); concurrent access (50 goroutines); watermark overwrite; multiple ancestors |
 | `internal/broker/delegation_test.go` | 16 | Defaults; custom config; start success/failure; sign data; sign before start; cert expiry; isReady; rotation (key change, prev swap, new public key); rotation failure (keeps old key); cert age; concurrent sign (100 goroutines); stop idempotent; signature copy safety |
 
-**Total task-identity-related tests: 105 unit + 19 integration = 124.**
+**Total tests: 377** (unit + integration + fuzz + benchmarks across all
+packages including `internal/macaroon/`, `internal/token/`,
+`internal/broker/`).
 
 ### 11.3 Key Invariants Proven by Tests
 
@@ -1173,6 +1188,28 @@ unit test coverage:
    concurrent signing complete without errors
    (`TestDelegationConcurrentSign`).
 
+8. **Macaroon caveat accumulation.** HMAC chain integrity ensures caveats
+   cannot be removed; adding a caveat produces a new HMAC that depends on
+   all prior caveats.
+
+9. **Effective envelope reduction.** The reducer derives semantic
+   narrowing from caveat accumulation using set intersection (targets,
+   roles, services, remotes, methods), minimum (max_depth, ttl), and AND
+   (can_delegate). Fuzz-tested.
+
+10. **Holder binding.** A bound task's `HolderPubKey` is set exactly
+    once via `task_bind` and cannot be changed after binding.
+
+11. **Replay prevention.** The `NonceCache` rejects any previously seen
+    nonce, preventing PoP signature replay.
+
+12. **Nonce persistence.** Nonces survive broker restarts within their
+    TTL window.
+
+13. **Unbound token restriction.** `task_bind` is the only operation
+    permitted on an unbound token. All other operations require either a
+    bound token or a non-holder-bound token.
+
 ---
 
 ## 12. Comparison with Existing Approaches
@@ -1190,7 +1227,7 @@ Identity Documents). SPIRE is the reference implementation.
 | Trust model | Hierarchical CAs with attestation | Three-tier delegation (root -> broker -> token) |
 | Revocation | CRL/OCSP, TTL-based | Epoch watermarks with lineage walk |
 | Capability bounding | Not built-in (relies on external policy) | Embedded capability envelopes |
-| Delegation | Nested trust domains | Monotonic envelope attenuation (Phase 2b) |
+| Delegation | Nested trust domains | Monotonic envelope attenuation |
 | Task hierarchy | No concept of parent-child tasks | Lineage array, cascading revocation |
 | Audit correlation | By workload identity | By task ID, root ID, and lineage |
 | Dependencies | SPIRE server, attestors, workload API | Single Go binary, no external deps |
@@ -1215,7 +1252,7 @@ service authentication.
 | Token format | JWT or opaque | CTT-E (JWT + EdDSA) |
 | Scoping | OAuth scopes (string labels) | Capability envelopes (targets, roles, services, methods, remotes) |
 | Revocation | Token introspection endpoint or JTI blocklist | Epoch watermarks |
-| Delegation | No native support | Monotonic attenuation (Phase 2b) |
+| Delegation | No native support | Monotonic attenuation |
 | Task hierarchy | None | Lineage array |
 | Token lifetime | Minutes to hours | Minutes (max 1h) |
 | Dependencies | Authorization server (Keycloak, Auth0, etc.) | Built-in to broker |
@@ -1237,7 +1274,7 @@ by deleting the key.
 | Identity granularity | Key holder (agent or operator) | Task |
 | Scoping | Key-level (all or nothing) | Per-task envelope |
 | Revocation | Delete key (kills all tasks) | Watermark (kills one task) |
-| Delegation | Not possible | Monotonic attenuation (Phase 2b) |
+| Delegation | Not possible | Monotonic attenuation |
 | Audit | By key fingerprint | By task ID and lineage |
 | Rotation cost | Re-authenticate all clients | Transparent (delegation rotation) |
 
@@ -1256,7 +1293,7 @@ Web-style session tokens (e.g., signed cookies, Redis-backed sessions).
 | Identity granularity | Session (user login) | Task |
 | Scoping | Session-level roles | Per-task envelope |
 | Revocation | Delete from session store | Epoch watermark (no central store) |
-| Delegation | Not designed for it | Monotonic attenuation (Phase 2b) |
+| Delegation | Not designed for it | Monotonic attenuation |
 | Hierarchy | Flat | Lineage tree |
 | Stateless validation | No (requires session store lookup) | Yes (cryptographic validation only) |
 
@@ -1275,12 +1312,12 @@ Capability envelope    -       ~       -        -       Y
 Cascading revocation   -       -       -        -       Y
 Targeted revocation    -       ~       Y        ~       Y
 Lineage tracking       -       -       -        -       Y
-Monotonic attenuation  -       -       -        ~       Y*
+Monotonic attenuation  -       -       -        ~       Y
 Stateless validation   Y       ~       -        Y       Y
 Zero external deps     Y       -       -        -       Y
 Audit correlation      -       ~       ~        ~       Y
 
-Y = yes, ~ = partial, - = no, * = Phase 2b
+Y = yes, ~ = partial, - = no
 ```
 
 ---
@@ -1331,48 +1368,73 @@ Child Task (depth=1, envelope={targets: [A]}, parent_id=parent.id)
 
 ### 13.2 Phase 2c: Dashboard Task Views
 
-**Status:** Designed, not yet implemented.
+**Status:** Implemented (v0.3.0).
 
-The Ephyr dashboard will receive task-specific views:
+The Ephyr dashboard includes task-specific views:
 
-- **Task Tree:** Visual hierarchy of active tasks, their lineage, and
-  envelope summaries.
-- **Task Timeline:** Gantt-style view of task lifetimes, overlaid with
-  action events.
-- **Revocation Controls:** One-click task revocation from the dashboard,
-  with cascading impact preview.
+- **Tasks View:** Table and tree display modes for active tasks, showing
+  lineage, envelope summaries, and task metadata.
 - **Envelope Inspector:** Drill into a task's capability envelope and see
-  which permissions are actually used vs. granted.
+  which permissions are granted.
+- **Cascade Revocation:** One-click task revocation from the dashboard
+  with cascading impact on child tasks.
+- **Dashboard REST Endpoints:** Task data exposed via REST API for
+  programmatic access.
+- **WebSocket Events:** Real-time task lifecycle events (creation,
+  revocation, expiry) pushed to connected dashboard clients.
 
-### 13.3 Phase 3: Federated Task Identity
+### 13.3 Phase 3: Ephyr Bind (Holder-Bound Tokens)
 
-**Status:** Conceptual.
+**Status:** Implemented (v0.3.0).
 
-When Ephyr federates with remote MCP servers, task identity should flow
-across federation boundaries:
+Ephyr Bind adds proof-of-possession to task tokens, preventing token
+theft and replay attacks. A delegated task token is initially unbound
+(bearer); the receiving agent binds it by presenting an Ed25519 public
+key within a 30-second deadline.
 
-- The parent Ephyr instance issues a CTT-E with the remote server in the
-  `remotes` envelope.
-- The remote server validates the token's signature chain back to the
-  parent's root public key (exchanged during federation setup).
-- Actions on the remote server are attributed to the originating task ID.
-- Revocation propagates via webhook notification.
+**Implementation details:**
 
-This enables a multi-Ephyr topology where each instance manages its own
-hosts but tasks can span instances.
+- `HolderPubKey`, `HolderBound`, and `BindDeadline` fields on Task.
+- `task_bind` MCP tool (bringing the total to 16 MCP tools).
+- Two-phase delegation: `task_delegate` creates an unbound token;
+  `task_bind` binds the holder's public key within 30 seconds.
+- Ed25519 proof-of-possession with `body_hash` over request payload.
+- `NonceCache` for replay prevention (nonces are single-use).
+- Unbound tasks are auto-revoked after the bind deadline expires.
+- `task_bind` is the only operation permitted on an unbound token.
+- Full PoP pipeline measured at ~158us.
+
+**Example flow:**
+
+```
+Parent Agent                         Child Agent
+    |                                    |
+    | task_delegate(...)                 |
+    |----> unbound token (30s deadline)  |
+    |                                    |
+    |          token + bind_deadline     |
+    |----------------------------------->|
+    |                                    |
+    |       task_bind(pub_key, nonce)     |
+    |<-----------------------------------|
+    |                                    |
+    |          bound token               |
+    |----------------------------------->|
+    |                     All requests require PoP signature
+```
 
 ### 13.4 Future Considerations
 
-- **Macaroon-based tokens:** If third-party attenuation is needed (e.g.,
-  an external policy service adding constraints to tokens), macaroons may
-  replace or complement JWT-based CTT tokens.
+- **Federated task identity:** When Ephyr federates with remote MCP
+  servers, task identity could flow across federation boundaries. The
+  remote server would validate the token's signature chain back to the
+  parent's root public key, attribute actions to the originating task ID,
+  and propagate revocation via webhook notification.
 - **Hardware-backed key custody:** The signer's root key could be stored
   in a TPM or HSM for hardware-level protection.
-- **Token binding:** Bind tokens to a specific TLS connection or IP
-  address to prevent token theft.
-- **Metrics integration:** Push task metrics to Prometheus/Grafana for
-  alerting on anomalous task patterns (e.g., unexpected delegation depth,
-  high revocation rate).
+- **Third-party caveats:** macaroons support third-party caveats for
+  external policy services to add constraints. This is not yet implemented
+  but the macaroon infrastructure supports it.
 
 ---
 
@@ -1385,7 +1447,7 @@ discrete task run. This gap creates security failures that grow more severe
 as agents gain more autonomy: no blast radius containment, no audit
 correlation, no delegation control, and no targeted revocation.
 
-Ephyr v0.2 addresses this gap by making the task the fundamental unit of
+Ephyr addresses this gap by making the task the fundamental unit of
 identity. Each task receives a cryptographically signed token (CTT-E) that
 carries:
 
@@ -1406,12 +1468,13 @@ approaches with a mechanism designed for short-lived, hierarchical tokens:
 one map entry per revoked task (not per revoked token), O(depth) validation,
 automatic cascading, and self-cleaning GC.
 
-The implementation is ~3,500 lines of Go with zero external cryptographic
-dependencies. It is tested by 124 tests (105 unit + 19 integration) that
-verify ULID uniqueness, cascading revocation, independent task survival,
-envelope monotonicity, key rotation continuity, failure resilience, and
-concurrent safety. Measured performance shows all task operations complete
-in under 1ms with warm auth cache.
+The implementation uses zero external cryptographic dependencies. It is
+tested by 377 tests that verify ULID uniqueness, cascading revocation,
+independent task survival, envelope monotonicity, key rotation continuity,
+failure resilience, concurrent safety, macaroon caveat accumulation,
+effective envelope reduction, holder binding, and replay prevention.
+Measured performance shows all task operations complete in under 1ms with
+warm auth cache, macaroon mint at ~34us, and full PoP pipeline at ~158us.
 
 Task-scoped identity is not a theoretical improvement. It is the difference
 between "we revoked the agent's API key and killed all its tasks" and "we
@@ -1422,12 +1485,14 @@ audit log shows task 01JQKX7M, initiated by ak_claude, running
 difference between "the child agent inherited everything" and "the child
 agent received exactly the subset of permissions needed for its subtask."
 
-Ephyr v0.2 is the foundation. Delegation tokens (Phase 2b) will enable
-parent-to-child spawning with monotonic attenuation. Federated task
-identity (Phase 3) will extend task scoping across Ephyr instances.
-But the core primitive -- the task as an identity unit, with a signed
-token, a bounded envelope, and a revocable lineage -- is complete and
-operational today.
+Ephyr v0.3 completes the full task identity stack. Ephyr Core (v0.2)
+established the task as the identity unit. Ephyr Delegation (v0.2b)
+added macaroon-based tokens with cryptographic attenuation via HMAC
+chain and effective envelope reducer. Ephyr Bind (v0.3) added
+holder-bound tokens with Ed25519 proof-of-possession, replay prevention,
+and two-phase delegation key binding. The core primitive -- the task as
+an identity unit, with a signed token, a bounded envelope, a revocable
+lineage, and holder binding -- is complete and operational.
 
 ---
 
@@ -1472,7 +1537,7 @@ operational today.
 }
 ```
 
-### A.3 CTT-D Header (Phase 2b)
+### A.3 CTT-D Header
 
 ```json
 {
@@ -1562,5 +1627,5 @@ Random: 80-bit cryptographic random
 
 ---
 
-*This document describes Ephyr v0.2.0-alpha as implemented on 2026-03-13.
-Source code: `/opt/ephyr/` on LXC CT 112 (192.168.100.75).*
+*This document describes Ephyr v0.3.0 as implemented on 2026-03-14.
+Source code: `/opt/clauth/` on LXC CT 112 (192.168.100.75).*
