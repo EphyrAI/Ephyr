@@ -28,16 +28,6 @@ func caveatsContain(caveats [][]byte, prefix string) bool {
 	return false
 }
 
-func caveatValue(caveats [][]byte, prefix string) string {
-	for _, c := range caveats {
-		s := string(c)
-		if strings.HasPrefix(s, prefix) {
-			return s
-		}
-	}
-	return ""
-}
-
 func TestMintRoot_Basic(t *testing.T) {
 	ks := NewRootKeyStore()
 	m := NewMinter(ks)

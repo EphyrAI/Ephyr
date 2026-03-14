@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"testing"
 )
 
@@ -91,7 +92,7 @@ func TestVerify_WrongKey(t *testing.T) {
 
 	wrongKey := []byte("wrong-key-that-should-not-work!")
 	_, err := m.Verify(wrongKey)
-	if err != ErrInvalidSignature {
+	if !errors.Is(err, ErrInvalidSignature) {
 		t.Fatalf("expected ErrInvalidSignature, got %v", err)
 	}
 }
@@ -107,7 +108,7 @@ func TestVerify_TamperedCaveat(t *testing.T) {
 	m.caveats[0] = []byte("target IN [dockerhost,hugoblog,mandrake-rack]")
 
 	_, err := m.Verify(key)
-	if err != ErrInvalidSignature {
+	if !errors.Is(err, ErrInvalidSignature) {
 		t.Fatalf("expected ErrInvalidSignature after tampering, got %v", err)
 	}
 }
@@ -124,7 +125,7 @@ func TestVerify_RemovedCaveat(t *testing.T) {
 	m.caveats = append(m.caveats[:1], m.caveats[2:]...)
 
 	_, err := m.Verify(key)
-	if err != ErrInvalidSignature {
+	if !errors.Is(err, ErrInvalidSignature) {
 		t.Fatalf("expected ErrInvalidSignature after removal, got %v", err)
 	}
 }
@@ -298,7 +299,7 @@ func TestTokenSizeLimit(t *testing.T) {
 	}
 
 	_, err := m.MarshalBinary()
-	if err != ErrTokenTooLarge {
+	if !errors.Is(err, ErrTokenTooLarge) {
 		t.Fatalf("expected ErrTokenTooLarge, got %v", err)
 	}
 }
@@ -327,7 +328,7 @@ func TestUnmarshal_TruncatedData(t *testing.T) {
 func TestUnmarshal_WrongVersion(t *testing.T) {
 	data := []byte{0x01, 0, 0, 0, 0} // wrong version
 	var m Macaroon
-	if err := m.UnmarshalBinary(data); err != ErrMalformedToken {
+	if err := m.UnmarshalBinary(data); !errors.Is(err, ErrMalformedToken) {
 		t.Fatalf("expected ErrMalformedToken for wrong version, got %v", err)
 	}
 }
@@ -345,7 +346,7 @@ func TestUnmarshal_ExtraTrailingBytes(t *testing.T) {
 	// Append extra byte.
 	data = append(data, 0xFF)
 	var m2 Macaroon
-	if err := m2.UnmarshalBinary(data); err != ErrMalformedToken {
+	if err := m2.UnmarshalBinary(data); !errors.Is(err, ErrMalformedToken) {
 		t.Fatalf("expected ErrMalformedToken for trailing bytes, got %v", err)
 	}
 }
@@ -354,7 +355,7 @@ func TestUnmarshal_Oversized(t *testing.T) {
 	data := make([]byte, MaxTokenSize+1)
 	data[0] = formatVersion
 	var m Macaroon
-	if err := m.UnmarshalBinary(data); err != ErrTokenTooLarge {
+	if err := m.UnmarshalBinary(data); !errors.Is(err, ErrTokenTooLarge) {
 		t.Fatalf("expected ErrTokenTooLarge, got %v", err)
 	}
 }

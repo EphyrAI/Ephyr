@@ -3,6 +3,7 @@ package macaroon
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -151,7 +152,7 @@ func TestVerify_Expired(t *testing.T) {
 	}
 
 	_, err = verifier.Verify(mac)
-	if err != ErrExpired {
+	if !errors.Is(err, ErrExpired) {
 		t.Fatalf("expected ErrExpired, got: %v", err)
 	}
 }

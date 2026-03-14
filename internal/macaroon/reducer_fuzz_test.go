@@ -30,7 +30,7 @@ func FuzzReduce(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, caveat string) {
 		// Must not panic regardless of input.
-		Reduce([]string{caveat})
+		_, _ = Reduce([]string{caveat})
 	})
 }
 

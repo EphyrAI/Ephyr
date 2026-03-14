@@ -1,10 +1,11 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
@@ -18,9 +19,6 @@ linters:
     - predeclared
     - reassign
     - unconvert
-  disable:
-    - depguard
-    - unparam
 
 linters-settings:
   errcheck:
@@ -45,13 +43,3 @@ issues:
     - path: _test\.go
       linters:
         - errcheck
-        - gosimple
-    - linters:
-        - gosimple
-      text: "S1000"
-    - linters:
-        - gosimple
-      text: "S1009"
-    - linters:
-        - gosimple
-      text: "S1017"

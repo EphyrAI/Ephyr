@@ -73,7 +73,7 @@ func Reduce(caveats []string) (*ReducerOutput, error) {
 	for _, raw := range caveats {
 		key, op, value, err := parseCaveat(raw)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrMalformedCaveat, err)
+			return nil, fmt.Errorf("%w: %w", ErrMalformedCaveat, err)
 		}
 
 		if !knownCaveatKeys[key] {
@@ -100,7 +100,7 @@ func Reduce(caveats []string) (*ReducerOutput, error) {
 			}
 			t, err := time.Parse(time.RFC3339, value)
 			if err != nil {
-				return nil, fmt.Errorf("%w: invalid time %q: %v", ErrMalformedCaveat, value, err)
+				return nil, fmt.Errorf("%w: invalid time %q: %w", ErrMalformedCaveat, value, err)
 			}
 			if !expiresConstrained || t.Before(expiresAt) {
 				expiresAt = t
@@ -113,7 +113,7 @@ func Reduce(caveats []string) (*ReducerOutput, error) {
 			}
 			b, err := strconv.ParseBool(value)
 			if err != nil {
-				return nil, fmt.Errorf("%w: invalid bool %q: %v", ErrMalformedCaveat, value, err)
+				return nil, fmt.Errorf("%w: invalid bool %q: %w", ErrMalformedCaveat, value, err)
 			}
 			// AND: any false makes it false.
 			if !b {
@@ -126,7 +126,7 @@ func Reduce(caveats []string) (*ReducerOutput, error) {
 			}
 			d, err := strconv.Atoi(value)
 			if err != nil {
-				return nil, fmt.Errorf("%w: invalid int %q: %v", ErrMalformedCaveat, value, err)
+				return nil, fmt.Errorf("%w: invalid int %q: %w", ErrMalformedCaveat, value, err)
 			}
 			if !depthConstrained || d < out.Envelope.DelegationDepth {
 				out.Envelope.DelegationDepth = d

@@ -591,12 +591,12 @@ func TestE2E_TokenSizeGrowthAcrossDelegation(t *testing.T) {
 	current := rootMac
 	for depth := 1; depth <= 5; depth++ {
 		childEnv := EffectiveEnvelope{
-			Targets:         rootEnv.Targets[:max(1, len(rootEnv.Targets)-depth)],
+			Targets:         rootEnv.Targets[:maxInt(1, len(rootEnv.Targets)-depth)],
 			Roles:           []string{"read"},
-			Services:        rootEnv.Services[:max(1, len(rootEnv.Services)-depth)],
+			Services:        rootEnv.Services[:maxInt(1, len(rootEnv.Services)-depth)],
 			Methods:         []string{"GET"},
 			CanDelegate:     depth < 5,
-			DelegationDepth: max(0, 5-depth),
+			DelegationDepth: maxInt(0, 5-depth),
 			ExpiresAt:       time.Date(2026, time.Month(12-depth), 15, 23, 59, 59, 0, time.UTC),
 		}
 
@@ -715,10 +715,10 @@ func TestE2E_MultiLevelSigDigestUniqueness(t *testing.T) {
 
 	for depth := 1; depth <= 5; depth++ {
 		childEnv := EffectiveEnvelope{
-			Targets:         env.Targets[:max(1, len(env.Targets)-depth)],
+			Targets:         env.Targets[:maxInt(1, len(env.Targets)-depth)],
 			Roles:           []string{"read"},
 			CanDelegate:     depth < 5,
-			DelegationDepth: max(0, 5-depth),
+			DelegationDepth: maxInt(0, 5-depth),
 			ExpiresAt:       time.Date(2026, time.Month(12-depth), 15, 23, 59, 59, 0, time.UTC),
 		}
 		child, err := minter.MintDelegated(current, childEnv)
@@ -830,7 +830,7 @@ func TestE2E_CaveatRemovalFailsVerification(t *testing.T) {
 
 // max returns the larger of a or b (Go 1.21 has built-in max,
 // but we include it for compatibility).
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}
