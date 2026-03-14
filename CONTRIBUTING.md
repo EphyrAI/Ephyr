@@ -6,7 +6,7 @@ Thanks for your interest in contributing to Ephyr! This document covers the basi
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-org/ephyr.git
+git clone https://github.com/ben-spanswick/Ephyr.git
 cd ephyr
 
 # Build all binaries
@@ -28,6 +28,7 @@ internal/      Core packages (not importable externally)
   audit/       Structured JSON audit logging
   auth/        Session management, Unix peer credentials
   broker/      Broker server, dashboard, MCP, proxy, activity
+  macaroon/    Macaroon minting, verification, reducer (Delegation)
   policy/      Policy engine, YAML config, evaluation pipeline
   signer/      Certificate signing, CA key management
 configs/       Default policy.yaml

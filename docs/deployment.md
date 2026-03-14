@@ -826,7 +826,7 @@ go test ./test/integration/ -v -count=1
 | Test | Description |
 |------|-------------|
 | TestMCPInitialize | MCP protocol handshake and version negotiation |
-| TestToolsList | Confirms all 14 tools are registered (including 4 task identity tools) |
+| TestToolsList | Confirms all 15 tools are registered (including 5 task identity tools) |
 | TestLegacyToolsStillWork | Verifies pre-v0.2 tools (`list_targets`) are unaffected |
 | TestTaskLifecycle | Full create -> info -> list -> revoke -> verify-revoked cycle |
 | TestTaskValidation | Rejects invalid TTLs, empty descriptions, nonexistent task IDs |
@@ -846,7 +846,7 @@ All tests should pass. A summary is printed at the end:
   TEST                            LATENCY   STATUS  DETAIL
   ----------------------------------------------------------------------
   mcp_initialize                    5.20ms  [  OK  ]  server=ephyr protocol=2025-03-26
-  tools_list                        3.15ms  [  OK  ]  14 tools, all 4 task tools present
+  tools_list                        3.15ms  [  OK  ]  15 tools, all 5 task tools present
   ...
   TOTAL: N passed, 0 failed, XXms total latency
   ========================================================================

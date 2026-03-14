@@ -118,7 +118,7 @@ Central orchestrator running multiple listeners and thirteen subsystems.
 | Activity Store | `broker/activity.go` | 10,000-entry ring buffer for analytics |
 | Exec Pool | `broker/mcp_exec.go` | SSH session management (persistent + one-shot) |
 | Proxy Engine | `broker/proxy.go` | HTTP proxy with credential injection |
-| MCP Server | `broker/mcp.go`, `broker/mcp_resources.go` | Model Context Protocol with 14 tools and 7 resources |
+| MCP Server | `broker/mcp.go`, `broker/mcp_resources.go` | Model Context Protocol with 15 tools and 7 resources |
 | Auth Cache | `broker/mcp_auth.go` | SHA-256-keyed auth result cache with configurable TTL (avoids repeated bcrypt) |
 
 ### Certificate Request Flow
@@ -187,10 +187,10 @@ audit log, host toggle (revokes certs on disable), host config CRUD, role
 listing, WebSocket terminal, activity queries, service config CRUD,
 WebSocket event stream.
 
-**MCP** (`:8554`) -- Single `POST /mcp` endpoint. Fourteen tools: `list_targets`,
+**MCP** (`:8554`) -- Single `POST /mcp` endpoint. Fifteen tools: `list_targets`,
 `exec`, `session_create`, `session_close`, `list_sessions`, `list_certs`,
-`http_request`, `list_services`, `list_remotes`, `task_create`, `task_info`,
-`task_revoke`, `task_list`, plus federated `{server}.{tool}` calls. Seven resources for agent self-discovery:
+`http_request`, `list_services`, `list_remotes`, `task_create`, `task_delegate`,
+`task_info`, `task_revoke`, `task_list`, plus federated `{server}.{tool}` calls. Seven resources for agent self-discovery:
 `ephyr://overview`, `ephyr://targets`, `ephyr://services`,
 `ephyr://roles`, `ephyr://status`, `ephyr://tools`, `ephyr://remotes`.
 

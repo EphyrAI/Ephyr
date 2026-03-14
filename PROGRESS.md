@@ -1,6 +1,6 @@
 # Ephyr Implementation Progress
 
-## Phase 1: Rename Clauth → Ephyr
+## Phase 1: Rename to Ephyr
 
 | Step | Description | Status | Agent | Notes |
 |------|-------------|--------|-------|-------|
@@ -32,7 +32,7 @@
 
 | Step | Description | Status | Agent | Notes |
 |------|-------------|--------|-------|-------|
-| 3.1 | STYLE-GUIDE compliance audit (all .md files) | | | Voice, naming, formatting |
-| 3.2 | README.md rewrite (Ephyr product framing) | | | Match /home/claude/EPHYR/README.md |
-| 3.3 | Architecture + security docs alignment | | | Tier model, invariants |
-| 3.4 | CHANGELOG update for rename + v0.2b | | | Keep a Changelog format |
+| 3.1 | STYLE-GUIDE compliance audit (all .md files) | DONE | doc-agent | Voice, naming, formatting, tool counts |
+| 3.2 | README.md rewrite (Ephyr product framing) | DONE | doc-agent | Three tiers, macaroon deps, 15 tools |
+| 3.3 | Architecture + security docs alignment | DONE | doc-agent | Tool counts, task_delegate, "does NOT" sections |
+| 3.4 | CHANGELOG update for rename + v0.2b | DONE | doc-agent | Keep a Changelog format, historical annotations |

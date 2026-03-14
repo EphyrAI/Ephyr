@@ -74,7 +74,7 @@ Unix socket peer credential validation (SO_PEERCRED), bcrypt API key
 hashing with auth result caching, per-agent RBAC with template inheritance,
 and structured audit logging of every action.
 
-**Zero-trust agent model.** Agents never see infrastructure credentials.
+**Brokered access with no standing credentials.** Agents never see infrastructure credentials.
 SSH access uses ephemeral certificates that expire in minutes. HTTP proxy
 requests have credentials injected by the broker -- the agent's request
 arrives without authentication headers, and the broker adds them before
@@ -535,7 +535,7 @@ Client                                          Server
 
 ### 4.2 Tool Inventory
 
-Ephyr exposes 14 tools (9 local v0.1 + 4 task identity v0.2 + federated):
+Ephyr exposes 15 tools (9 core + 5 task identity + federated):
 
 | Tool            | Category   | Description                                 |
 |-----------------|------------|---------------------------------------------|
@@ -549,6 +549,7 @@ Ephyr exposes 14 tools (9 local v0.1 + 4 task identity v0.2 + federated):
 | `list_services` | Proxy      | List configured proxy services               |
 | `list_remotes`  | Federation | List federated MCP servers                   |
 | `task_create`   | Identity   | Create task with scoped identity (v0.2)      |
+| `task_delegate` | Identity   | Delegate child task with attenuated scope    |
 | `task_info`     | Identity   | Get task information and envelope (v0.2)     |
 | `task_revoke`   | Identity   | Revoke task and cascade to children (v0.2)   |
 | `task_list`     | Identity   | List active tasks for agent (v0.2)           |

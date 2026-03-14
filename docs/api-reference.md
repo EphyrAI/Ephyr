@@ -874,7 +874,7 @@ Single endpoint handling all MCP JSON-RPC 2.0 methods.
 |--------|-------------|
 | `initialize` | Protocol handshake -- returns server capabilities (tools, resources) |
 | `notifications/initialized` | Client acknowledgment (no response) |
-| `tools/list` | List all 14 available tools with JSON Schema parameters |
+| `tools/list` | List all 15 available tools with JSON Schema parameters |
 | `tools/call` | Execute a tool by name with arguments |
 | `resources/list` | List all 7 available resources with URIs and descriptions |
 | `resources/read` | Read a specific resource by URI, returns Markdown content |
@@ -966,7 +966,7 @@ curl -s -X POST http://BROKER:8554/mcp \
       {
         "uri": "ephyr://overview",
         "mimeType": "text/markdown",
-        "text": "# Ephyr Agent Access Broker\n\nZero-trust infrastructure access for AI agents..."
+        "text": "# Ephyr Agent Access Broker\n\nBrokered infrastructure access for AI agents..."
       }
     ]
   }
@@ -996,7 +996,7 @@ curl -s -X POST http://BROKER:8554/mcp \
 | `ephyr://services` | HTTP Proxy Services | Per-service details: URL prefix, auth type, allowed methods/paths, usage examples |
 | `ephyr://roles` | Roles & Permissions | Role-to-principal mappings, per-role capabilities, role selection guide |
 | `ephyr://status` | Agent Status | Agent's active certs (count), active sessions (list), last 10 activity entries |
-| `ephyr://tools` | Tools Reference | All 14 tools with parameters, return types, and usage hints |
+| `ephyr://tools` | Tools Reference | All 15 tools with parameters, return types, and usage hints |
 | `ephyr://remotes` | Federated Servers | Configured MCP federation servers, status, and available tools |
 
 Resources return dynamically generated Markdown content reflecting the current policy
@@ -1018,14 +1018,14 @@ requesting agent.
 
 ### Task Identity Tools (v0.2)
 
-The following four tools manage task-scoped identity tokens (CTT-E). They
+The following five tools manage task-scoped identity tokens. They
 require the signer to support delegation certificates. If the signer is
-v0.1 (no delegation support), these tools return an error.
+v0.1 (no delegation support), these tools return an error. As of Ephyr Delegation (v0.2b), task tokens are macaroon-based (prefixed `mac_`); legacy JWT tokens are also accepted for backward compatibility.
 
 #### `task_create`
 
 Create a new task with a scoped capability envelope derived from the agent's
-RBAC permissions. Returns a signed CTT-E (JWT) token.
+RBAC permissions. Returns a signed task token (macaroon with `mac_` prefix, or JWT for legacy compatibility).
 
 **Parameters:**
 
@@ -1073,7 +1073,7 @@ RBAC permissions. Returns a signed CTT-E (JWT) token.
 | Field | Type | Description |
 |-------|------|-------------|
 | `task_id` | string | ULID identifier for the task (26 characters) |
-| `token` | string | Signed CTT-E JWT (3 dot-separated base64url segments) |
+| `token` | string | Signed task token (`mac_` prefixed macaroon or JWT for legacy mode) |
 | `expires_at` | string | RFC3339 expiry timestamp |
 | `ttl_seconds` | int | TTL in seconds |
 | `envelope` | object | Resolved capability envelope |
@@ -1093,6 +1093,82 @@ RBAC permissions. Returns a signed CTT-E (JWT) token.
 | TTL exceeds 1 hour | `"ttl cannot exceed 1h"` |
 | TTL is zero or negative | `"ttl must be positive"` |
 | Token signing failure | `"failed to sign task token: ..."` |
+
+---
+
+#### `task_delegate`
+
+Delegate a child task under an existing parent task. The child receives a macaroon
+with additional caveats that further restrict the capability envelope. The HMAC chain
+guarantees caveats cannot be removed.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `parent_task_id` | string | Yes | -- | Task ID of the parent task (must have `can_delegate: true`) |
+| `description` | string | Yes | -- | Human-readable description of the delegated task |
+| `ttl` | string | No | `"30m"` | Task TTL. Cannot exceed parent's remaining TTL. Maximum `"1h"`. |
+| `envelope` | object | No | (parent envelope) | Capability envelope for the child. Must be a subset of parent's. |
+
+**Example request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 15,
+  "method": "tools/call",
+  "params": {
+    "name": "task_delegate",
+    "arguments": {
+      "parent_task_id": "01JQXYZ...",
+      "description": "Read-only check on webserver",
+      "ttl": "10m",
+      "envelope": {"targets": ["webserver"], "roles": ["read"], "services": [], "remotes": [], "methods": []}
+    }
+  }
+}
+```
+
+**Response** (success):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 15,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"task_id\":\"01JQABC...\",\"parent_task_id\":\"01JQXYZ...\",\"token\":\"mac_...\",\"depth\":1,\"expires_at\":\"2026-03-14T15:10:00Z\",\"envelope\":{\"targets\":[\"webserver\"],\"roles\":[\"read\"],\"services\":[],\"remotes\":[],\"methods\":[]}}"
+      }
+    ]
+  }
+}
+```
+
+**Response fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `task_id` | string | ULID of the child task |
+| `parent_task_id` | string | ULID of the parent task |
+| `token` | string | Macaroon token for the child task (`mac_` prefix) |
+| `depth` | int | Delegation depth (1 = direct child of root) |
+| `expires_at` | string | RFC3339 expiry timestamp |
+| `envelope` | object | Resolved capability envelope (intersection of parent and requested) |
+
+**Errors:**
+
+| Condition | Response |
+|-----------|----------|
+| Missing parent_task_id | `"parent_task_id is required"` |
+| Missing description | `"description is required"` |
+| Parent task not found | `"parent task not found or expired"` |
+| Parent cannot delegate | `"parent task does not have delegation permission"` |
+| Envelope not a subset | `"child envelope exceeds parent envelope"` |
+| TTL exceeds parent remaining | `"child ttl exceeds parent remaining ttl"` |
+| Max depth exceeded | `"maximum delegation depth (5) exceeded"` |
 
 ---
 

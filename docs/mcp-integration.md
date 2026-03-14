@@ -986,7 +986,7 @@ sees only its own data.
 
 #### `ephyr://tools` -- Tools Reference
 
-Quick-reference card for all 14 MCP tools. Designed for agents that want a
+Quick-reference card for all 15 MCP tools. Designed for agents that want a
 compact cheat-sheet without reading full documentation.
 
 **Content includes:**

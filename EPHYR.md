@@ -74,13 +74,13 @@ Credentials are injected automatically. You do not provide authentication. Optio
 
 | Tool | Description |
 |------|-------------|
-| `task_create` | Create a scoped task and receive a CTT-E token |
-| `task_delegate` | Delegate a child task with attenuated capabilities (CTT-D token) |
+| `task_create` | Create a scoped task and receive a macaroon-based task token |
+| `task_delegate` | Delegate a child task with attenuated capabilities (macaroon with added caveats) |
 | `task_info` | Get task details (envelope, lineage, TTL remaining) |
 | `task_list` | List your active tasks |
 | `task_revoke` | Revoke a task and all its tokens (cascading to children) |
 
-Tasks give you **scoped, auditable identity**. When you create a task, you get back a CTT-E (Ephyr Task Token - Execution) that you can use as a Bearer token instead of your API key. The task token:
+Tasks give you **scoped, auditable identity**. When you create a task, you get back a macaroon-based task token (prefixed `mac_`) that you can use as a Bearer token instead of your API key. The task token:
 
 - Is tied to a specific purpose (the description you provide)
 - Has a short TTL (default 30 min, max 1 hour)
@@ -90,10 +90,10 @@ Tasks give you **scoped, auditable identity**. When you create a task, you get b
 **Create a task:**
 ```json
 {"name": "task_create", "arguments": {"description": "Deploy blog update to hugoblog", "ttl": "30m"}}
-// Returns: task_id, token (CTT-E), expires_at
+// Returns: task_id, token (mac_...), expires_at
 ```
 
-**Use the token** -- replace your API key with the returned CTT-E token in the `Authorization: Bearer` header for subsequent requests. All actions performed with the task token are scoped and audited under that task.
+**Use the token** -- replace your API key with the returned macaroon token in the `Authorization: Bearer` header for subsequent requests. All actions performed with the task token are scoped and audited under that task.
 
 **Check task status:**
 ```json
@@ -105,10 +105,10 @@ Tasks give you **scoped, auditable identity**. When you create a task, you get b
 {"name": "task_revoke", "arguments": {"task_id": "<id>"}}
 ```
 
-**Delegate a child task (Phase 2b):**
+**Delegate a child task (Ephyr Delegation):**
 ```json
 {"name": "task_create", "arguments": {"description": "Coordinate blog deploy", "ttl": "30m", "can_delegate": true}}
-// Returns: task_id, token (CTT-E), can_delegate: true
+// Returns: task_id, token (mac_...), can_delegate: true
 ```
 
 ```json
@@ -118,7 +118,7 @@ Tasks give you **scoped, auditable identity**. When you create a task, you get b
   "ttl": "10m",
   "envelope": {"targets": ["hugoblog"], "roles": ["read"], "services": [], "remotes": [], "methods": []}
 }}
-// Returns: task_id, parent_task_id, token (CTT-D), depth, envelope
+// Returns: task_id, parent_task_id, token (mac_...), depth, envelope
 ```
 
 Delegation rules:
@@ -128,7 +128,7 @@ Delegation rules:
 - Maximum delegation depth is 5
 - Revoking a parent cascades to all children
 
-Tasks are optional. API key authentication still works for all tools. Use tasks when you want tighter scoping, audit correlation, or time-bounded access.
+Tasks are optional. API key authentication and legacy JWT tokens still work for all tools. Use tasks when you want tighter scoping, audit correlation, or time-bounded access. Macaroon tokens use a `mac_` prefix and are the default for new task creation.
 
 ### MCP Federation
 
@@ -183,5 +183,5 @@ The discovery tools (`list_targets`, `list_services`, `list_remotes`) automatica
 | `proxy: url not allowed by network policy` | URL is outside allowed network ranges |
 | `task not found` | Task ID doesn't exist or has expired |
 | `task revoked` | Task was revoked; token is no longer valid |
-| `token expired` | CTT-E token TTL has elapsed |
+| `token expired` | Task token TTL has elapsed |
 | `envelope violation: ...` | Task token doesn't permit the requested target/service/remote |

@@ -467,8 +467,8 @@ A healthy cache hit ratio is above 90%. If misses are high:
 
 ### Overview
 
-Tasks provide scoped identity for agent work. Each task gets a CTT-E
-(Ephyr Task Token -- Execution) signed by the broker's delegation key.
+Tasks provide scoped identity for agent work. Each task gets a macaroon-based
+task token (or a legacy CTT-E JWT) signed by the broker's delegation key.
 Tasks have ULIDs, lineage tracking, capability envelopes, and TTLs (max 1 hour).
 
 ### Creating Tasks (via MCP)
@@ -496,7 +496,7 @@ curl -s -X POST http://localhost:8554/mcp \
 
 Response includes:
 - `task_id` -- ULID identifying the task
-- `token` -- CTT-E JWT for authenticating subsequent requests
+- `token` -- macaroon (`mac_` prefix) or JWT for authenticating subsequent requests
 - `expires_at` -- When the task expires
 - `envelope` -- Capability boundaries (targets, roles, services, remotes, methods)
 

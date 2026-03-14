@@ -835,6 +835,11 @@ TCP address configured by EPHYR_MCP_LISTEN (default :8554):
 | http_request | Make an HTTP request through the authenticated proxy. | url |
 | list_services | List configured proxy services with credential injection info. | (none) |
 | list_remotes | List federated MCP servers and their available tools. | (none) |
+| task_create | Create a task with scoped identity and macaroon token. | description |
+| task_delegate | Delegate a child task with attenuated capabilities. | parent_task_id, description |
+| task_info | Get task details, envelope, and lineage. | task_id |
+| task_list | List active tasks for this agent. | (none) |
+| task_revoke | Revoke a task and cascade to all children. | task_id |
 
 MCP protocol version: 2025-03-26 (Streamable HTTP transport).
 
