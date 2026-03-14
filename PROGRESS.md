@@ -46,4 +46,4 @@
 | 0.3.3 | PoP proof format + body_hash + `_pop` field + broker verification | DONE | pop-agent | 13 tests + benchmark (~363μs/verify) |
 | 0.3.4 | NonceCache + configurable EPHYR_POP_CLOCK_SKEW | DONE | pop-agent | Included in v0.3.3 (NonceCache + 5min TTL) |
 | 0.3.5 | `ephyr inspect` binding status + Prometheus metrics | DONE | metrics-agent | 3 counters, inspect section, OnExpire wiring |
-| 0.3.6 | Integration tests + demo | | | Full pipeline: bind, PoP, delegation, replay rejection |
+| 0.3.6 | Integration tests + demo | DONE | e2e-agent | 5 e2e tests + benchmark (~158μs full pipeline) |

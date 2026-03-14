@@ -20,7 +20,7 @@ func decodeHolderPubKey(args map[string]interface{}) ([]byte, error) {
 	}
 	keyBytes, err := base64.RawURLEncoding.DecodeString(keyStr)
 	if err != nil {
-		return nil, fmt.Errorf("invalid holder_pub_key: %v", err)
+		return nil, fmt.Errorf("invalid holder_pub_key: %w", err)
 	}
 	if len(keyBytes) != 32 {
 		return nil, fmt.Errorf("invalid holder_pub_key: expected 32 bytes, got %d", len(keyBytes))

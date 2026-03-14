@@ -311,7 +311,7 @@ func TestNonceCache_ConcurrentAccess(t *testing.T) {
 				nonce := fmt.Sprintf("g%d-n%d", gid, n)
 				taskID := fmt.Sprintf("task-%d", gid)
 				if err := nc.CheckAndStore(taskID, nonce); err != nil {
-					errors <- fmt.Errorf("goroutine %d nonce %d: %v", gid, n, err)
+					errors <- fmt.Errorf("goroutine %d nonce %d: %w", gid, n, err)
 				}
 			}
 		}(g)

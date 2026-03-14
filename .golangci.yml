@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
 
@@ -5,41 +7,24 @@ linters:
   enable:
     - govet
     - ineffassign
-    - staticcheck
     - unused
     - bodyclose
     - durationcheck
     - errname
     - errorlint
-    - makezero
     - nilerr
     - predeclared
     - reassign
     - unconvert
   disable:
     - errcheck
-    - depguard
-    - unparam
-    - gosimple
-
-linters-settings:
-  staticcheck:
-    checks: ["all", "-QF*", "-ST1005"]
+    - staticcheck
 
 issues:
   exclude-use-default: true
-  max-issues-per-linter: 50
-  max-same-issues: 10
+  max-issues-per-linter: 0
+  max-same-issues: 0
   exclude-rules:
     - path: _test\.go
       linters:
         - errorlint
-    - linters:
-        - staticcheck
-      text: "S1000"
-    - linters:
-        - staticcheck
-      text: "S1009"
-    - linters:
-        - staticcheck
-      text: "S1017"
