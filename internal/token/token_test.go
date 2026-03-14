@@ -50,7 +50,7 @@ func testClaims() *TaskClaims {
 	taskID := NewULID()
 	return &TaskClaims{
 		Subject:   "test-agent",
-		Audience:  "clauth-broker",
+		Audience:  "ephyr-broker",
 		IssuedAt:  time.Now(),
 		ExpiresAt: time.Now().Add(5 * time.Minute),
 		TokenID:   "cte_" + NewULID(),
@@ -60,7 +60,7 @@ func testClaims() *TaskClaims {
 			ParentID:    "",
 			Depth:       0,
 			Lineage:     []string{taskID},
-			InitiatedBy: "clauth:local:uid:1000",
+			InitiatedBy: "ephyr:local:uid:1000",
 			Description: "test task",
 		},
 		Envelope: Envelope{
@@ -582,11 +582,11 @@ func TestIssuer_AutoPopulatesFields(t *testing.T) {
 	}
 
 	// Check auto-populated fields.
-	if parsed.Issuer != "clauth:broker-test" {
-		t.Errorf("issuer = %q, want %q", parsed.Issuer, "clauth:broker-test")
+	if parsed.Issuer != "ephyr:broker-test" {
+		t.Errorf("issuer = %q, want %q", parsed.Issuer, "ephyr:broker-test")
 	}
-	if parsed.Audience != "clauth-broker" {
-		t.Errorf("audience = %q, want %q", parsed.Audience, "clauth-broker")
+	if parsed.Audience != "ephyr-broker" {
+		t.Errorf("audience = %q, want %q", parsed.Audience, "ephyr-broker")
 	}
 	if parsed.TokenID == "" {
 		t.Error("expected auto-generated token ID")

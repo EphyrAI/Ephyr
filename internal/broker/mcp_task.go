@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sprawl/clauth/internal/audit"
-	"github.com/sprawl/clauth/internal/token"
+	"github.com/ben-spanswick/ephyr/internal/audit"
+	"github.com/ben-spanswick/ephyr/internal/token"
 )
 
 // toolTaskCreate creates a new task with scoped identity and returns a CTT-E token.
@@ -48,7 +48,7 @@ func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args ma
 	if len(namePrefix) > 6 {
 		namePrefix = namePrefix[:6]
 	}
-	initiatedBy := fmt.Sprintf("clauth:apikey:ak_%s", namePrefix)
+	initiatedBy := fmt.Sprintf("ephyr:apikey:ak_%s", namePrefix)
 
 	// Create task in manager.
 	task := s.broker.taskMgr.CreateTask(CreateTaskParams{

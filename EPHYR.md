@@ -1,14 +1,14 @@
-# CLAUTH.md -- Agent Reference
+# EPHYR.md -- Agent Reference
 
-This file tells AI agents how to interact with Clauth. Point your agent framework's context file here (Cline's `RULES.md`, OpenClaw's `SOUL.md`, Cursor's `.cursorrules`, etc.).
+This file tells AI agents how to interact with Ephyr. Point your agent framework's context file here (Cline's `RULES.md`, OpenClaw's `SOUL.md`, Cursor's `.cursorrules`, etc.).
 
-## What is Clauth?
+## What is Ephyr?
 
-Clauth is an access broker for AI agents. You connect to one MCP endpoint and get access to SSH targets, HTTP APIs, and federated MCP servers -- all through the broker. You never handle credentials directly.
+Ephyr is an access broker for AI agents. You connect to one MCP endpoint and get access to SSH targets, HTTP APIs, and federated MCP servers -- all through the broker. You never handle credentials directly.
 
 ## Connecting
 
-> **Already seeing Clauth tools?** If tools like `list_targets` and `exec` are available in your tool list, you are already connected -- skip to **First Steps**. Your MCP client was pre-configured with the broker URL and API key.
+> **Already seeing Ephyr tools?** If tools like `list_targets` and `exec` are available in your tool list, you are already connected -- skip to **First Steps**. Your MCP client was pre-configured with the broker URL and API key.
 
 For new setups, configure your MCP client with:
 - **Type:** `url`
@@ -21,7 +21,7 @@ The broker URL and API key are set in your MCP client configuration (e.g., Claud
 
 After connecting, discover what's available:
 
-1. **Read `clauth://overview`** -- returns a summary of all targets, services, and your permissions
+1. **Read `ephyr://overview`** -- returns a summary of all targets, services, and your permissions
 2. **Call `list_targets`** -- SSH hosts you can access
 3. **Call `list_services`** -- HTTP APIs available through the proxy
 4. **Call `list_remotes`** -- federated MCP servers and their tools
@@ -80,7 +80,7 @@ Credentials are injected automatically. You do not provide authentication. Optio
 | `task_list` | List your active tasks |
 | `task_revoke` | Revoke a task and all its tokens (cascading to children) |
 
-Tasks give you **scoped, auditable identity**. When you create a task, you get back a CTT-E (Clauth Task Token - Execution) that you can use as a Bearer token instead of your API key. The task token:
+Tasks give you **scoped, auditable identity**. When you create a task, you get back a CTT-E (Ephyr Task Token - Execution) that you can use as a Bearer token instead of your API key. The task token:
 
 - Is tied to a specific purpose (the description you provide)
 - Has a short TTL (default 30 min, max 1 hour)
@@ -142,13 +142,13 @@ Federated tools are namespaced as `{server}.{tool}`. Example: a remote named "ut
 
 | Resource URI | Contents |
 |---|---|
-| `clauth://overview` | System summary with all targets, services, permissions |
-| `clauth://targets` | SSH targets with roles, TTLs, auto-approve settings |
-| `clauth://services` | Proxy services with auth types and URL prefixes |
-| `clauth://roles` | Role definitions and SSH principal mappings |
-| `clauth://status` | Your active certificates, sessions, recent activity |
-| `clauth://tools` | Tool reference with parameters and usage examples |
-| `clauth://remotes` | Federated MCP servers with tools and status |
+| `ephyr://overview` | System summary with all targets, services, permissions |
+| `ephyr://targets` | SSH targets with roles, TTLs, auto-approve settings |
+| `ephyr://services` | Proxy services with auth types and URL prefixes |
+| `ephyr://roles` | Role definitions and SSH principal mappings |
+| `ephyr://status` | Your active certificates, sessions, recent activity |
+| `ephyr://tools` | Tool reference with parameters and usage examples |
+| `ephyr://remotes` | Federated MCP servers with tools and status |
 
 ## Key Behaviors
 

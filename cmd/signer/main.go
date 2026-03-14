@@ -14,19 +14,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sprawl/clauth/internal/signer"
+	"github.com/ben-spanswick/ephyr/internal/signer"
 )
 
 func main() {
 	var (
-		caKeyPath  = flag.String("ca-key", envOr("CLAUTH_CA_KEY", "/etc/clauth/ca_key"), "path to CA private key")
-		socketPath = flag.String("socket", envOr("CLAUTH_SOCKET", "/run/clauth/signer.sock"), "Unix socket path")
-		brokerUID  = flag.Int("broker-uid", envOrInt("CLAUTH_BROKER_UID", -1), "allowed caller UID (-1 = any)")
+		caKeyPath  = flag.String("ca-key", envOr("EPHYR_CA_KEY", "/etc/ephyr/ca_key"), "path to CA private key")
+		socketPath = flag.String("socket", envOr("EPHYR_SOCKET", "/run/ephyr/signer.sock"), "Unix socket path")
+		brokerUID  = flag.Int("broker-uid", envOrInt("EPHYR_BROKER_UID", -1), "allowed caller UID (-1 = any)")
 	)
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.SetPrefix("clauth-signer: ")
+	log.SetPrefix("ephyr-signer: ")
 
 	// Load the CA key.
 	ca, err := signer.LoadCA(*caKeyPath)

@@ -1,10 +1,10 @@
-# Clauth Threat Model
+# Ephyr Threat Model
 
 ## Introduction
 
-Clauth is a privileged access broker for AI agents. It issues ephemeral SSH certificates, proxies authenticated HTTP requests, and federates remote MCP tool servers -- all governed by declarative policy, audited per-action, and mediated through a single MCP endpoint. Agents never hold long-lived infrastructure secrets.
+Ephyr is a privileged access broker for AI agents. It issues ephemeral SSH certificates, proxies authenticated HTTP requests, and federates remote MCP tool servers -- all governed by declarative policy, audited per-action, and mediated through a single MCP endpoint. Agents never hold long-lived infrastructure secrets.
 
-This document enumerates the trust boundaries in the system, catalogs known threats against each boundary, describes current mitigations, and is honest about residual risks and planned improvements. It is intended for security reviewers evaluating Clauth for production deployment.
+This document enumerates the trust boundaries in the system, catalogs known threats against each boundary, describes current mitigations, and is honest about residual risks and planned improvements. It is intended for security reviewers evaluating Ephyr for production deployment.
 
 **Scope:** The broker, signer, and CLI processes; the MCP, dashboard, and proxy interfaces; credential storage; and the audit subsystem. Target host hardening, OS-level controls, and application-layer security on managed hosts are explicitly out of scope (see [Out of Scope](#what-is-explicitly-out-of-scope)).
 
@@ -12,13 +12,13 @@ This document enumerates the trust boundaries in the system, catalogs known thre
 
 ## System Overview
 
-Clauth is split into three processes, each running with minimum required privileges:
+Ephyr is split into three processes, each running with minimum required privileges:
 
 | Process | Role | Privileges |
 |---------|------|------------|
-| **clauth-signer** | Holds Ed25519 CA private key, signs certificates | No network access (AF_UNIX only), MemoryDenyWriteExecute, all capabilities dropped |
-| **clauth-broker** | Policy engine, MCP server, HTTP proxy, dashboard, audit | TCP listeners (dashboard :8553, MCP :8554), Unix socket IPC to signer and CLI |
-| **clauth** (CLI) | Agent-side tool, communicates via Unix socket | Runs as agent's OS user, authenticated by SO_PEERCRED |
+| **ephyr-signer** | Holds Ed25519 CA private key, signs certificates | No network access (AF_UNIX only), MemoryDenyWriteExecute, all capabilities dropped |
+| **ephyr-broker** | Policy engine, MCP server, HTTP proxy, dashboard, audit | TCP listeners (dashboard :8553, MCP :8554), Unix socket IPC to signer and CLI |
+| **ephyr** (CLI) | Agent-side tool, communicates via Unix socket | Runs as agent's OS user, authenticated by SO_PEERCRED |
 
 The broker mediates three proxy paths:
 
@@ -35,14 +35,14 @@ The broker mediates three proxy paths:
  │  ┌──────────────┐    Unix socket     ┌───────────────────────────┐ │
  │  │              │   (SO_PEERCRED)    │                           │ │
  │  │   Signer     │◄──────[B1]────────►│        Broker             │ │
- │  │  (CA key)    │  /run/clauth/      │  ┌─────────┐             │ │
+ │  │  (CA key)    │  /run/ephyr/      │  ┌─────────┐             │ │
  │  │  AF_UNIX only│  signer.sock       │  │ Policy  │             │ │
  │  └──────────────┘                    │  │ Engine  │             │ │
  │                                       │  └─────────┘             │ │
  │                                       │  ┌─────────┐             │ │
  │  ┌──────────────┐    Unix socket     │  │ Proxy   │             │ │
  │  │  Agent CLI   │◄──────[B0]────────►│  │ Engine  │             │ │
- │  │  (co-located)│  /run/clauth/      │  └─────────┘             │ │
+ │  │  (co-located)│  /run/ephyr/      │  └─────────┘             │ │
  │  └──────────────┘  broker.sock       │  ┌─────────┐             │ │
  │        │                              │  │  MCP    │             │ │
  │        │ nftables UID-based           │  │ Server  │             │ │
@@ -90,13 +90,13 @@ The broker mediates three proxy paths:
 
 ### B0 / B0r: Agent to Broker
 
-**Co-located agents (Unix socket):** The CLI connects to `/run/clauth/broker.sock` (permissions 0660, group `clauth-agents`). The kernel provides the caller's UID, GID, and PID via `SO_PEERCRED` -- this is unforgeable from userspace. The broker maps the UID to a registered agent in policy. Rate limiting is enforced per-UID (default: 10 requests / 60 seconds). Session tokens (256-bit, `crypto/rand`) provide a second factor after initial UID verification.
+**Co-located agents (Unix socket):** The CLI connects to `/run/ephyr/broker.sock` (permissions 0660, group `ephyr-agents`). The kernel provides the caller's UID, GID, and PID via `SO_PEERCRED` -- this is unforgeable from userspace. The broker maps the UID to a registered agent in policy. Rate limiting is enforced per-UID (default: 10 requests / 60 seconds). Session tokens (256-bit, `crypto/rand`) provide a second factor after initial UID verification.
 
 **Remote agents (MCP over TCP):** Agents connect to `:8554` via HTTP POST. Authentication is via `X-API-Key` header, compared against bcrypt hashes stored in policy YAML (default cost 10). `bcrypt.CompareHashAndPassword` is inherently constant-time.
 
 ### B1: Broker to Signer
 
-The signer listens on `/run/clauth/signer.sock`. It extracts `SO_PEERCRED` from every connection and rejects any UID that does not match `CLAUTH_BROKER_UID` (999 in production). The signer's systemd unit restricts address families to `AF_UNIX` -- it cannot open TCP, UDP, or raw sockets. Communication uses a one-shot newline-delimited JSON protocol (not persistent connections).
+The signer listens on `/run/ephyr/signer.sock`. It extracts `SO_PEERCRED` from every connection and rejects any UID that does not match `EPHYR_BROKER_UID` (999 in production). The signer's systemd unit restricts address families to `AF_UNIX` -- it cannot open TCP, UDP, or raw sockets. Communication uses a one-shot newline-delimited JSON protocol (not persistent connections).
 
 ### B2: Broker to Target Hosts
 
@@ -144,7 +144,7 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 | Aspect | Detail |
 |--------|--------|
 | **Current mitigation** | The CA private key is isolated in the signer process. The signer restricts callers to broker UID 999 via `SO_PEERCRED`, has no network access (`AF_UNIX` only), and runs with `MemoryDenyWriteExecute`, all capabilities dropped, and a syscall allowlist. An attacker in the broker process cannot extract the CA key. |
-| **Residual risk** | An attacker with broker code execution can: (1) request certificates from the signer within policy constraints, (2) read plaintext credentials in `/var/lib/clauth/services.json`, (3) read plaintext credentials for federated MCP servers in `/var/lib/clauth/remotes.json`, (4) read or truncate audit logs, (5) modify host/service/remote state, (6) sign arbitrary CTT-E task tokens using the in-memory delegation key. The attacker is still bounded by policy (the signer enforces duration caps and principal restrictions independently), but has full access to all configured backend credentials and can forge task tokens within the delegation certificate's validity period. |
+| **Residual risk** | An attacker with broker code execution can: (1) request certificates from the signer within policy constraints, (2) read plaintext credentials in `/var/lib/ephyr/services.json`, (3) read plaintext credentials for federated MCP servers in `/var/lib/ephyr/remotes.json`, (4) read or truncate audit logs, (5) modify host/service/remote state, (6) sign arbitrary CTT-E task tokens using the in-memory delegation key. The attacker is still bounded by policy (the signer enforces duration caps and principal restrictions independently), but has full access to all configured backend credentials and can forge task tokens within the delegation certificate's validity period. |
 | **Planned** | Credential encryption at rest with a derived key. Remote audit log shipping so the tamper window is bounded. |
 
 ### T4: Signer Compromise
@@ -154,7 +154,7 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 | Aspect | Detail |
 |--------|--------|
 | **Current mitigation** | The key file is owned by the signer service user with permissions 0600. The signer process runs with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, `NoNewPrivileges`, `CapabilityBoundingSet=` (empty), `RestrictAddressFamilies=AF_UNIX`, and `SystemCallFilter=@system-service`. It cannot be reached over the network. |
-| **Residual risk** | An attacker with root access on the broker host can read `/etc/clauth/ca_key` directly, bypassing all process isolation. With the CA key, an attacker can forge certificates for any principal on any target that trusts this CA -- the blast radius is the entire set of hosts with `TrustedUserCAKeys` pointing to this CA. |
+| **Residual risk** | An attacker with root access on the broker host can read `/etc/ephyr/ca_key` directly, bypassing all process isolation. With the CA key, an attacker can forge certificates for any principal on any target that trusts this CA -- the blast radius is the entire set of hosts with `TrustedUserCAKeys` pointing to this CA. |
 | **Planned** | HSM or TPM-backed key storage (long-term). Key rotation tooling with automated `TrustedUserCAKeys` rollover on targets. |
 
 ### T5: Target Host Compromise via Active Session
@@ -213,7 +213,7 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 
 | Aspect | Detail |
 |--------|--------|
-| **Current mitigation** | `/var/lib/clauth/services.json` and `/var/lib/clauth/remotes.json` are owned by the broker service user with permissions 0600. The broker's systemd unit uses `ProtectSystem=strict` and `ReadWritePaths` limited to `/run/clauth`, `/var/log/clauth`, and `/var/lib/clauth`. |
+| **Current mitigation** | `/var/lib/ephyr/services.json` and `/var/lib/ephyr/remotes.json` are owned by the broker service user with permissions 0600. The broker's systemd unit uses `ProtectSystem=strict` and `ReadWritePaths` limited to `/run/ephyr`, `/var/log/ephyr`, and `/var/lib/ephyr`. |
 | **Residual risk** | Credentials are stored in plaintext JSON. Any process running as the broker user, or root, can read all stored backend credentials. Disk-level access (physical theft, snapshot, backup) exposes all credentials. MCP API keys are bcrypt-hashed, but service and remote MCP server credentials are not. |
 | **Planned** | Encryption at rest using a key derived from a passphrase or hardware token, provided at service startup. Secrets management integration (e.g., HashiCorp Vault) for environments that have it. |
 
@@ -223,7 +223,7 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 
 | Aspect | Detail |
 |--------|--------|
-| **Current mitigation** | Audit log (`/var/log/clauth/audit.json`) is written in append-only mode. It is stored separately from configuration files. Logrotate manages 30-day retention. Events are also broadcast via WebSocket to connected dashboard clients (providing a real-time secondary record). |
+| **Current mitigation** | Audit log (`/var/log/ephyr/audit.json`) is written in append-only mode. It is stored separately from configuration files. Logrotate manages 30-day retention. Events are also broadcast via WebSocket to connected dashboard clients (providing a real-time secondary record). |
 | **Residual risk** | The broker process has write access to the audit log file and could truncate or overwrite it if compromised. Logrotated archives on the same filesystem can also be modified. There is no cryptographic integrity protection (signing, hash chaining) on log entries. |
 | **Planned** | Log entry signing (HMAC or Ed25519) for tamper detection. Remote log shipping to an external SIEM or append-only log store. |
 
@@ -245,7 +245,7 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 |--------|--------|
 | **Current mitigation** | Cache entries are keyed on SHA-256(apiKey), which is collision-resistant and irreversible. The cache stores only successful authentication results -- failed attempts are never cached. The entire cache is automatically invalidated when agents are added or removed (e.g., during policy reload). Cache entries are TTL-bounded (default 60 seconds), limiting the staleness window. |
 | **Residual risk** | Within the TTL window, a revoked API key could still authenticate from cache. An agent whose `api_key_hash` is updated in policy will retain cached access until the TTL expires or a full policy reload triggers cache invalidation. |
-| **Mitigation** | Set `CLAUTH_AUTH_CACHE_TTL=0` in environments requiring immediate key revocation. For most deployments, the 60-second default is an acceptable tradeoff between security and performance (bcrypt is ~200ms per comparison). |
+| **Mitigation** | Set `EPHYR_AUTH_CACHE_TTL=0` in environments requiring immediate key revocation. For most deployments, the 60-second default is an acceptable tradeoff between security and performance (bcrypt is ~200ms per comparison). |
 
 ### T14: Delegation Key Compromise
 
@@ -261,16 +261,16 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 
 ## What is Explicitly Out of Scope
 
-The following areas are acknowledged but not addressed by Clauth's threat model:
+The following areas are acknowledged but not addressed by Ephyr's threat model:
 
 | Area | Rationale |
 |------|-----------|
-| **Multi-tenant isolation** | Clauth is single-tenant by design. All agents are governed by one policy file and one CA. Deployers needing tenant isolation should run separate Clauth instances. |
-| **End-to-end encryption** | Clauth brokers access, not data. Payload confidentiality between the agent and the target is the responsibility of the transport (SSH provides this; HTTP depends on TLS configuration). |
-| **Application-layer security** | What agents do with the access Clauth grants is beyond Clauth's control. A `read` role agent that exfiltrates data via allowed commands is an application-layer concern. |
-| **Target host OS hardening** | Clauth delivers the agent to the host with an appropriate SSH principal. The host's sudoers rules, shell restrictions, filesystem permissions, and security frameworks (SELinux, AppArmor) are the deployer's responsibility. |
-| **Supply chain security** | Dependency integrity is managed via Go modules with checksums (`go.sum`). Clauth has minimal dependencies. Build reproducibility and SBOM generation are not currently implemented. |
-| **Physical security** | Physical access to the broker host or target hosts is outside Clauth's threat model. Disk encryption is recommended but not enforced by Clauth. |
+| **Multi-tenant isolation** | Ephyr is single-tenant by design. All agents are governed by one policy file and one CA. Deployers needing tenant isolation should run separate Ephyr instances. |
+| **End-to-end encryption** | Ephyr brokers access, not data. Payload confidentiality between the agent and the target is the responsibility of the transport (SSH provides this; HTTP depends on TLS configuration). |
+| **Application-layer security** | What agents do with the access Ephyr grants is beyond Ephyr's control. A `read` role agent that exfiltrates data via allowed commands is an application-layer concern. |
+| **Target host OS hardening** | Ephyr delivers the agent to the host with an appropriate SSH principal. The host's sudoers rules, shell restrictions, filesystem permissions, and security frameworks (SELinux, AppArmor) are the deployer's responsibility. |
+| **Supply chain security** | Dependency integrity is managed via Go modules with checksums (`go.sum`). Ephyr has minimal dependencies. Build reproducibility and SBOM generation are not currently implemented. |
+| **Physical security** | Physical access to the broker host or target hosts is outside Ephyr's threat model. Disk encryption is recommended but not enforced by Ephyr. |
 
 ---
 
@@ -294,7 +294,7 @@ The following recommendations are derived from the threats enumerated above. The
 
 6. **Rotate MCP API keys regularly (T1).** Treat API keys as time-limited credentials. Rotate them on a schedule (e.g., quarterly) and immediately on suspected compromise. bcrypt hashing means rotation requires only updating the hash in `policy.yaml` and reloading (`SIGHUP`).
 
-7. **Ship audit logs to an external system (T11).** Forward `/var/log/clauth/audit.json` to a SIEM, syslog aggregator, or append-only object store. This bounds the tamper window to the time between log writes and external collection.
+7. **Ship audit logs to an external system (T11).** Forward `/var/log/ephyr/audit.json` to a SIEM, syslog aggregator, or append-only object store. This bounds the tamper window to the time between log writes and external collection.
 
 ### Standard
 
@@ -308,7 +308,7 @@ The following recommendations are derived from the threats enumerated above. The
 
 12. **Keep the proxy network policy restrictive (T8).** Leave `external` set to `deny` unless specific external endpoints are required. When external access is needed, use the `external_allow` hostname glob list rather than switching to `open` mode.
 
-13. **Back up the CA key securely (T4).** Store an offline, encrypted backup of `/etc/clauth/ca_key`. If the key is lost, all targets must be reconfigured with a new CA. If the key is compromised, all targets must remove the old CA from `TrustedUserCAKeys` immediately.
+13. **Back up the CA key securely (T4).** Store an offline, encrypted backup of `/etc/ephyr/ca_key`. If the key is lost, all targets must be reconfigured with a new CA. If the key is compromised, all targets must remove the old CA from `TrustedUserCAKeys` immediately.
 
 ---
 

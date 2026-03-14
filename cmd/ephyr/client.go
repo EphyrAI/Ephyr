@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// BrokerClient communicates with the clauth broker over a Unix socket.
+// BrokerClient communicates with the ephyr broker over a Unix socket.
 type BrokerClient struct {
 	httpClient *http.Client
 	socketPath string
@@ -319,7 +319,7 @@ func (c *BrokerClient) doRequest(method, path string, body io.Reader) (*http.Res
 
 // doRequestOnce sends a single HTTP request (no retry).
 func (c *BrokerClient) doRequestOnce(method, path string, bodyBytes []byte) (*http.Response, error) {
-	url := "http://clauth-broker" + path
+	url := "http://ephyr-broker" + path
 
 	var body io.Reader
 	if bodyBytes != nil {

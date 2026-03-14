@@ -30,9 +30,9 @@ type DelegationCert struct {
 // TaskClaims are the JWT claims for a CTT-E execution token.
 type TaskClaims struct {
 	// Standard JWT claims
-	Issuer    string    `json:"iss"` // "clauth:<broker-instance-id>"
+	Issuer    string    `json:"iss"` // "ephyr:<broker-instance-id>"
 	Subject   string    `json:"sub"` // agent name
-	Audience  string    `json:"aud"` // "clauth-broker"
+	Audience  string    `json:"aud"` // "ephyr-broker"
 	IssuedAt  time.Time `json:"iat"`
 	ExpiresAt time.Time `json:"exp"`
 	TokenID   string    `json:"jti"` // "cte_<ULID>" or "ctd_<ULID>"
@@ -51,7 +51,7 @@ type TaskIdentity struct {
 	ParentID    string   `json:"parent_id"`    // ULID of parent (empty for root)
 	Depth       int      `json:"depth"`        // 0 = root
 	Lineage     []string `json:"lineage"`      // [root, ..., self]
-	InitiatedBy string   `json:"initiated_by"` // "clauth:local:uid:1000" or "clauth:apikey:ak_xxx"
+	InitiatedBy string   `json:"initiated_by"` // "ephyr:local:uid:1000" or "ephyr:apikey:ak_xxx"
 	Description string   `json:"description"`  // human-readable
 }
 

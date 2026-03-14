@@ -1,4 +1,4 @@
-# Clauth policy configuration
+# Ephyr policy configuration
 # Loaded by the policy engine at startup; supports hot-reload (SIGHUP).
 
 global:

@@ -1,4 +1,4 @@
-# Clauth Architecture Whitepaper
+# Ephyr Architecture Whitepaper
 
 **Version:** 0.2
 **Date:** 2026-03-13
@@ -42,14 +42,14 @@ several problems:
 - **No revocation.** Compromised credentials require manual rotation across
   all consumers.
 
-Clauth solves these problems by acting as an intermediary between AI agents
+Ephyr solves these problems by acting as an intermediary between AI agents
 and infrastructure. It issues ephemeral SSH certificates, injects HTTP
 credentials transparently, and maintains a complete audit trail of every
 action.
 
 ### 1.2 Design Philosophy
 
-Clauth is built around five core principles:
+Ephyr is built around five core principles:
 
 **Minimal dependencies.** The entire project uses exactly three direct Go
 dependencies: `gorilla/websocket` for the dashboard WebSocket, `x/crypto`
@@ -61,7 +61,7 @@ and keeps the attack surface small for a security-critical component.
 
 **Process isolation.** The system is split into three OS processes with
 distinct privilege levels. The CA private key is held by a single process
-(`clauth-signer`) that communicates exclusively over a Unix domain socket
+(`ephyr-signer`) that communicates exclusively over a Unix domain socket
 and has no network access. The broker process handles all network-facing
 operations but never touches the CA key directly. This separation means
 a vulnerability in the broker's HTTP handling cannot directly compromise
@@ -107,7 +107,7 @@ histograms.
 
 ### 2.1 Three-Process Model
 
-Clauth runs as three separate OS processes, each with distinct responsibilities
+Ephyr runs as three separate OS processes, each with distinct responsibilities
 and privilege levels:
 
 ```
@@ -115,10 +115,10 @@ and privilege levels:
 |                         HOST (LXC / VM)                          |
 |                                                                  |
 |  +---------------------+      Unix Socket       +--------------+|
-|  |   clauth-signer     |<======================>|              ||
-|  |                     |   /run/clauth/          |              ||
+|  |   ephyr-signer     |<======================>|              ||
+|  |                     |   /run/ephyr/          |              ||
 |  |  - Ed25519 CA key   |    signer.sock          |              ||
-|  |  - Sign SSH certs   |                         |   clauth-    ||
+|  |  - Sign SSH certs   |                         |   ephyr-    ||
 |  |  - Sign delegation  |   SO_PEERCRED           |    broker    ||
 |  |    certs             |   UID check             |              ||
 |  |  - Root public key   |                         |              ||
@@ -128,8 +128,8 @@ and privilege levels:
 |  +---------------------+                         |              ||
 |                                                  |  :8553 dash  ||
 |  +---------------------+      Unix Socket       |  :8554 MCP   ||
-|  |   clauth (CLI)      |<======================>|              ||
-|  |                     |   /run/clauth/          |              ||
+|  |   ephyr (CLI)      |<======================>|              ||
+|  |                     |   /run/ephyr/          |              ||
 |  |  - Agent tool       |    broker.sock          |              ||
 |  |  - Cert requests    |                         |              ||
 |  |  - SSH operations   |   SO_PEERCRED           |              ||
@@ -139,9 +139,9 @@ and privilege levels:
 +------------------------------------------------------------------+
 ```
 
-**clauth-signer** -- The key custodian. Holds the Ed25519 CA private key in
+**ephyr-signer** -- The key custodian. Holds the Ed25519 CA private key in
 memory. Accepts signing requests over a Unix domain socket at
-`/run/clauth/signer.sock`. Validates the caller's UID via `SO_PEERCRED` to
+`/run/ephyr/signer.sock`. Validates the caller's UID via `SO_PEERCRED` to
 ensure only the broker process (UID 999) can request signatures. Supports
 four actions: `ping`, `sign` (SSH certificates), `sign_delegation` (v0.2
 delegation certificates), and `root_public_key` (returns the CA public key
@@ -149,14 +149,14 @@ for token validation pinning). Maximum certificate lifetime is capped at
 24 hours. The signer has no network sockets -- its systemd unit restricts
 address families to `AF_UNIX` only.
 
-**clauth-broker** -- The policy engine and gateway. Listens on three
-interfaces: a Unix socket for local CLI access (`/run/clauth/broker.sock`),
+**ephyr-broker** -- The policy engine and gateway. Listens on three
+interfaces: a Unix socket for local CLI access (`/run/ephyr/broker.sock`),
 TCP port 8553 for the dashboard, and TCP port 8554 for the MCP server.
 Composes 13 internal subsystems to evaluate policy, manage sessions, proxy
 HTTP requests, federate remote MCP servers, issue task identities, and
 maintain real-time metrics. Runs as UID 999 with systemd hardening.
 
-**clauth (CLI)** -- The agent-facing tool. Used by AI agents (or humans)
+**ephyr (CLI)** -- The agent-facing tool. Used by AI agents (or humans)
 to request certificates and execute commands. Communicates with the broker
 over the Unix socket. In MCP mode, agents interact with the broker via
 HTTP (port 8554) instead of the CLI.
@@ -202,7 +202,7 @@ HTTP (port 8554) instead of the CLI.
 signatures. The Unix socket file permissions are set to 0660 with group
 ownership matching the broker's group.
 
-**Boundary 2 (CLI IPC):** The broker socket at `/run/clauth/broker.sock`
+**Boundary 2 (CLI IPC):** The broker socket at `/run/ephyr/broker.sock`
 uses `SO_PEERCRED` to identify the calling agent's UID. Policy evaluation
 uses this UID to look up the agent and enforce per-agent constraints.
 
@@ -227,7 +227,7 @@ REST API calls.
 |      Port         |              Exposure                     |
 +-------------------+-------------------------------------------+
 | signer.sock       | Unix socket only, AF_UNIX restricted      |
-| broker.sock       | Unix socket only, group clauth-agents     |
+| broker.sock       | Unix socket only, group ephyr-agents     |
 | :8553 (dashboard) | TCP, restricted to 192.168.0.0/16 by nft |
 | :8554 (MCP)       | TCP, restricted to 192.168.0.0/16 by nft |
 +-------------------+-------------------------------------------+
@@ -370,14 +370,14 @@ in dependency order:
 After `NewBrokerServer` returns, `ListenAndServe` brings up the network:
 
 ```
-15. Unix socket listener    /run/clauth/broker.sock (chmod 0660)
+15. Unix socket listener    /run/ephyr/broker.sock (chmod 0660)
 16. Dashboard listener      TCP :8553 (goroutine)
 17. MCP listener            TCP :8554 (goroutine)
       - MCPAuthenticator    Load agent bcrypt hashes from policy
       - ExecSessionPool     Create SSH session pool (max 5 per agent)
-      - ProxyEngine         Load services from /var/lib/clauth/services.json
-      - NetworkPolicy       Load CIDR rules from /var/lib/clauth/network_policy.json
-      - MCPFederator        Load remotes from /var/lib/clauth/remotes.json
+      - ProxyEngine         Load services from /var/lib/ephyr/services.json
+      - NetworkPolicy       Load CIDR rules from /var/lib/ephyr/network_policy.json
+      - MCPFederator        Load remotes from /var/lib/ephyr/remotes.json
                             Start background refresh loop
 18. InitTaskIdentity        Request root public key from signer (v0.2)
       - Generate broker ID
@@ -486,7 +486,7 @@ measurement never adds latency.
 
 ### 4.1 Protocol
 
-Clauth implements the Model Context Protocol (MCP) version 2025-03-26
+Ephyr implements the Model Context Protocol (MCP) version 2025-03-26
 using the Streamable HTTP transport. The protocol uses JSON-RPC 2.0
 over `POST /mcp`.
 
@@ -508,7 +508,7 @@ Client                                          Server
   |   "result":{"protocolVersion":"2025-03-26",    |
   |     "capabilities":{"tools":{"listChanged":true},
   |       "resources":{"listChanged":false}},      |
-  |     "serverInfo":{"name":"clauth","version":"1.0.0"}}}
+  |     "serverInfo":{"name":"ephyr","version":"1.0.0"}}}
   |<-----------------------------------------------|
   |                                                |
   |  POST /mcp  (notification, no id)              |
@@ -535,7 +535,7 @@ Client                                          Server
 
 ### 4.2 Tool Inventory
 
-Clauth exposes 14 tools (9 local v0.1 + 4 task identity v0.2 + federated):
+Ephyr exposes 14 tools (9 local v0.1 + 4 task identity v0.2 + federated):
 
 | Tool            | Category   | Description                                 |
 |-----------------|------------|---------------------------------------------|
@@ -556,17 +556,17 @@ Clauth exposes 14 tools (9 local v0.1 + 4 task identity v0.2 + federated):
 
 ### 4.3 Resource Inventory
 
-Clauth exposes 7 resources as MCP-standard `clauth://` URIs:
+Ephyr exposes 7 resources as MCP-standard `ephyr://` URIs:
 
 | URI                  | Content Type     | Description                       |
 |----------------------|------------------|-----------------------------------|
-| `clauth://overview`  | text/markdown    | System overview and quick start   |
-| `clauth://targets`   | text/markdown    | SSH target details                |
-| `clauth://services`  | text/markdown    | HTTP proxy service details        |
-| `clauth://roles`     | text/markdown    | Role definitions and permissions  |
-| `clauth://status`    | text/markdown    | Agent's active certs and sessions |
-| `clauth://tools`     | text/markdown    | Tool reference with examples      |
-| `clauth://remotes`   | text/markdown    | Federated MCP server status       |
+| `ephyr://overview`  | text/markdown    | System overview and quick start   |
+| `ephyr://targets`   | text/markdown    | SSH target details                |
+| `ephyr://services`  | text/markdown    | HTTP proxy service details        |
+| `ephyr://roles`     | text/markdown    | Role definitions and permissions  |
+| `ephyr://status`    | text/markdown    | Agent's active certs and sessions |
+| `ephyr://tools`     | text/markdown    | Tool reference with examples      |
+| `ephyr://remotes`   | text/markdown    | Federated MCP server status       |
 
 Resources from federated remotes are exposed with a `remote:<name>/`
 URI prefix.
@@ -609,7 +609,7 @@ URI prefix.
 The auth cache uses SHA-256 of the API key as the cache key. This avoids
 storing the raw API key in memory while providing a unique, constant-time
 lookup. Cache entries have a configurable TTL (default 60 seconds,
-configurable via `CLAUTH_AUTH_CACHE_TTL` environment variable, or
+configurable via `EPHYR_AUTH_CACHE_TTL` environment variable, or
 disabled entirely with "0").
 
 The cache is invalidated when agents are added or removed (e.g., on
@@ -704,7 +704,7 @@ override that header.
 
 ### 5.3 Service Configuration
 
-Services are stored in `/var/lib/clauth/services.json` and persisted
+Services are stored in `/var/lib/ephyr/services.json` and persisted
 with atomic writes (write to `.tmp`, then rename). Each service defines:
 
 ```json
@@ -758,13 +758,13 @@ DNS rebinding from bypassing the CIDR policy.
 
 ### 6.1 Overview
 
-MCP Federation allows Clauth to aggregate tools and resources from remote
+MCP Federation allows Ephyr to aggregate tools and resources from remote
 MCP servers into a single unified namespace. Remote tools appear to agents
 as `<remote_name>.<tool_name>`, and calls are proxied transparently
 through the broker with credential injection.
 
 ```
-  Agent                Clauth Broker              Remote MCP Server
+  Agent                Ephyr Broker              Remote MCP Server
     |                      |                            |
     |  tools/list          |                            |
     |--------------------->|                            |
@@ -850,7 +850,7 @@ prefix if the remote name is too long or unwieldy.
 
 ### 6.4 Remote Configuration
 
-Remotes are stored in `/var/lib/clauth/remotes.json`:
+Remotes are stored in `/var/lib/ephyr/remotes.json`:
 
 ```json
 {
@@ -893,7 +893,7 @@ Wildcard `"*"` grants access to all remotes and tools.
 
 ### 7.1 Policy Structure
 
-The policy file (`/etc/clauth/policy.yaml`) defines all access control
+The policy file (`/etc/ephyr/policy.yaml`) defines all access control
 rules. It has four top-level sections:
 
 ```yaml
@@ -1072,7 +1072,7 @@ in effect and the error is logged.
 The v0.2 task identity system provides scoped, revocable, hierarchical
 identity for agent operations. Instead of authenticating each request
 independently with an API key, agents can create "tasks" that receive
-a CTT-E (Clauth Task Token - Execution) JWT. The token carries a
+a CTT-E (Ephyr Task Token - Execution) JWT. The token carries a
 capability envelope that bounds what the task can do.
 
 ```
@@ -1081,7 +1081,7 @@ capability envelope that bounds what the task can do.
 
   +-------------------+
   | Root CA Key       |     Ed25519 CA private key
-  | (clauth-signer)   |     held by signer process
+  | (ephyr-signer)   |     held by signer process
   +-------------------+
            |
            | signs (IPC)
@@ -1159,9 +1159,9 @@ Header (base64url):
 
 Payload (base64url):
 {
-  "iss": "clauth:<broker_instance_id>",
+  "iss": "ephyr:<broker_instance_id>",
   "sub": "<agent_name>",
-  "aud": "clauth-broker",
+  "aud": "ephyr-broker",
   "iat": 1741856400,
   "exp": 1741858200,
   "jti": "cte_01J5VKRM7P3QXYZ...",
@@ -1171,7 +1171,7 @@ Payload (base64url):
     "parent_id": "",
     "depth": 0,
     "lineage": ["01J5VKRM7P3QXYZ..."],
-    "initiated_by": "clauth:apikey:ak_xxx",
+    "initiated_by": "ephyr:apikey:ak_xxx",
     "description": "Check dockerhost disk usage"
   },
   "envelope": {
@@ -1261,7 +1261,7 @@ signing sub-millisecond.
        a. ed25519.Verify(delegation_public_key, header+"."+payload, sig)
   6. Base64url decode payload -> parse claims
   7. Check token not expired (exp > now)
-  8. Check audience == "clauth-broker"
+  8. Check audience == "ephyr-broker"
   9. Return parsed TaskClaims
 ```
 
@@ -1294,10 +1294,10 @@ envelope must be a subset of its parent's envelope.
 
 ### 8.8 Revocation Model
 
-Clauth uses epoch-based watermark revocation instead of JTI blocklists:
+Ephyr uses epoch-based watermark revocation instead of JTI blocklists:
 
 ```
-  Traditional JTI Blocklist         Clauth Epoch Watermarks
+  Traditional JTI Blocklist         Ephyr Epoch Watermarks
   =========================         =======================
   Store: every revoked JTI          Store: one entry per revoked TASK
   Lookup: O(1) per token            Lookup: O(depth) per token
@@ -1483,14 +1483,14 @@ All histograms use 7 fixed buckets with lock-free atomic operations:
 
 | Histogram                  | Measures                              |
 |---------------------------|---------------------------------------|
-| `clauth_token_sign`       | CTT-E token signing (local Ed25519)   |
-| `clauth_token_validate`   | CTT-E token validation chain          |
-| `clauth_watermark_check`  | Revocation watermark lineage walk     |
-| `clauth_envelope_check`   | Capability envelope subset check      |
-| `clauth_policy_eval`      | Policy evaluation pipeline            |
-| `clauth_ssh_cert`         | SSH cert signing via signer IPC       |
-| `clauth_delegation_ipc`   | Delegation cert request via IPC       |
-| `clauth_exec_e2e`         | End-to-end exec latency               |
+| `ephyr_token_sign`       | CTT-E token signing (local Ed25519)   |
+| `ephyr_token_validate`   | CTT-E token validation chain          |
+| `ephyr_watermark_check`  | Revocation watermark lineage walk     |
+| `ephyr_envelope_check`   | Capability envelope subset check      |
+| `ephyr_policy_eval`      | Policy evaluation pipeline            |
+| `ephyr_ssh_cert`         | SSH cert signing via signer IPC       |
+| `ephyr_delegation_ipc`   | Delegation cert request via IPC       |
+| `ephyr_exec_e2e`         | End-to-end exec latency               |
 
 Each histogram provides:
 - Per-bucket cumulative counts
@@ -1502,19 +1502,19 @@ Each histogram provides:
 
 | Metric                            | Type    | Description                       |
 |-----------------------------------|---------|-----------------------------------|
-| `clauth_tasks_created_total`      | counter | Total tasks created               |
-| `clauth_tasks_active`             | gauge   | Currently active tasks            |
-| `clauth_tokens_signed_total`      | counter | Total CTT-E tokens signed         |
-| `clauth_tokens_validated_total`   | counter | Total tokens validated            |
-| `clauth_tokens_rejected_total`    | counter | Total tokens rejected             |
-| `clauth_watermark_revocations`    | counter | Total watermark revocations       |
-| `clauth_delegation_rotations`     | counter | Total delegation cert rotations   |
-| `clauth_legacy_requests_total`    | counter | Requests without CTT (legacy)     |
-| `clauth_auth_cache_hits_total`    | counter | Auth cache hits (bcrypt bypassed) |
-| `clauth_auth_cache_misses_total`  | counter | Auth cache misses (bcrypt needed) |
-| `clauth_active_watermarks`        | gauge   | Active revocation watermarks      |
-| `clauth_delegation_cert_age`      | gauge   | Seconds since delegation cert issued |
-| `clauth_delegation_certs_held`    | gauge   | Delegation certs in memory        |
+| `ephyr_tasks_created_total`      | counter | Total tasks created               |
+| `ephyr_tasks_active`             | gauge   | Currently active tasks            |
+| `ephyr_tokens_signed_total`      | counter | Total CTT-E tokens signed         |
+| `ephyr_tokens_validated_total`   | counter | Total tokens validated            |
+| `ephyr_tokens_rejected_total`    | counter | Total tokens rejected             |
+| `ephyr_watermark_revocations`    | counter | Total watermark revocations       |
+| `ephyr_delegation_rotations`     | counter | Total delegation cert rotations   |
+| `ephyr_legacy_requests_total`    | counter | Requests without CTT (legacy)     |
+| `ephyr_auth_cache_hits_total`    | counter | Auth cache hits (bcrypt bypassed) |
+| `ephyr_auth_cache_misses_total`  | counter | Auth cache misses (bcrypt needed) |
+| `ephyr_active_watermarks`        | gauge   | Active revocation watermarks      |
+| `ephyr_delegation_cert_age`      | gauge   | Seconds since delegation cert issued |
+| `ephyr_delegation_certs_held`    | gauge   | Delegation certs in memory        |
 
 ### 10.4 Lock-Free Histogram Implementation
 
@@ -1570,7 +1570,7 @@ included in audit log entries:
 ### 11.1 Structured JSON Logging
 
 The audit system writes structured JSON lines to
-`/var/log/clauth/audit.json`. Each event is a single JSON object on
+`/var/log/ephyr/audit.json`. Each event is a single JSON object on
 one line, enabling efficient parsing with standard tools (`jq`, log
 aggregators).
 
@@ -1635,7 +1635,7 @@ The AuditLogger supports multiple output writers simultaneously:
   | + newline        |
   +------------------+
        |
-       +---> /var/log/clauth/audit.json  (file, append mode)
+       +---> /var/log/ephyr/audit.json  (file, append mode)
        |
        +---> stdout  (if enabled, for journalctl)
 ```
@@ -1746,9 +1746,9 @@ All three processes run on a single LXC container:
 |  |uid999|  |uid999  |  |uid1000 |                 |
 |  +-----+  +--------+  +--------+                 |
 |      |          |           |                     |
-|  /run/clauth/signer.sock   |                     |
+|  /run/ephyr/signer.sock   |                     |
 |      |          |           |                     |
-|  /run/clauth/broker.sock---+                     |
+|  /run/ephyr/broker.sock---+                     |
 |                                                   |
 |  nftables: input filter, agent UID output filter  |
 |                                                   |
@@ -1760,7 +1760,7 @@ All three processes run on a single LXC container:
 +-------------------+  +-------------------+
 | Target Host A     |  | Target Host B     |
 | TrustedUserCAKeys |  | TrustedUserCAKeys |
-| = clauth CA pub   |  | = clauth CA pub   |
+| = ephyr CA pub   |  | = ephyr CA pub   |
 +-------------------+  +-------------------+
 ```
 
@@ -1776,7 +1776,7 @@ For larger deployments, the signer can run on a dedicated hardened host:
 |  except Unix IPC)|  Unix   |                  |
 |                  | socket  |                  |
 |  CA key in       |  (or    |  policy.yaml     |
-|  /etc/clauth/    |  TCP    |  services.json   |
+|  /etc/ephyr/    |  TCP    |  services.json   |
 |  ca_key          |  with   |  remotes.json    |
 |                  |  mTLS)  |                  |
 +------------------+         +------------------+
@@ -1789,16 +1789,16 @@ validation.
 
 ### 13.3 Systemd Units
 
-**clauth-signer.service:**
+**ephyr-signer.service:**
 
 ```
 [Service]
 Type=simple
-User=clauth-broker
-ExecStart=/usr/local/bin/clauth-signer \
-  --ca-key /etc/clauth/ca_key \
-  --socket /run/clauth/signer.sock
-Environment=CLAUTH_BROKER_UID=999
+User=ephyr-broker
+ExecStart=/usr/local/bin/ephyr-signer \
+  --ca-key /etc/ephyr/ca_key \
+  --socket /run/ephyr/signer.sock
+Environment=EPHYR_BROKER_UID=999
 
 # Security hardening
 ProtectSystem=strict
@@ -1810,33 +1810,33 @@ RestrictAddressFamilies=AF_UNIX     <-- No network access
 MemoryDenyWriteExecute=yes
 CapabilityBoundingSet=              <-- No capabilities
 SystemCallFilter=@system-service
-ReadOnlyPaths=/etc/clauth
-ReadWritePaths=/run/clauth
+ReadOnlyPaths=/etc/ephyr
+ReadWritePaths=/run/ephyr
 ```
 
-**clauth-broker.service:**
+**ephyr-broker.service:**
 
 ```
 [Service]
 Type=simple
-User=clauth-broker
-ExecStart=/usr/local/bin/clauth-broker \
-  --policy /etc/clauth/policy.yaml \
-  --signer-socket /run/clauth/signer.sock \
-  --listen /run/clauth/broker.sock \
-  --audit-log /var/log/clauth/audit.json
+User=ephyr-broker
+ExecStart=/usr/local/bin/ephyr-broker \
+  --policy /etc/ephyr/policy.yaml \
+  --signer-socket /run/ephyr/signer.sock \
+  --listen /run/ephyr/broker.sock \
+  --audit-log /var/log/ephyr/audit.json
 ExecReload=/bin/kill -HUP $MAINPID
-Environment=CLAUTH_ADMIN_UIDS=0,1000
+Environment=EPHYR_ADMIN_UIDS=0,1000
 
-Requires=clauth-signer.service
-After=clauth-signer.service
+Requires=ephyr-signer.service
+After=ephyr-signer.service
 
 # Security hardening
 ProtectSystem=strict
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6  <-- Network allowed
 CapabilityBoundingSet=
-ReadOnlyPaths=/etc/clauth
-ReadWritePaths=/run/clauth /var/log/clauth /var/lib/clauth
+ReadOnlyPaths=/etc/ephyr
+ReadWritePaths=/run/ephyr /var/log/ephyr /var/lib/ephyr
 ```
 
 Key differences between signer and broker service units:
@@ -1876,27 +1876,27 @@ bypassing the broker's RBAC and audit controls.
 ### 13.5 File System Layout
 
 ```
-/etc/clauth/
+/etc/ephyr/
   ca_key                    Ed25519 CA private key (chmod 0600)
   policy.yaml               Policy configuration (chmod 0640)
 
-/run/clauth/
+/run/ephyr/
   signer.sock               Signer IPC socket (chmod 0660)
   broker.sock               Broker IPC socket (chmod 0660)
 
-/var/lib/clauth/
+/var/lib/ephyr/
   services.json             HTTP proxy service configs
   remotes.json              Federated MCP server configs
   network_policy.json       CIDR allow/deny rules
   hosts.json                Persisted host toggle states
 
-/var/log/clauth/
+/var/log/ephyr/
   audit.json                Structured audit log (JSON lines)
 
-/opt/clauth/
+/opt/ephyr/
   cmd/broker/main.go        Broker entry point
   cmd/signer/main.go        Signer entry point
-  cmd/clauth/main.go        CLI entry point
+  cmd/ephyr/main.go        CLI entry point
   internal/broker/          Broker subsystems (~15,000 lines)
   internal/policy/          Policy engine and RBAC (~1,500 lines)
   internal/audit/           Audit logger (~200 lines)
@@ -1914,7 +1914,7 @@ bypassing the broker's RBAC and audit controls.
 ### 14.1 Adding a New HTTP Proxy Service
 
 Services can be added via the dashboard REST API or by editing
-`/var/lib/clauth/services.json`:
+`/var/lib/ephyr/services.json`:
 
 ```json
 {
@@ -2012,7 +2012,7 @@ Content-Type: application/json
 
 The federator will:
 1. Validate the configuration
-2. Persist to `/var/lib/clauth/remotes.json`
+2. Persist to `/var/lib/ephyr/remotes.json`
 3. Trigger asynchronous discovery (initialize + tools/list + resources/list)
 4. On success: federated tools appear as `my-tools.<tool_name>`
 
@@ -2075,7 +2075,7 @@ targets:
     description: "New host"
 ```
 
-The target host must trust the Clauth CA:
+The target host must trust the Ephyr CA:
 
 ```bash
 # On the target host:
@@ -2090,7 +2090,7 @@ useradd -m -s /bin/bash agent-admin
 systemctl reload sshd
 ```
 
-After reloading the broker policy (`systemctl reload clauth-broker`),
+After reloading the broker policy (`systemctl reload ephyr-broker`),
 agents with appropriate RBAC permissions will see the new target via
 `list_targets` and can execute commands on it.
 
@@ -2102,9 +2102,9 @@ agents with appropriate RBAC permissions will see the new target via
 |-------------------|-----------------------------------------------------|
 | CA                | Certificate Authority -- the Ed25519 key that signs  |
 |                   | SSH certificates and delegation certs                |
-| CTT-E             | Clauth Task Token - Execution: a JWT authorizing     |
+| CTT-E             | Ephyr Task Token - Execution: a JWT authorizing     |
 |                   | a specific task's operations                         |
-| CTT-D             | Clauth Task Token - Delegation: (Phase 2b) a JWT     |
+| CTT-D             | Ephyr Task Token - Delegation: (Phase 2b) a JWT     |
 |                   | allowing a task to create sub-tasks                  |
 | Delegation Cert   | A certificate from the signer authorizing the broker  |
 |                   | to sign CTT tokens with an ephemeral key             |
@@ -2127,39 +2127,39 @@ agents with appropriate RBAC permissions will see the new target via
 
 | Variable                | Default              | Description                   |
 |------------------------|----------------------|-------------------------------|
-| `CLAUTH_POLICY`        | `/etc/clauth/policy.yaml` | Policy file path         |
-| `CLAUTH_SIGNER_SOCKET` | `/run/clauth/signer.sock` | Signer IPC socket        |
-| `CLAUTH_LISTEN`        | `/run/clauth/broker.sock` | Broker Unix socket       |
-| `CLAUTH_AUDIT_LOG`     | `/var/log/clauth/audit.json` | Audit log path        |
-| `CLAUTH_DASHBOARD_LISTEN` | `:8553`           | Dashboard TCP address         |
-| `CLAUTH_DASHBOARD_TOKEN`  | (auto-generated)  | Dashboard auth token          |
-| `CLAUTH_DASHBOARD_DIR`    | `/opt/clauth/dashboard` | Static files directory  |
-| `CLAUTH_MCP_LISTEN`       | `:8554`           | MCP server TCP address        |
-| `CLAUTH_AUTH_CACHE_TTL`   | `60s`             | Auth cache TTL (0=disabled)   |
-| `CLAUTH_SOCKET_GROUP`     | `clauth-agents`   | Unix socket group ownership   |
-| `CLAUTH_ADMIN_UIDS`       | `0`               | Comma-separated admin UIDs    |
-| `CLAUTH_BROKER_UID`       | `-1` (any)        | Allowed caller UID for signer |
-| `CLAUTH_CA_KEY`            | `/etc/clauth/ca_key` | CA private key path       |
+| `EPHYR_POLICY`        | `/etc/ephyr/policy.yaml` | Policy file path         |
+| `EPHYR_SIGNER_SOCKET` | `/run/ephyr/signer.sock` | Signer IPC socket        |
+| `EPHYR_LISTEN`        | `/run/ephyr/broker.sock` | Broker Unix socket       |
+| `EPHYR_AUDIT_LOG`     | `/var/log/ephyr/audit.json` | Audit log path        |
+| `EPHYR_DASHBOARD_LISTEN` | `:8553`           | Dashboard TCP address         |
+| `EPHYR_DASHBOARD_TOKEN`  | (auto-generated)  | Dashboard auth token          |
+| `EPHYR_DASHBOARD_DIR`    | `/opt/ephyr/dashboard` | Static files directory  |
+| `EPHYR_MCP_LISTEN`       | `:8554`           | MCP server TCP address        |
+| `EPHYR_AUTH_CACHE_TTL`   | `60s`             | Auth cache TTL (0=disabled)   |
+| `EPHYR_SOCKET_GROUP`     | `ephyr-agents`   | Unix socket group ownership   |
+| `EPHYR_ADMIN_UIDS`       | `0`               | Comma-separated admin UIDs    |
+| `EPHYR_BROKER_UID`       | `-1` (any)        | Allowed caller UID for signer |
+| `EPHYR_CA_KEY`            | `/etc/ephyr/ca_key` | CA private key path       |
 
 ### Operational Commands
 
 ```bash
 # Start/stop
-systemctl start clauth-signer clauth-broker
-systemctl stop clauth-broker clauth-signer
+systemctl start ephyr-signer ephyr-broker
+systemctl stop ephyr-broker ephyr-signer
 
 # Restart (signer must start before broker)
-systemctl restart clauth-signer clauth-broker
+systemctl restart ephyr-signer ephyr-broker
 
 # Hot-reload policy (no downtime)
-systemctl reload clauth-broker
+systemctl reload ephyr-broker
 
 # View logs
-journalctl -u clauth-broker -f
-journalctl -u clauth-signer -f
+journalctl -u ephyr-broker -f
+journalctl -u ephyr-signer -f
 
 # Parse audit log
-jq '.event_type' /var/log/clauth/audit.json | sort | uniq -c | sort -rn
+jq '.event_type' /var/log/ephyr/audit.json | sort | uniq -c | sort -rn
 
 # Check health
 curl -s http://localhost:8554/mcp -X POST \
@@ -2169,6 +2169,6 @@ curl -s http://localhost:8554/mcp -X POST \
 
 ---
 
-*This document describes the architecture of Clauth v0.2. It is derived
-from the source code at `/opt/clauth/` and reflects the implementation
+*This document describes the architecture of Ephyr v0.2. It is derived
+from the source code at `/opt/ephyr/` and reflects the implementation
 as of 2026-03-13.*

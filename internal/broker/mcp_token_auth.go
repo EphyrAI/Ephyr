@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sprawl/clauth/internal/token"
+	"github.com/ben-spanswick/ephyr/internal/token"
 )
 
 // authenticateWithCTTE attempts to validate a Bearer token as a CTT-E or CTT-D task token.

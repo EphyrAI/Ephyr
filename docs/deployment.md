@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Step-by-step instructions for deploying Clauth from scratch, including
+Step-by-step instructions for deploying Ephyr from scratch, including
 building from source, system setup, CA key generation, target provisioning,
 MCP configuration, and operational verification.
 
@@ -31,16 +31,16 @@ MCP configuration, and operational verification.
 Clone the repository and build all three binaries:
 
 ```bash
-git clone https://github.com/sprawl/clauth.git
-cd clauth
+git clone https://github.com/ben-spanswick/ephyr.git
+cd ephyr
 
 # Build all binaries
-go build -o bin/clauth-broker ./cmd/broker
-go build -o bin/clauth-signer ./cmd/signer
-go build -o bin/clauth         ./cmd/clauth
+go build -o bin/ephyr-broker ./cmd/broker
+go build -o bin/ephyr-signer ./cmd/signer
+go build -o bin/ephyr         ./cmd/ephyr
 
 # Optional: set version at build time
-go build -ldflags "-X main.version=1.0.0" -o bin/clauth-broker ./cmd/broker
+go build -ldflags "-X main.version=1.0.0" -o bin/ephyr-broker ./cmd/broker
 ```
 
 The project has minimal dependencies (see go.mod):
@@ -51,8 +51,8 @@ The project has minimal dependencies (see go.mod):
 Verify the build:
 
 ```bash
-./bin/clauth-broker -version
-./bin/clauth help
+./bin/ephyr-broker -version
+./bin/ephyr help
 ```
 
 ---
@@ -66,51 +66,51 @@ who can connect to the broker socket.
 
 ```bash
 # Create the service user (no login shell, no home directory)
-groupadd --system clauth-broker
-useradd --system --gid clauth-broker --shell /usr/sbin/nologin \
-        --no-create-home --comment "Clauth broker service" clauth-broker
+groupadd --system ephyr-broker
+useradd --system --gid ephyr-broker --shell /usr/sbin/nologin \
+        --no-create-home --comment "Ephyr broker service" ephyr-broker
 
 # Create the agents group (members can connect to the broker socket)
-groupadd --system clauth-agents
+groupadd --system ephyr-agents
 
 # Add the agent user(s) to the agents group
 # Example: add the "claude" user (UID 1000)
-usermod -aG clauth-agents claude
+usermod -aG ephyr-agents claude
 ```
 
 ### 2. Create Directory Structure
 
 ```bash
 # Configuration directory (CA key, policy file)
-mkdir -p /etc/clauth
-chown root:clauth-broker /etc/clauth
-chmod 750 /etc/clauth
+mkdir -p /etc/ephyr
+chown root:ephyr-broker /etc/ephyr
+chmod 750 /etc/ephyr
 
 # Runtime directory (sockets) -- managed by tmpfiles.d, see below
-mkdir -p /run/clauth
-chown clauth-broker:clauth-broker /run/clauth
-chmod 755 /run/clauth
+mkdir -p /run/ephyr
+chown ephyr-broker:ephyr-broker /run/ephyr
+chmod 755 /run/ephyr
 
 # Audit log directory
-mkdir -p /var/log/clauth
-chown clauth-broker:clauth-broker /var/log/clauth
-chmod 750 /var/log/clauth
+mkdir -p /var/log/ephyr
+chown ephyr-broker:ephyr-broker /var/log/ephyr
+chmod 750 /var/log/ephyr
 
 # Persistent data directory (hosts.json, services.json)
-mkdir -p /var/lib/clauth
-chown clauth-broker:clauth-broker /var/lib/clauth
-chmod 700 /var/lib/clauth
+mkdir -p /var/lib/ephyr
+chown ephyr-broker:ephyr-broker /var/lib/ephyr
+chmod 700 /var/lib/ephyr
 
 # Dashboard static files
-mkdir -p /opt/clauth/dashboard
+mkdir -p /opt/ephyr/dashboard
 ```
 
 ### 3. Install Binaries
 
 ```bash
-install -m 755 bin/clauth-broker /usr/local/bin/
-install -m 755 bin/clauth-signer /usr/local/bin/
-install -m 755 bin/clauth        /usr/local/bin/
+install -m 755 bin/ephyr-broker /usr/local/bin/
+install -m 755 bin/ephyr-signer /usr/local/bin/
+install -m 755 bin/ephyr        /usr/local/bin/
 ```
 
 ---
@@ -123,20 +123,20 @@ can be forged.
 
 ```bash
 # Generate the CA keypair
-ssh-keygen -t ed25519 -f /etc/clauth/ca_key -N "" -C "clauth-ca"
+ssh-keygen -t ed25519 -f /etc/ephyr/ca_key -N "" -C "ephyr-ca"
 
 # Set strict permissions
-chmod 0600 /etc/clauth/ca_key
-chmod 0644 /etc/clauth/ca_key.pub
-chown clauth-broker:clauth-broker /etc/clauth/ca_key
-chown clauth-broker:clauth-broker /etc/clauth/ca_key.pub
+chmod 0600 /etc/ephyr/ca_key
+chmod 0644 /etc/ephyr/ca_key.pub
+chown ephyr-broker:ephyr-broker /etc/ephyr/ca_key
+chown ephyr-broker:ephyr-broker /etc/ephyr/ca_key.pub
 ```
 
 Verify the key:
 
 ```bash
-ssh-keygen -l -f /etc/clauth/ca_key.pub
-# Should show: 256 SHA256:... clauth-ca (ED25519)
+ssh-keygen -l -f /etc/ephyr/ca_key.pub
+# Should show: 256 SHA256:... ephyr-ca (ED25519)
 ```
 
 **Backup:** Copy ca_key and ca_key.pub to a secure offline location.
@@ -150,7 +150,7 @@ CA public key and all existing certificates become invalid.
 Create a minimal policy.yaml to get started:
 
 ```yaml
-# /etc/clauth/policy.yaml -- minimal working configuration
+# /etc/ephyr/policy.yaml -- minimal working configuration
 
 global:
   max_active_certs: 10
@@ -186,8 +186,8 @@ targets:
 Set ownership and permissions:
 
 ```bash
-chown root:clauth-broker /etc/clauth/policy.yaml
-chmod 640 /etc/clauth/policy.yaml
+chown root:ephyr-broker /etc/ephyr/policy.yaml
+chmod 640 /etc/ephyr/policy.yaml
 ```
 
 See the Configuration Reference (docs/configuration.md) for full field
@@ -199,27 +199,27 @@ documentation.
 
 ### Signer Service
 
-Create /etc/systemd/system/clauth-signer.service:
+Create /etc/systemd/system/ephyr-signer.service:
 
 ```ini
 [Unit]
-Description=Clauth SSH Certificate Signer
-Documentation=https://github.com/sprawl/clauth
+Description=Ephyr SSH Certificate Signer
+Documentation=https://github.com/ben-spanswick/ephyr
 After=network.target
-Before=clauth-broker.service
+Before=ephyr-broker.service
 StartLimitBurst=3
 StartLimitIntervalSec=60
 
 [Service]
 Type=simple
-User=clauth-broker
-Group=clauth-broker
-ExecStart=/usr/local/bin/clauth-signer \
-    --ca-key /etc/clauth/ca_key \
-    --socket /run/clauth/signer.sock
+User=ephyr-broker
+Group=ephyr-broker
+ExecStart=/usr/local/bin/ephyr-signer \
+    --ca-key /etc/ephyr/ca_key \
+    --socket /run/ephyr/signer.sock
 Restart=on-failure
 RestartSec=5
-Environment=CLAUTH_BROKER_UID=999
+Environment=EPHYR_BROKER_UID=999
 
 # Security hardening
 ProtectSystem=strict
@@ -236,8 +236,8 @@ RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
-ReadOnlyPaths=/etc/clauth
-ReadWritePaths=/run/clauth
+ReadOnlyPaths=/etc/ephyr
+ReadWritePaths=/run/ephyr
 CapabilityBoundingSet=
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
@@ -246,36 +246,36 @@ SystemCallErrorNumber=EPERM
 WantedBy=multi-user.target
 ```
 
-Note: Set CLAUTH_BROKER_UID to the actual UID of the clauth-broker user.
-Find it with: `id -u clauth-broker`
+Note: Set EPHYR_BROKER_UID to the actual UID of the ephyr-broker user.
+Find it with: `id -u ephyr-broker`
 
 ### Broker Service
 
-Create /etc/systemd/system/clauth-broker.service:
+Create /etc/systemd/system/ephyr-broker.service:
 
 ```ini
 [Unit]
-Description=Clauth SSH Certificate Broker
-Documentation=https://github.com/sprawl/clauth
-After=network.target clauth-signer.service
-Requires=clauth-signer.service
+Description=Ephyr SSH Certificate Broker
+Documentation=https://github.com/ben-spanswick/ephyr
+After=network.target ephyr-signer.service
+Requires=ephyr-signer.service
 StartLimitBurst=5
 StartLimitIntervalSec=60
 
 [Service]
 Type=simple
-User=clauth-broker
-Group=clauth-broker
-ExecStart=/usr/local/bin/clauth-broker \
-    --policy /etc/clauth/policy.yaml \
-    --signer-socket /run/clauth/signer.sock \
-    --listen /run/clauth/broker.sock \
-    --audit-log /var/log/clauth/audit.json
+User=ephyr-broker
+Group=ephyr-broker
+ExecStart=/usr/local/bin/ephyr-broker \
+    --policy /etc/ephyr/policy.yaml \
+    --signer-socket /run/ephyr/signer.sock \
+    --listen /run/ephyr/broker.sock \
+    --audit-log /var/log/ephyr/audit.json
 Restart=on-failure
 RestartSec=5
 ExecReload=/bin/kill -HUP $MAINPID
-Environment=CLAUTH_ADMIN_UIDS=0,1000
-Environment=CLAUTH_AUTH_CACHE_TTL=60s
+Environment=EPHYR_ADMIN_UIDS=0,1000
+Environment=EPHYR_AUTH_CACHE_TTL=60s
 
 # Security hardening
 ProtectSystem=strict
@@ -291,8 +291,8 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-ReadOnlyPaths=/etc/clauth
-ReadWritePaths=/run/clauth /var/log/clauth /var/lib/clauth
+ReadOnlyPaths=/etc/ephyr
+ReadWritePaths=/run/ephyr /var/log/ephyr /var/lib/ephyr
 CapabilityBoundingSet=
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
@@ -303,14 +303,14 @@ WantedBy=multi-user.target
 
 ### Runtime Directory (tmpfiles.d)
 
-Both services share `/run/clauth/` for their Unix sockets. Using systemd's
+Both services share `/run/ephyr/` for their Unix sockets. Using systemd's
 `RuntimeDirectory` on either unit would cause it to delete the directory
 (and the other service's socket) on restart. Instead, use tmpfiles.d for
 persistent ownership:
 
 ```bash
-cat > /etc/tmpfiles.d/clauth.conf << 'EOF'
-d /run/clauth 0755 clauth-broker clauth-agents -
+cat > /etc/tmpfiles.d/ephyr.conf << 'EOF'
+d /run/ephyr 0755 ephyr-broker ephyr-agents -
 EOF
 
 systemd-tmpfiles --create
@@ -325,10 +325,10 @@ To set a fixed dashboard token (rather than the auto-generated one), create
 a systemd override:
 
 ```bash
-mkdir -p /etc/systemd/system/clauth-broker.service.d
-cat > /etc/systemd/system/clauth-broker.service.d/token.conf << 'EOF'
+mkdir -p /etc/systemd/system/ephyr-broker.service.d
+cat > /etc/systemd/system/ephyr-broker.service.d/token.conf << 'EOF'
 [Service]
-Environment=CLAUTH_DASHBOARD_TOKEN=your-secure-token-here
+Environment=EPHYR_DASHBOARD_TOKEN=your-secure-token-here
 EOF
 ```
 
@@ -336,17 +336,17 @@ EOF
 
 ```bash
 systemctl daemon-reload
-systemctl enable clauth-signer clauth-broker
-systemctl start clauth-signer
-systemctl start clauth-broker
+systemctl enable ephyr-signer ephyr-broker
+systemctl start ephyr-signer
+systemctl start ephyr-broker
 ```
 
 Check status:
 
 ```bash
-systemctl status clauth-signer
-systemctl status clauth-broker
-journalctl -u clauth-broker -f
+systemctl status ephyr-signer
+systemctl status ephyr-broker
+journalctl -u ephyr-broker -f
 ```
 
 The broker logs its dashboard token (masked) at startup. Look for:
@@ -363,7 +363,7 @@ Repeat these steps for each target host that agents should be able to access.
 ### Step 1: Copy CA Public Key
 
 ```bash
-scp /etc/clauth/ca_key.pub root@TARGET_HOST:/etc/ssh/clauth_ca.pub
+scp /etc/ephyr/ca_key.pub root@TARGET_HOST:/etc/ssh/ephyr_ca.pub
 ```
 
 ### Step 2: Configure sshd
@@ -371,8 +371,8 @@ scp /etc/clauth/ca_key.pub root@TARGET_HOST:/etc/ssh/clauth_ca.pub
 Add to /etc/ssh/sshd_config on the target:
 
 ```
-# Clauth SSH certificate authentication
-TrustedUserCAKeys /etc/ssh/clauth_ca.pub
+# Ephyr SSH certificate authentication
+TrustedUserCAKeys /etc/ssh/ephyr_ca.pub
 AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
 ```
 
@@ -410,7 +410,7 @@ chmod 644 /etc/ssh/auth_principals/*
 
 ```bash
 # Operator: limited sudo for service management
-cat > /etc/sudoers.d/clauth-agent-op << 'EOF'
+cat > /etc/sudoers.d/ephyr-agent-op << 'EOF'
 agent-op ALL=(ALL) NOPASSWD: /usr/bin/systemctl status *, \
                              /usr/bin/systemctl restart *, \
                              /usr/bin/systemctl stop *, \
@@ -420,13 +420,13 @@ agent-op ALL=(ALL) NOPASSWD: /usr/bin/systemctl status *, \
 EOF
 
 # Admin: full sudo access
-cat > /etc/sudoers.d/clauth-agent-admin << 'EOF'
+cat > /etc/sudoers.d/ephyr-agent-admin << 'EOF'
 agent-admin ALL=(ALL) NOPASSWD: ALL
 EOF
 
 # Set permissions and lock
-chmod 440 /etc/sudoers.d/clauth-agent-*
-chattr +i /etc/sudoers.d/clauth-agent-*
+chmod 440 /etc/sudoers.d/ephyr-agent-*
+chattr +i /etc/sudoers.d/ephyr-agent-*
 ```
 
 ### Step 6: Restart sshd
@@ -435,22 +435,22 @@ chattr +i /etc/sudoers.d/clauth-agent-*
 systemctl restart sshd
 ```
 
-### Step 7: Test with clauth CLI
+### Step 7: Test with ephyr CLI
 
 On the broker host, as the agent user:
 
 ```bash
 # Initialize agent keypair (first time only)
-clauth init
+ephyr init
 
 # Request a certificate
-clauth request -t my-server -r read
+ephyr request -t my-server -r read
 
 # Open an interactive SSH session
-clauth ssh -t my-server -r operator
+ephyr ssh -t my-server -r operator
 
 # Execute a remote command
-clauth exec -t my-server -r operator -- systemctl status nginx
+ephyr exec -t my-server -r operator -- systemctl status nginx
 ```
 
 ---
@@ -488,7 +488,7 @@ The output will look like: $2a$10$... or $2b$12$...
 
 ### Step 3: Add Hash to Policy
 
-Edit /etc/clauth/policy.yaml and add the api_key_hash field to the
+Edit /etc/ephyr/policy.yaml and add the api_key_hash field to the
 agent's entry:
 
 ```yaml
@@ -508,7 +508,7 @@ For Claude Code, add to your MCP settings (typically in
 ```json
 {
   "mcpServers": {
-    "clauth": {
+    "ephyr": {
       "type": "url",
       "url": "http://BROKER_HOST:8554/mcp",
       "headers": {
@@ -524,9 +524,9 @@ For Claude Code, add to your MCP settings (typically in
 Reload the policy to pick up the new API key hash:
 
 ```bash
-systemctl reload clauth-broker
+systemctl reload ephyr-broker
 # Or, for a full restart:
-systemctl restart clauth-broker
+systemctl restart ephyr-broker
 ```
 
 ### Step 6: Test with curl
@@ -594,16 +594,16 @@ curl -s -X PUT http://BROKER_HOST:8553/v1/dashboard/services/gitea \
   }'
 ```
 
-Or edit /var/lib/clauth/services.json directly (restart not required; file
+Or edit /var/lib/ephyr/services.json directly (restart not required; file
 is read on each request).
 
 ### Step 2: Configure Network Policy
 
 The default policy allows all RFC 1918 ranges and blocks external access.
-To customize, create `/var/lib/clauth/network_policy.json`:
+To customize, create `/var/lib/ephyr/network_policy.json`:
 
 ```bash
-cat > /var/lib/clauth/network_policy.json << 'EOF'
+cat > /var/lib/ephyr/network_policy.json << 'EOF'
 {
   "allow_cidrs": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
   "deny_cidrs": [],
@@ -612,8 +612,8 @@ cat > /var/lib/clauth/network_policy.json << 'EOF'
 }
 EOF
 
-chown clauth-broker:clauth-broker /var/lib/clauth/network_policy.json
-chmod 600 /var/lib/clauth/network_policy.json
+chown ephyr-broker:ephyr-broker /var/lib/ephyr/network_policy.json
+chmod 600 /var/lib/ephyr/network_policy.json
 ```
 
 The broker loads this file at startup. See the Configuration Reference
@@ -651,20 +651,20 @@ matches the service's url_prefix.
 ### Step 1: Note the Token
 
 The dashboard token is either:
-- Set explicitly via CLAUTH_DASHBOARD_TOKEN environment variable or
+- Set explicitly via EPHYR_DASHBOARD_TOKEN environment variable or
   systemd override
 - Auto-generated at startup and logged (masked, first 4 and last 4 chars)
 
 To set a fixed token via systemd:
 
 ```bash
-mkdir -p /etc/systemd/system/clauth-broker.service.d
-cat > /etc/systemd/system/clauth-broker.service.d/token.conf << 'EOF'
+mkdir -p /etc/systemd/system/ephyr-broker.service.d
+cat > /etc/systemd/system/ephyr-broker.service.d/token.conf << 'EOF'
 [Service]
-Environment=CLAUTH_DASHBOARD_TOKEN=your-token-here
+Environment=EPHYR_DASHBOARD_TOKEN=your-token-here
 EOF
 systemctl daemon-reload
-systemctl restart clauth-broker
+systemctl restart ephyr-broker
 ```
 
 ### Step 2: Open the Dashboard
@@ -672,7 +672,7 @@ systemctl restart clauth-broker
 Navigate to http://BROKER_HOST:8553 in a browser.
 
 Static files (the React dashboard) are served without authentication from
-the directory configured by CLAUTH_DASHBOARD_DIR.
+the directory configured by EPHYR_DASHBOARD_DIR.
 
 ### Step 3: Authenticate
 
@@ -746,19 +746,19 @@ ip saddr { 192.168.X.0/24, 192.168.Y.0/24 } tcp dport 8554 accept
 
 ## Logrotate Configuration
 
-Create /etc/logrotate.d/clauth:
+Create /etc/logrotate.d/ephyr:
 
 ```
-/var/log/clauth/audit.json {
+/var/log/ephyr/audit.json {
     daily
     rotate 30
     compress
     delaycompress
     missingok
     notifempty
-    create 0640 clauth-broker clauth-broker
+    create 0640 ephyr-broker ephyr-broker
     postrotate
-        systemctl reload clauth-broker 2>/dev/null || true
+        systemctl reload ephyr-broker 2>/dev/null || true
     endscript
 }
 ```
@@ -780,8 +780,8 @@ echo "claude" >> /etc/at.deny
 # No sudo access for the agent user
 # (agents use certificates for target access, not local sudo)
 
-# Set process limits in /etc/security/limits.d/clauth-agent.conf
-cat > /etc/security/limits.d/clauth-agent.conf << 'EOF'
+# Set process limits in /etc/security/limits.d/ephyr-agent.conf
+cat > /etc/security/limits.d/ephyr-agent.conf << 'EOF'
 claude  hard  nproc   256
 claude  hard  nofile  1024
 EOF
@@ -804,20 +804,20 @@ validation, metrics, and performance benchmarking.
 
 ### Running the Tests
 
-From the Clauth source directory:
+From the Ephyr source directory:
 
 ```bash
-cd /opt/clauth
+cd /opt/ephyr
 go test ./test/integration/ -v -count=1
 ```
 
 Override connection parameters with environment variables:
 
 ```bash
-CLAUTH_MCP_ENDPOINT=http://192.168.100.75:8554/mcp \
-CLAUTH_MCP_KEY=your-api-key \
-CLAUTH_DASH_ENDPOINT=http://192.168.100.75:8553 \
-CLAUTH_DASH_TOKEN=your-dashboard-token \
+EPHYR_MCP_ENDPOINT=http://192.168.100.75:8554/mcp \
+EPHYR_MCP_KEY=your-api-key \
+EPHYR_DASH_ENDPOINT=http://192.168.100.75:8553 \
+EPHYR_DASH_TOKEN=your-dashboard-token \
 go test ./test/integration/ -v -count=1
 ```
 
@@ -834,18 +834,18 @@ go test ./test/integration/ -v -count=1
 | TestPerformanceBench | Latency benchmarks for task_create, task_info, task_list, task_revoke |
 
 A JSON report with per-test latencies is written to
-`/tmp/clauth-smoke-report.json` after each run.
+`/tmp/ephyr-smoke-report.json` after each run.
 
 ### Expected Output
 
 All tests should pass. A summary is printed at the end:
 
 ```
-  CLAUTH v0.2 PHASE 2a -- INTEGRATION TEST REPORT
+  EPHYR v0.2 PHASE 2a -- INTEGRATION TEST REPORT
   ========================================================================
   TEST                            LATENCY   STATUS  DETAIL
   ----------------------------------------------------------------------
-  mcp_initialize                    5.20ms  [  OK  ]  server=clauth protocol=2025-03-26
+  mcp_initialize                    5.20ms  [  OK  ]  server=ephyr protocol=2025-03-26
   tools_list                        3.15ms  [  OK  ]  14 tools, all 4 task tools present
   ...
   TOTAL: N passed, 0 failed, XXms total latency
@@ -860,23 +860,23 @@ After completing all setup steps, verify each component:
 
 - [ ] **Signer starts and logs "listening"**
   ```bash
-  systemctl status clauth-signer
-  journalctl -u clauth-signer --no-pager -n 5
-  # Should show: "listening on /run/clauth/signer.sock"
+  systemctl status ephyr-signer
+  journalctl -u ephyr-signer --no-pager -n 5
+  # Should show: "listening on /run/ephyr/signer.sock"
   ```
 
 - [ ] **Broker connects to signer**
   ```bash
-  systemctl status clauth-broker
-  journalctl -u clauth-broker --no-pager -n 10
-  # Should show: "listening on /run/clauth/broker.sock"
+  systemctl status ephyr-broker
+  journalctl -u ephyr-broker --no-pager -n 10
+  # Should show: "listening on /run/ephyr/broker.sock"
   # No signer connection errors
   ```
 
 - [ ] **Signer health check passes**
   ```bash
-  # As root or clauth-broker user:
-  curl --unix-socket /run/clauth/broker.sock http://localhost/v1/health
+  # As root or ephyr-broker user:
+  curl --unix-socket /run/ephyr/broker.sock http://localhost/v1/health
   # Should return: {"status":"ok","signer":"ok",...}
   ```
 
@@ -900,22 +900,22 @@ After completing all setup steps, verify each component:
 - [ ] **Agent can request and receive cert**
   ```bash
   # As the agent user:
-  clauth init
-  clauth request -t my-server -r read
+  ephyr init
+  ephyr request -t my-server -r read
   # Should print certificate details (serial, principal, expiry)
   ```
 
 - [ ] **SSH works with issued cert**
   ```bash
-  clauth ssh -t my-server -r operator
+  ephyr ssh -t my-server -r operator
   # Should open an interactive SSH session as agent-op
-  clauth exec -t my-server -r read -- whoami
+  ephyr exec -t my-server -r read -- whoami
   # Should print: agent-read
   ```
 
 - [ ] **Audit log captures events**
   ```bash
-  tail -3 /var/log/clauth/audit.json | python3 -m json.tool
+  tail -3 /var/log/ephyr/audit.json | python3 -m json.tool
   # Should show recent events (startup, cert_granted, etc.)
   ```
 
@@ -928,9 +928,9 @@ After completing all setup steps, verify each component:
 
 - [ ] **Socket permissions correct**
   ```bash
-  ls -la /run/clauth/
-  # broker.sock: srw-rw---- clauth-broker clauth-agents
-  # signer.sock: srw-rw---- clauth-broker clauth-broker
+  ls -la /run/ephyr/
+  # broker.sock: srw-rw---- ephyr-broker ephyr-agents
+  # signer.sock: srw-rw---- ephyr-broker ephyr-broker
   ```
 
 - [ ] **Firewall rules active**
@@ -969,7 +969,7 @@ After completing all setup steps, verify each component:
 
 - [ ] **Integration tests pass**
   ```bash
-  cd /opt/clauth && go test ./test/integration/ -v -count=1
+  cd /opt/ephyr && go test ./test/integration/ -v -count=1
   # All tests should pass with 0 failures
   ```
 
@@ -982,13 +982,13 @@ The agent's Linux UID does not match any uid entry in the policy file.
 Check with `id -u <agent-user>` and update policy.yaml accordingly.
 
 **"signer ipc: dial" errors:**
-The broker cannot connect to the signer socket. Verify clauth-signer is
+The broker cannot connect to the signer socket. Verify ephyr-signer is
 running and the socket exists at the expected path. Check that both
 services use the same socket path.
 
 **Agent gets "unauthorized" on broker socket:**
-The agent user is not a member of the clauth-agents group. Add them with
-`usermod -aG clauth-agents <user>` and have them re-login.
+The agent user is not a member of the ephyr-agents group. Add them with
+`usermod -aG ephyr-agents <user>` and have them re-login.
 
 **"permission denied" on SSH to target:**
 The target's sshd_config may be missing TrustedUserCAKeys or
@@ -998,7 +998,7 @@ principal name.
 
 **Dashboard returns 401:**
 The token does not match. Check the broker logs for the auto-generated
-token, or verify the CLAUTH_DASHBOARD_TOKEN environment variable.
+token, or verify the EPHYR_DASHBOARD_TOKEN environment variable.
 
 **MCP returns "invalid API key":**
 The plaintext key does not match any bcrypt hash in the policy file.

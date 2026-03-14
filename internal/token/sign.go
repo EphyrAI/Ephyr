@@ -81,10 +81,10 @@ func (i *Issuer) SignCTTE(claims *TaskClaims) (string, error) {
 
 	// Populate standard fields if not set.
 	if claims.Issuer == "" {
-		claims.Issuer = "clauth:" + i.brokerID
+		claims.Issuer = "ephyr:" + i.brokerID
 	}
 	if claims.Audience == "" {
-		claims.Audience = "clauth-broker"
+		claims.Audience = "ephyr-broker"
 	}
 	if claims.IssuedAt.IsZero() {
 		claims.IssuedAt = time.Now()
@@ -114,10 +114,10 @@ func (i *Issuer) SignCTTD(claims *TaskClaims) (string, error) {
 
 	// Populate standard fields if not set.
 	if claims.Issuer == "" {
-		claims.Issuer = "clauth:" + i.brokerID
+		claims.Issuer = "ephyr:" + i.brokerID
 	}
 	if claims.Audience == "" {
-		claims.Audience = "clauth-broker"
+		claims.Audience = "ephyr-broker"
 	}
 	if claims.IssuedAt.IsZero() {
 		claims.IssuedAt = time.Now()

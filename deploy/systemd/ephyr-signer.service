@@ -1,23 +1,23 @@
 [Unit]
-Description=Clauth SSH Certificate Signer
-Documentation=https://github.com/sprawl/clauth
+Description=Ephyr SSH Certificate Signer
+Documentation=https://github.com/ben-spanswick/ephyr
 After=network.target
 
 [Service]
 Type=simple
-User=clauth-broker
-Group=clauth-broker
+User=ephyr-broker
+Group=ephyr-broker
 
-ExecStart=/usr/local/bin/clauth-signer --ca-key /etc/clauth/ca_key --socket /run/clauth/signer.sock
+ExecStart=/usr/local/bin/ephyr-signer --ca-key /etc/ephyr/ca_key --socket /run/ephyr/signer.sock
 
-# Runtime directory: shares /run/clauth with the broker.
-RuntimeDirectory=clauth
+# Runtime directory: shares /run/ephyr with the broker.
+RuntimeDirectory=ephyr
 RuntimeDirectoryMode=0755
 
 # Logging.
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=clauth-signer
+SyslogIdentifier=ephyr-signer
 
 # Restart policy.
 Restart=on-failure
@@ -40,8 +40,8 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 
 # Only allow read access to the CA key and write access to the socket.
-ReadOnlyPaths=/etc/clauth
-ReadWritePaths=/run/clauth
+ReadOnlyPaths=/etc/ephyr
+ReadWritePaths=/run/ephyr
 
 # Capabilities: none needed.
 CapabilityBoundingSet=

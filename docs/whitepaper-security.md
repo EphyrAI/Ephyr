@@ -1,4 +1,4 @@
-# Clauth Security Whitepaper
+# Ephyr Security Whitepaper
 
 **Secure Infrastructure Access for AI Agents**
 
@@ -84,7 +84,7 @@ Version 0.2 | March 2026
 
 ## 1. Executive Summary
 
-Clauth is an open-source, Go-based privileged access broker purpose-built for
+Ephyr is an open-source, Go-based privileged access broker purpose-built for
 AI agent infrastructure. It replaces static SSH keys and long-lived API tokens
 with ephemeral, policy-governed credentials -- enabling organizations to grant
 infrastructure access to autonomous AI agents without expanding their permanent
@@ -113,7 +113,7 @@ fail for these workloads:
 
 ### The Solution
 
-Clauth provides a single MCP (Model Context Protocol) endpoint through which
+Ephyr provides a single MCP (Model Context Protocol) endpoint through which
 agents request access. Every operation flows through an eight-step authorization
 pipeline, results in an ephemeral credential with a default five-minute
 lifetime, and is recorded in a structured audit log correlated to the specific
@@ -136,7 +136,7 @@ connections, and injects credentials on the agent's behalf.
 ### Intended Audience
 
 This whitepaper is written for security engineers, infrastructure architects,
-and compliance teams evaluating Clauth for production deployment. It provides
+and compliance teams evaluating Ephyr for production deployment. It provides
 a thorough description of the security architecture, cryptographic decisions,
 threat model, and known limitations -- sufficient for an informed risk
 assessment.
@@ -189,7 +189,7 @@ credential is compromised, the attacker has immediate access to all twenty
 servers for the full lifetime of the credential. With a static SSH key, that
 lifetime is indefinite.
 
-Clauth addresses this by making every credential:
+Ephyr addresses this by making every credential:
 
 1. **Ephemeral** -- default 5-minute lifetime, maximum 24-hour hard cap
 2. **Task-scoped** -- the capability envelope constrains which targets, roles,
@@ -204,7 +204,7 @@ instance. Every distribution point is an exfiltration opportunity. API keys
 in environment variables, SSH keys in mounted volumes, and tokens in
 configuration files create a sprawling credential surface.
 
-Clauth's design principle is that agents should never hold infrastructure
+Ephyr's design principle is that agents should never hold infrastructure
 credentials. The broker holds all credentials (SSH CA key, API tokens, service
 passwords) in a single, hardened location. Agents interact exclusively through
 the broker's MCP endpoint, receiving only the results of operations --
@@ -217,7 +217,7 @@ tool outputs or user messages can manipulate the agent's behavior. An agent
 that holds credentials and can construct arbitrary SSH commands or HTTP requests
 is a powerful target for this attack.
 
-Clauth mitigates prompt injection impact through:
+Ephyr mitigates prompt injection impact through:
 
 - **Capability envelopes** that upper-bound what any task token can authorize,
   regardless of what the agent requests
@@ -234,13 +234,13 @@ Clauth mitigates prompt injection impact through:
 
 ### 3.1 Three-Process Model
 
-Clauth implements strict privilege separation through three independent
+Ephyr implements strict privilege separation through three independent
 OS-level processes, each running with the minimum privileges required for
 its function:
 
 ```
                     +-------------------------------------------------+
-                    |            CLAUTH HOST (VM/LXC)                 |
+                    |            EPHYR HOST (VM/LXC)                 |
                     |                                                 |
   +-----------+     |  +----------+   AF_UNIX    +----------------+  |
   |           |     |  |          |<============>|                |  |
@@ -275,7 +275,7 @@ its function:
 
 **Why three processes?** The signer holds the CA private key -- the single
 most valuable secret in the system. By isolating it in a dedicated process
-with no network access, Clauth ensures that a broker compromise cannot
+with no network access, Ephyr ensures that a broker compromise cannot
 extract the CA key. The signer validates every IPC connection via
 `SO_PEERCRED`, accepting only connections from UID 999 (the broker). Even
 if an attacker achieves code execution within the broker process, they cannot
@@ -298,7 +298,7 @@ caller identity:
 ```
   Agent Process (UID 1000)
        |
-       | connect(/run/clauth/broker.sock)
+       | connect(/run/ephyr/broker.sock)
        |
        v
   Kernel: getsockopt(SO_PEERCRED)
@@ -329,7 +329,7 @@ caller identity:
 
 The signer applies the same mechanism with a stricter policy: it extracts
 `SO_PEERCRED` from every connection and rejects any UID that does not match
-the `CLAUTH_BROKER_UID` environment variable (999 in production). This means
+the `EPHYR_BROKER_UID` environment variable (999 in production). This means
 even root-privilege agents on the same host cannot directly communicate with
 the signer -- only the broker can.
 
@@ -376,8 +376,8 @@ strictest sandbox.
 | `PrivateDevices=yes` | No access to /dev (no device files) |
 | `ProtectKernelTunables=yes` | /proc/sys and /sys are read-only |
 | `ProtectKernelModules=yes` | Cannot load kernel modules |
-| `ReadOnlyPaths=/etc/clauth` | CA key directory is read-only (key loaded at startup) |
-| `ReadWritePaths=/run/clauth` | Only the socket directory is writable |
+| `ReadOnlyPaths=/etc/ephyr` | CA key directory is read-only (key loaded at startup) |
+| `ReadWritePaths=/run/ephyr` | Only the socket directory is writable |
 | `RestrictNamespaces=yes` | Cannot create new namespaces (no container escape) |
 | `LockPersonality=yes` | Cannot change execution domain |
 | `RestrictRealtime=yes` | Cannot acquire realtime scheduling priority |
@@ -387,7 +387,7 @@ strictest sandbox.
 The practical effect: even if an attacker achieves code execution within the
 signer process, they cannot:
 - Open any network connection (AF_UNIX restriction)
-- Write to any file outside /run/clauth (ProtectSystem=strict)
+- Write to any file outside /run/ephyr (ProtectSystem=strict)
 - Execute injected shellcode (MemoryDenyWriteExecute)
 - Escalate to root (NoNewPrivileges, empty CapabilityBoundingSet)
 - Load a kernel module (ProtectKernelModules)
@@ -401,7 +401,7 @@ and MCP ports) and write access to logs and configuration:
 | Directive | Value |
 |-----------|-------|
 | `RestrictAddressFamilies` | `AF_UNIX AF_INET AF_INET6` (Unix + TCP) |
-| `ReadWritePaths` | `/run/clauth /var/log/clauth /var/lib/clauth` |
+| `ReadWritePaths` | `/run/ephyr /var/log/ephyr /var/lib/ephyr` |
 | `CapabilityBoundingSet` | Empty (no capabilities) |
 
 All other hardening directives match the signer. The broker can listen on
@@ -415,7 +415,7 @@ model), nftables UID-based rules prevent agents from bypassing the broker:
 
 ```
                    +-------------------------------------+
-                   |           CLAUTH HOST               |
+                   |           EPHYR HOST               |
                    |                                     |
   Agent (UID 1000) |  nftables OUTPUT chain:             |
   can ONLY reach:  |    uid 1000 -> REJECT               |
@@ -442,13 +442,13 @@ the sole network gateway for agent operations.
 
 ### 4.1 Three-Tier Signing Hierarchy
 
-Clauth implements a three-tier signing hierarchy that bounds the authority
+Ephyr implements a three-tier signing hierarchy that bounds the authority
 of each layer:
 
 ```
   +-------------------+
   |  Root CA (Signer) |    Tier 0: Long-lived Ed25519 key
-  |  /etc/clauth/     |    Scope: Can sign anything (SSH certs + delegation certs)
+  |  /etc/ephyr/     |    Scope: Can sign anything (SSH certs + delegation certs)
   |  ca_key            |    Exposure: Zero network, UID-restricted IPC, systemd sandbox
   +--------+----------+
            |
@@ -479,7 +479,7 @@ against its peer credential check.
 
 **Root CA Key:**
 - Generated once via `ssh-keygen -t ed25519`
-- Stored at `/etc/clauth/ca_key` with permissions 0600
+- Stored at `/etc/ephyr/ca_key` with permissions 0600
 - Read by the signer at process startup; never re-read
 - The signer validates file permissions at load time (rejects anything
   other than 0600)
@@ -508,8 +508,8 @@ must be bounded in scope.
 1. The ability to request SSH certificates from the signer, but only
    within the constraints of the policy engine (the signer enforces
    maximum TTL of 24 hours independently)
-2. Access to plaintext service credentials in `/var/lib/clauth/services.json`
-   and federated MCP credentials in `/var/lib/clauth/remotes.json`
+2. Access to plaintext service credentials in `/var/lib/ephyr/services.json`
+   and federated MCP credentials in `/var/lib/ephyr/remotes.json`
 3. The ability to sign CTT-E task tokens using the current delegation key
 4. Read/write access to the audit log (within the broker's ReadWritePaths)
 5. The ability to toggle hosts, services, and remotes on/off
@@ -521,7 +521,7 @@ must be bounded in scope.
    cert's expiry (at most ~1 hour)
 3. Persistence -- once the broker process is restarted, the delegation key
    rotates and the attacker's key is invalidated
-4. The ability to modify the policy file (`/etc/clauth/policy.yaml` is
+4. The ability to modify the policy file (`/etc/ephyr/policy.yaml` is
    read-only to the broker process via `ProtectSystem=strict`)
 
 **Temporal bound:** A broker compromise is bounded by the delegation
@@ -563,7 +563,7 @@ Root key rotation is a manual operational procedure:
 
 ## 5. Authentication
 
-Clauth implements five independent authentication layers, each providing
+Ephyr implements five independent authentication layers, each providing
 a different guarantee. No single layer's compromise grants full system access.
 
 ```
@@ -588,7 +588,7 @@ a different guarantee. No single layer's compromise grants full system access.
 ### 5.1 Layer 1: SO_PEERCRED (Kernel-Verified Identity)
 
 The primary authentication mechanism for co-located agents. When an agent
-connects to `/run/clauth/broker.sock`, the broker extracts the caller's
+connects to `/run/ephyr/broker.sock`, the broker extracts the caller's
 credentials using the `getsockopt(SO_PEERCRED)` system call:
 
 ```go
@@ -613,8 +613,8 @@ The extracted UID is mapped to an agent identity in `policy.yaml`. If no
 agent is registered for the UID, the connection is rejected before any
 further processing.
 
-**Socket permissions:** `/run/clauth/broker.sock` is created with mode
-0660 and group `clauth-agents`. Only processes in that group can connect.
+**Socket permissions:** `/run/ephyr/broker.sock` is created with mode
+0660 and group `ephyr-agents`. Only processes in that group can connect.
 
 ### 5.2 Layer 2: Session Tokens
 
@@ -683,7 +683,7 @@ agents:
     api_key_hash: "$2a$10$..."  # bcrypt hash
 ```
 
-**bcrypt properties relevant to Clauth:**
+**bcrypt properties relevant to Ephyr:**
 - Cost factor 10 (default) -- each comparison takes approximately
   100ms on modern hardware
 - Inherently constant-time per comparison (no timing side-channel on
@@ -708,7 +708,7 @@ command execution:
 2. Broker requests a signed certificate from the signer, specifying:
    - Principals (the SSH user, e.g., `agent-read`)
    - Duration (default 5 minutes, clamped by policy)
-   - Key ID format: `clauth:{agent}@{target}/{role}:{serial_hex}`
+   - Key ID format: `ephyr:{agent}@{target}/{role}:{serial_hex}`
 3. Signer validates the request, applies its own duration cap (24-hour
    hard maximum), and returns the signed certificate
 4. Broker establishes the SSH connection using the ephemeral keypair
@@ -722,7 +722,7 @@ command execution:
 - Critical options: `force-command` when target policy specifies one
 
 **Target-side validation:** Target hosts are configured with
-`TrustedUserCAKeys` pointing to the Clauth CA public key and
+`TrustedUserCAKeys` pointing to the Ephyr CA public key and
 `AuthorizedPrincipalsFile` mapping each role account to its principal.
 The certificate's principal (e.g., `agent-read`) must match a line in
 the target user's principals file.
@@ -758,7 +758,7 @@ To avoid repeated bcrypt comparisons for the same API key, the
 **Cache properties:**
 - Key: `SHA-256(apiKey)` -- the raw API key is never stored in the cache
 - Value: `*MCPAgent` struct + expiry timestamp
-- TTL: 60 seconds (configurable via `CLAUTH_AUTH_CACHE_TTL`)
+- TTL: 60 seconds (configurable via `EPHYR_AUTH_CACHE_TTL`)
 - Invalidation: entire cache cleared on agent add/remove
 - Thread-safe: `sync.RWMutex` with separate lock from agent registry
 - Observable: `CacheStats()` returns hit/miss counters
@@ -778,7 +778,7 @@ To avoid repeated bcrypt comparisons for the same API key, the
 ### 6.1 Policy Engine
 
 Authorization is governed by a declarative YAML policy file at
-`/etc/clauth/policy.yaml`. The policy defines four sections:
+`/etc/ephyr/policy.yaml`. The policy defines four sections:
 
 ```yaml
 global:
@@ -830,7 +830,7 @@ targets:
     auto_approve: true
 ```
 
-Policy is hot-reloaded via `SIGHUP` (`systemctl reload clauth-broker`)
+Policy is hot-reloaded via `SIGHUP` (`systemctl reload ephyr-broker`)
 without service restart. Invalid configurations are rejected, and the
 broker continues using the previous valid policy.
 
@@ -882,7 +882,7 @@ Failure at any step short-circuits the pipeline:
 
 ### 6.3 RBAC Model
 
-Clauth v0.2 introduces role-based access control (RBAC) with per-agent
+Ephyr v0.2 introduces role-based access control (RBAC) with per-agent
 permissions across three proxy paths:
 
 **SSH Access:** Per-agent, per-target role restrictions. An agent can be
@@ -973,7 +973,7 @@ needing to resolve wildcards against the current policy.
 
 ### 7.1 CTT-E Format
 
-CTT-E (Clauth Task Token - Execution) is a compact JWT with EdDSA
+CTT-E (Ephyr Task Token - Execution) is a compact JWT with EdDSA
 (Ed25519) signatures:
 
 ```
@@ -988,9 +988,9 @@ CTT-E (Clauth Task Token - Execution) is a compact JWT with EdDSA
 
   Payload (base64url):
   {
-    "iss": "clauth:<broker-id>",     // Issuer (broker instance)
+    "iss": "ephyr:<broker-id>",     // Issuer (broker instance)
     "sub": "claude",                  // Subject (agent name)
-    "aud": "clauth-broker",           // Audience
+    "aud": "ephyr-broker",           // Audience
     "iat": 1741868400,                // Issued At (Unix timestamp)
     "exp": 1741870200,                // Expires At (Unix timestamp)
     "jti": "cte_01JQXYZ...",          // Token ID (ULID-based)
@@ -1001,7 +1001,7 @@ CTT-E (Clauth Task Token - Execution) is a compact JWT with EdDSA
       "parent_id":    "",              // Empty for root tasks
       "depth":        0,               // Nesting depth
       "lineage":      ["01JQXYZ..."], // Full ancestor chain
-      "initiated_by": "clauth:apikey:ak_claud",
+      "initiated_by": "ephyr:apikey:ak_claud",
       "description":  "Check disk usage on dockerhost"
     },
 
@@ -1086,7 +1086,7 @@ Every CTT-E token is validated through an eight-step chain:
        |                                     signature"
   [6] Verify CTT-E not expired -----------> REJECT: "token expired"
        |
-  [7] Verify audience == "clauth-broker" -> REJECT: "unexpected audience"
+  [7] Verify audience == "ephyr-broker" -> REJECT: "unexpected audience"
        |
   [8] Return parsed TaskClaims (valid)
 ```
@@ -1103,8 +1103,8 @@ authentication method:
 
 | Authentication Method | Identity URN |
 |----------------------|--------------|
-| Local Unix socket (SO_PEERCRED) | `clauth:local:uid:1000` |
-| MCP API key | `clauth:apikey:ak_claud` (first 6 chars of agent name) |
+| Local Unix socket (SO_PEERCRED) | `ephyr:local:uid:1000` |
+| MCP API key | `ephyr:apikey:ak_claud` (first 6 chars of agent name) |
 
 This allows audit consumers to distinguish between co-located agents
 (authenticated via kernel UID verification) and remote agents
@@ -1133,7 +1133,7 @@ characters:
 - 26-character string is shorter than UUID (36 characters) while
   providing better sortability
 
-**Implementation detail:** Clauth implements ULID generation natively
+**Implementation detail:** Ephyr implements ULID generation natively
 (no external dependency) using `crypto/rand` for the random component,
 ensuring cryptographic-quality randomness.
 
@@ -1147,7 +1147,7 @@ Traditional revocation approaches (CRLs, OCSP) maintain a list of every
 revoked credential. This is O(n) in the number of revocations and
 requires distribution of revocation lists to validators.
 
-Clauth uses epoch watermarks: when a task is revoked, its ID is recorded
+Ephyr uses epoch watermarks: when a task is revoked, its ID is recorded
 with a timestamp. Any token whose `iat` (issued-at) is at or before the
 watermark for any task in its lineage is considered revoked.
 
@@ -1241,7 +1241,7 @@ historical revocation count.
 | GC complexity | Manual CRL trimming | N/A | Automatic (TTL-based) |
 | Latency | File read | Network round-trip | HashMap lookup |
 
-The epoch watermark model is particularly well-suited to Clauth's use case
+The epoch watermark model is particularly well-suited to Ephyr's use case
 because task tokens are short-lived (minutes to hours) and hierarchical.
 The combination of automatic cascading and TTL-based garbage collection
 keeps the revocation map small and fast.
@@ -1252,7 +1252,7 @@ keeps the revocation map small and fast.
 
 ### 9.1 Task-Scoped Audit
 
-Every operation in Clauth is logged to `/var/log/clauth/audit.json` as
+Every operation in Ephyr is logged to `/var/log/ephyr/audit.json` as
 newline-delimited JSON. Each entry includes the agent name, task ID (when
 available), target, role, and a details map with operation-specific context.
 
@@ -1379,7 +1379,7 @@ for the dashboard.
 
 ### 10.1 Ed25519 for All Signing Operations
 
-Every signing operation in Clauth uses Ed25519 (Edwards-curve Digital
+Every signing operation in Ephyr uses Ed25519 (Edwards-curve Digital
 Signature Algorithm over Curve25519):
 
 - Root CA certificate signing
@@ -1405,7 +1405,7 @@ Signature Algorithm over Curve25519):
 - **ECDSA (P-256):** Requires random nonce per signature; nonce reuse
   reveals the private key. EdDSA's deterministic nonces eliminate this
   risk class entirely.
-- **Post-quantum (ML-DSA/Dilithium):** Clauth's short token lifetimes
+- **Post-quantum (ML-DSA/Dilithium):** Ephyr's short token lifetimes
   (minutes) and ephemeral keys mean harvest-now-decrypt-later is not a
   meaningful threat. Post-quantum signatures are dramatically larger
   (2-4KB) and would significantly increase token size for no practical
@@ -1462,13 +1462,13 @@ ULIDs were chosen over UUIDs for task identification:
 | Database index performance | Poor (random inserts) | Good (monotonic inserts) |
 
 The 80-bit randomness component (from `crypto/rand`) provides adequate
-collision resistance for Clauth's use case -- tasks are created at human
+collision resistance for Ephyr's use case -- tasks are created at human
 time scales (seconds to minutes apart), not at high-frequency machine
 rates.
 
 ### 10.5 Random Value Generation
 
-All random values in Clauth are generated using `crypto/rand.Read`,
+All random values in Ephyr are generated using `crypto/rand.Read`,
 which reads from the operating system's CSPRNG (`/dev/urandom` on Linux).
 No math/rand is used anywhere in the codebase for security-relevant values.
 
@@ -1493,7 +1493,7 @@ broker, with nftables rules preventing direct backend access:
 ```
   # Reference nftables rules for agent isolation
 
-  table inet clauth {
+  table inet ephyr {
     chain output {
       type filter hook output priority 0; policy accept;
 
@@ -1553,7 +1553,7 @@ unintended destinations.
 
 **Redaction:** Credentials are masked in all API responses (`"***"`),
 audit logs, and dashboard displays. The only location where plaintext
-credentials exist is `/var/lib/clauth/services.json` and the broker's
+credentials exist is `/var/lib/ephyr/services.json` and the broker's
 process memory.
 
 ### 11.3 CIDR Allow/Deny Policy
@@ -1562,7 +1562,7 @@ The HTTP proxy enforces a network policy that controls which destinations
 agents can reach:
 
 ```yaml
-# /var/lib/clauth/network_policy.json
+# /var/lib/ephyr/network_policy.json
 {
   "allow_cidrs":    ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
   "deny_cidrs":     ["192.168.10.0/24"],
@@ -1630,10 +1630,10 @@ the signer and broker services:
 | `ProtectHostname=yes` | Yes | No | Cannot change hostname |
 | `RestrictRealtime=yes` | Yes | No | No RT scheduling |
 | `LockPersonality=yes` | Yes | No | Cannot change exec domain |
-| `ReadOnlyPaths=/etc/clauth` | Yes | No | CA key read-only |
-| `ReadWritePaths=/run/clauth` | Yes | Yes | Socket directory |
-| `ReadWritePaths=/var/log/clauth` | No | Yes | Audit log |
-| `ReadWritePaths=/var/lib/clauth` | No | Yes | Configuration |
+| `ReadOnlyPaths=/etc/ephyr` | Yes | No | CA key read-only |
+| `ReadWritePaths=/run/ephyr` | Yes | Yes | Socket directory |
+| `ReadWritePaths=/var/log/ephyr` | No | Yes | Audit log |
+| `ReadWritePaths=/var/lib/ephyr` | No | Yes | Configuration |
 
 ### 12.2 Production Deployment Recommendations
 
@@ -1664,7 +1664,7 @@ Ordered by impact:
 5. **Rotate MCP API keys regularly.** Treat API keys as time-limited
    credentials. Rotate quarterly and immediately on suspected compromise.
 
-6. **Ship audit logs externally.** Forward `/var/log/clauth/audit.json`
+6. **Ship audit logs externally.** Forward `/var/log/ephyr/audit.json`
    to a SIEM or append-only log store. This bounds the tamper window
    for audit manipulation.
 
@@ -1685,7 +1685,7 @@ Ordered by impact:
 
 ### 12.3 Target Host Hardening
 
-Clauth provides a target provisioning script (`deploy/scripts/provision-target.sh`)
+Ephyr provides a target provisioning script (`deploy/scripts/provision-target.sh`)
 that configures:
 
 **Role accounts:**
@@ -1707,39 +1707,39 @@ that configures:
 via `visudo -c` and then made immutable with `chattr +i`.
 
 **SSH configuration:**
-- `TrustedUserCAKeys` points to the Clauth CA public key
+- `TrustedUserCAKeys` points to the Ephyr CA public key
 - `AuthorizedPrincipalsFile` maps role accounts to SSH principals
 - sshd configuration is validated before applying
 
 ### 12.4 Monitoring and Alerting
 
-Clauth exposes Prometheus-compatible metrics at `GET /metrics`:
+Ephyr exposes Prometheus-compatible metrics at `GET /metrics`:
 
 **Latency histograms** (7 buckets from <100us to >50ms):
-- `clauth_token_sign_seconds` -- CTT-E token signing
-- `clauth_token_validate_seconds` -- CTT-E token validation
-- `clauth_watermark_check_seconds` -- Revocation check
-- `clauth_envelope_check_seconds` -- Capability envelope check
-- `clauth_policy_eval_seconds` -- Policy pipeline evaluation
-- `clauth_ssh_cert_seconds` -- SSH certificate signing (IPC)
-- `clauth_delegation_ipc_seconds` -- Delegation IPC
-- `clauth_exec_e2e_seconds` -- End-to-end exec latency
+- `ephyr_token_sign_seconds` -- CTT-E token signing
+- `ephyr_token_validate_seconds` -- CTT-E token validation
+- `ephyr_watermark_check_seconds` -- Revocation check
+- `ephyr_envelope_check_seconds` -- Capability envelope check
+- `ephyr_policy_eval_seconds` -- Policy pipeline evaluation
+- `ephyr_ssh_cert_seconds` -- SSH certificate signing (IPC)
+- `ephyr_delegation_ipc_seconds` -- Delegation IPC
+- `ephyr_exec_e2e_seconds` -- End-to-end exec latency
 
 **Counters:**
-- `clauth_tasks_created_total`, `clauth_tokens_signed_total`,
-  `clauth_tokens_validated_total`, `clauth_tokens_rejected_total`
-- `clauth_watermark_revocations_total`, `clauth_delegation_rotations_total`
-- `clauth_auth_cache_hits_total`, `clauth_auth_cache_misses_total`
+- `ephyr_tasks_created_total`, `ephyr_tokens_signed_total`,
+  `ephyr_tokens_validated_total`, `ephyr_tokens_rejected_total`
+- `ephyr_watermark_revocations_total`, `ephyr_delegation_rotations_total`
+- `ephyr_auth_cache_hits_total`, `ephyr_auth_cache_misses_total`
 
 **Gauges:**
-- `clauth_tasks_active`, `clauth_active_watermarks`
-- `clauth_delegation_cert_age_seconds`, `clauth_delegation_certs_held`
+- `ephyr_tasks_active`, `ephyr_active_watermarks`
+- `ephyr_delegation_cert_age_seconds`, `ephyr_delegation_certs_held`
 
 **Recommended alerts:**
-- `clauth_tokens_rejected_total` increasing rapidly (brute-force attempt)
-- `clauth_delegation_cert_age_seconds > 3600` (delegation rotation failed)
-- `clauth_ssh_cert_seconds` p99 > 1s (signer IPC latency degradation)
-- `clauth_auth_cache_misses_total` spike (cache invalidation or new keys)
+- `ephyr_tokens_rejected_total` increasing rapidly (brute-force attempt)
+- `ephyr_delegation_cert_age_seconds > 3600` (delegation rotation failed)
+- `ephyr_ssh_cert_seconds` p99 > 1s (signer IPC latency degradation)
+- `ephyr_auth_cache_misses_total` spike (cache invalidation or new keys)
 
 ---
 
@@ -1751,7 +1751,7 @@ SPIFFE (Secure Production Identity Framework for Everyone) and its
 reference implementation SPIRE provide workload identity through X.509
 SVIDs (SPIFFE Verifiable Identity Documents).
 
-| Aspect | SPIFFE/SPIRE | Clauth |
+| Aspect | SPIFFE/SPIRE | Ephyr |
 |--------|-------------|--------|
 | Identity model | X.509 SVIDs with SPIFFE IDs (URIs) | SSH certificates with principal-based roles |
 | Agent identity | Workload attestation (k8s, AWS, process) | SO_PEERCRED UID verification (Linux) |
@@ -1769,7 +1769,7 @@ SVIDs (SPIFFE Verifiable Identity Documents).
 where workload-to-workload mTLS is the primary requirement. Kubernetes-native
 environments with existing SPIRE infrastructure.
 
-**When to choose Clauth:** AI agent infrastructure where SSH access,
+**When to choose Ephyr:** AI agent infrastructure where SSH access,
 HTTP credential injection, and MCP tool federation are the primary
 requirements. Environments where operational simplicity and minimal
 dependencies are valued.
@@ -1779,7 +1779,7 @@ dependencies are valued.
 Vault's SSH secrets engine can operate in signed certificate mode,
 issuing short-lived SSH certificates from a CA key stored in Vault.
 
-| Aspect | Vault SSH Engine | Clauth |
+| Aspect | Vault SSH Engine | Ephyr |
 |--------|-----------------|--------|
 | CA key storage | Vault's encrypted storage backend (Shamir/auto-unseal) | Dedicated signer process with systemd sandbox |
 | Certificate issuance | REST API with Vault token | MCP tool call or Unix socket API |
@@ -1796,13 +1796,13 @@ issuing short-lived SSH certificates from a CA key stored in Vault.
 management, where SSH certificate issuance is one of many secret types.
 Environments requiring HSM-backed key storage (Vault supports PKCS#11).
 
-**When to choose Clauth:** Dedicated AI agent access broker where MCP
+**When to choose Ephyr:** Dedicated AI agent access broker where MCP
 integration, task-scoped audit, and credential injection are critical.
 Environments that value minimal operational overhead.
 
 ### 13.3 Traditional PAM and SSH Key Management
 
-| Aspect | Traditional SSH Keys | Clauth |
+| Aspect | Traditional SSH Keys | Ephyr |
 |--------|---------------------|--------|
 | Key lifecycle | Permanent (until manually rotated) | Ephemeral (5-minute default TTL) |
 | Credential storage | `.ssh/authorized_keys` on each host | CA public key on hosts; no per-agent keys |
@@ -1816,7 +1816,7 @@ Environments that value minimal operational overhead.
 ### 13.4 Summary Matrix
 
 ```
-                    |  SPIFFE/SPIRE  |  Vault SSH  |  PAM/Keys  |  Clauth
+                    |  SPIFFE/SPIRE  |  Vault SSH  |  PAM/Keys  |  Ephyr
   ──────────────────|────────────────|─────────────|────────────|──────────
   AI agent focus    |      No        |     No      |     No     |   Yes
   MCP integration   |      No        |     No      |     No     |   Yes
@@ -1835,10 +1835,10 @@ Environments that value minimal operational overhead.
 
 ### 14.1 Current Limitations
 
-**Single-tenant architecture.** Clauth is designed for single-tenant
+**Single-tenant architecture.** Ephyr is designed for single-tenant
 deployment. All agents, targets, and services are governed by one policy
 file and one CA key. Multi-tenant environments must deploy separate
-Clauth instances. There is no built-in mechanism for cross-instance
+Ephyr instances. There is no built-in mechanism for cross-instance
 trust or delegation.
 
 **No external IdP federation.** Agent identity is established via
@@ -1847,10 +1847,10 @@ OIDC providers, SAML IdPs, or LDAP directories. Environments requiring
 centralized identity management must provision agent UIDs and API keys
 out-of-band.
 
-**No X.509 interop.** Clauth issues OpenSSH certificates exclusively.
+**No X.509 interop.** Ephyr issues OpenSSH certificates exclusively.
 It cannot issue X.509 client certificates for mTLS workflows. Workloads
 requiring X.509 identity should use SPIFFE/SPIRE or a traditional PKI
-alongside Clauth.
+alongside Ephyr.
 
 **SSH host key verification disabled.** The broker's SSH client uses
 `InsecureIgnoreHostKey`, making SSH connections vulnerable to
@@ -1862,8 +1862,8 @@ federation client use `InsecureSkipVerify: true`, making HTTPS
 connections vulnerable to interception (see Threat T7).
 
 **Credentials stored in plaintext.** Service credentials
-(`/var/lib/clauth/services.json`) and federated MCP server credentials
-(`/var/lib/clauth/remotes.json`) are stored as plaintext JSON.
+(`/var/lib/ephyr/services.json`) and federated MCP server credentials
+(`/var/lib/ephyr/remotes.json`) are stored as plaintext JSON.
 File permissions (0600) are the sole protection.
 
 **Dashboard token is static.** The dashboard uses a single static token
@@ -1923,7 +1923,7 @@ at startup without it ever existing in a regular file.
 
 ```
  ┌───────────────────────────────────────────────────────────────────────────┐
- │  CLAUTH HOST (dedicated VM or LXC container)                             │
+ │  EPHYR HOST (dedicated VM or LXC container)                             │
  │                                                                           │
  │  ┌─────────────────┐                                                     │
  │  │  SIGNER          │   Trust Boundary B1                                │
@@ -1936,7 +1936,7 @@ at startup without it ever existing in a regular file.
  │  │  - W^X enforced   │   - ProtectSystem=strict                         │
  │  │                   │   - RestrictAddressFamilies=AF_UNIX              │
  │  └────────┬──────────┘                                                   │
- │           │ /run/clauth/signer.sock                                      │
+ │           │ /run/ephyr/signer.sock                                      │
  │           │ (one-shot JSON, UID-verified)                                │
  │  ┌────────┴──────────────────────────────────────────────────────────┐   │
  │  │  BROKER (UID: 999)                Trust Boundary B2               │   │
@@ -1956,7 +1956,7 @@ at startup without it ever existing in a regular file.
  │  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘            │   │
  │  │                                                                   │   │
  │  │  Listeners:                                                       │   │
- │  │    /run/clauth/broker.sock (Unix, SO_PEERCRED) ─── B0: Agent CLI │   │
+ │  │    /run/ephyr/broker.sock (Unix, SO_PEERCRED) ─── B0: Agent CLI │   │
  │  │    :8553 (TCP, token auth) ─────────────────────── B5: Dashboard  │   │
  │  │    :8554 (TCP, bcrypt API key) ─────────────────── B0r: MCP      │   │
  │  └──────┬──────────────┬──────────────┬──────────────────────────────┘   │
@@ -2003,11 +2003,11 @@ at startup without it ever existing in a regular file.
 
 ## 17. Appendix C: Dependency Analysis
 
-Clauth maintains a minimal dependency footprint. The entire project
+Ephyr maintains a minimal dependency footprint. The entire project
 (22,832 lines of Go) depends on only three external libraries:
 
 ```
-module github.com/sprawl/clauth
+module github.com/ben-spanswick/ephyr
 
 go 1.24.1
 
@@ -2045,17 +2045,17 @@ plus the four dependencies listed above.
 
 | Field | Value |
 |-------|-------|
-| Project | Clauth -- Secure Agent Access Broker |
+| Project | Ephyr -- Secure Agent Access Broker |
 | Version | 0.2 |
 | Codebase | ~22,832 lines of Go |
 | License | Apache 2.0 |
-| Repository | https://github.com/sprawl/clauth |
+| Repository | https://github.com/ben-spanswick/ephyr |
 | Last Updated | March 2026 |
 | Classification | Public |
 
 ---
 
-*This document describes the security architecture of Clauth as implemented
+*This document describes the security architecture of Ephyr as implemented
 in version 0.2. It is intended as a reference for security teams evaluating
 the project. For deployment instructions, see `docs/deployment.md`. For
 API reference, see `docs/api-reference.md`. For the full threat model, see

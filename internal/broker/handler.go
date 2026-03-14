@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sprawl/clauth/internal/audit"
-	"github.com/sprawl/clauth/internal/auth"
-	"github.com/sprawl/clauth/internal/policy"
-	"github.com/sprawl/clauth/internal/signer"
+	"github.com/ben-spanswick/ephyr/internal/audit"
+	"github.com/ben-spanswick/ephyr/internal/auth"
+	"github.com/ben-spanswick/ephyr/internal/policy"
+	"github.com/ben-spanswick/ephyr/internal/signer"
 )
 
 // --- JSON request/response types ---

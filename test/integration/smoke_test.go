@@ -16,10 +16,10 @@ import (
 
 // Configuration — override via environment variables.
 var (
-	mcpEndpoint = envOr("CLAUTH_MCP_ENDPOINT", "http://192.168.100.75:8554/mcp")
-	mcpAPIKey   = envOr("CLAUTH_MCP_KEY", "MoKz9p04QrQ/vL8XZXE4S93t96I/N+sVV1601MgJKU8=")
-	dashEndpoint = envOr("CLAUTH_DASH_ENDPOINT", "http://192.168.100.75:8553")
-	dashToken    = envOr("CLAUTH_DASH_TOKEN", "password")
+	mcpEndpoint = envOr("EPHYR_MCP_ENDPOINT", "http://192.168.100.75:8554/mcp")
+	mcpAPIKey   = envOr("EPHYR_MCP_KEY", "MoKz9p04QrQ/vL8XZXE4S93t96I/N+sVV1601MgJKU8=")
+	dashEndpoint = envOr("EPHYR_DASH_ENDPOINT", "http://192.168.100.75:8553")
+	dashToken    = envOr("EPHYR_DASH_TOKEN", "password")
 )
 
 func envOr(key, def string) string {
@@ -412,9 +412,9 @@ func TestMetricsEndpoint(t *testing.T) {
 
 	// Check for expected Prometheus metric names.
 	expected := []string{
-		"clauth_tasks_created_total",
-		"clauth_tokens_signed_total",
-		"clauth_watermark_revocations_total",
+		"ephyr_tasks_created_total",
+		"ephyr_tokens_signed_total",
+		"ephyr_watermark_revocations_total",
 	}
 	missing := []string{}
 	for _, metric := range expected {
@@ -494,7 +494,7 @@ func TestPerformanceBench(t *testing.T) {
 
 func TestSummary(t *testing.T) {
 	t.Log("\n" + strings.Repeat("=", 72))
-	t.Log("  CLAUTH v0.2 PHASE 2a — INTEGRATION TEST REPORT")
+	t.Log("  EPHYR v0.2 PHASE 2a — INTEGRATION TEST REPORT")
 	t.Log(strings.Repeat("=", 72))
 	t.Log("")
 
@@ -535,7 +535,7 @@ func TestSummary(t *testing.T) {
 		"tests":         perfLog,
 	}
 	reportJSON, _ := json.MarshalIndent(report, "", "  ")
-	reportPath := "/tmp/clauth-smoke-report.json"
+	reportPath := "/tmp/ephyr-smoke-report.json"
 	os.WriteFile(reportPath, reportJSON, 0644)
 	t.Logf("\n  Report written to %s", reportPath)
 

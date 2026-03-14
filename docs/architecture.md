@@ -1,8 +1,8 @@
-# Clauth Architecture Deep Dive
+# Ephyr Architecture Deep Dive
 
 ## Overview
 
-Clauth is a three-tier SSH certificate authority designed for privileged access
+Ephyr is a three-tier SSH certificate authority designed for privileged access
 management in infrastructure environments. It issues short-lived OpenSSH user
 certificates to LLM agents, replacing static SSH keys with ephemeral,
 policy-governed credentials.
@@ -12,10 +12,10 @@ running with the minimum privileges required for its function.
 
 ```
                   +------------------+
-                  |   clauth (CLI)   |
+                  |   ephyr (CLI)   |
                   +--------+---------+
                            |
-                   Unix socket IPC (/run/clauth/broker.sock)
+                   Unix socket IPC (/run/ephyr/broker.sock)
                            |
          +-----------------+------------------+
          |           Broker (orchestrator)     |
@@ -28,7 +28,7 @@ running with the minimum privileges required for its function.
          +--------+-------+---------+---------+
                    |                 |
           Unix socket IPC     TCP :8553 (dashboard)
-      /run/clauth/signer.sock TCP :8554 (MCP)
+      /run/ephyr/signer.sock TCP :8554 (MCP)
                    |
          +---------+---------+
          |   Signer (CA)     |
@@ -46,7 +46,7 @@ Ed25519 CA private key, running as an isolated process with zero network access.
 
 ### IPC Protocol
 
-Newline-delimited JSON over `/run/clauth/signer.sock`. Each connection handles
+Newline-delimited JSON over `/run/ephyr/signer.sock`. Each connection handles
 one request-response exchange, then closes (not JSON-RPC 2.0 -- simpler
 one-shot protocol).
 
@@ -61,7 +61,7 @@ The `action` field accepts `"sign"` or `"ping"` (health check).
 
 ### Peer UID Validation
 
-The signer extracts SO_PEERCRED from every connection. When `CLAUTH_BROKER_UID`
+The signer extracts SO_PEERCRED from every connection. When `EPHYR_BROKER_UID`
 is set (999 in production), only the broker process can connect. Unauthorized
 UIDs are rejected before any signing occurs.
 
@@ -70,7 +70,7 @@ UIDs are rejected before any signing occurs.
 | Property | Value |
 |----------|-------|
 | Algorithm | Ed25519, key permissions must be exactly 0600 |
-| Key ID format | `clauth:{agent}@{target}/{role}:{serial_hex}` |
+| Key ID format | `ephyr:{agent}@{target}/{role}:{serial_hex}` |
 | Serial | Cryptographically random 8-byte uint64 |
 | Clock skew grace | 30 seconds before `now` |
 | Maximum lifetime | 24 hours (hard cap enforced in signer) |
@@ -86,7 +86,7 @@ UIDs are rejected before any signing occurs.
 | `RestrictAddressFamilies=AF_UNIX` | Unix sockets only -- no TCP/UDP/raw |
 | `CapabilityBoundingSet=` | All Linux capabilities dropped |
 | `SystemCallFilter=@system-service` | Allowlisted syscalls only |
-| `ReadWritePaths=/run/clauth` | Only the socket directory is writable |
+| `ReadWritePaths=/run/ephyr` | Only the socket directory is writable |
 | `NoNewPrivileges=yes` | Cannot escalate via setuid/setgid |
 
 ---
@@ -99,7 +99,7 @@ Central orchestrator running multiple listeners and thirteen subsystems.
 
 | Listener | Address | Purpose |
 |----------|---------|---------|
-| Unix socket | `/run/clauth/broker.sock` (0660) | CLI/agent API, SO_PEERCRED auth |
+| Unix socket | `/run/ephyr/broker.sock` (0660) | CLI/agent API, SO_PEERCRED auth |
 | TCP | `:8553` | Dashboard web UI + WebSocket events |
 | TCP | `:8554` | MCP server (JSON-RPC 2.0) for LLM agents |
 
@@ -191,8 +191,8 @@ WebSocket event stream.
 `exec`, `session_create`, `session_close`, `list_sessions`, `list_certs`,
 `http_request`, `list_services`, `list_remotes`, `task_create`, `task_info`,
 `task_revoke`, `task_list`, plus federated `{server}.{tool}` calls. Seven resources for agent self-discovery:
-`clauth://overview`, `clauth://targets`, `clauth://services`,
-`clauth://roles`, `clauth://status`, `clauth://tools`, `clauth://remotes`.
+`ephyr://overview`, `ephyr://targets`, `ephyr://services`,
+`ephyr://roles`, `ephyr://status`, `ephyr://tools`, `ephyr://remotes`.
 
 ---
 
@@ -249,7 +249,7 @@ full MCP stack against a running broker instance. These tests verify:
 Run them with:
 
 ```bash
-cd /opt/clauth
+cd /opt/ephyr
 go test ./test/integration/ -v -count=1
 ```
 
@@ -257,12 +257,12 @@ Override defaults with environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| CLAUTH_MCP_ENDPOINT | http://192.168.100.75:8554/mcp | MCP endpoint URL |
-| CLAUTH_MCP_KEY | (built-in test key) | MCP API key |
-| CLAUTH_DASH_ENDPOINT | http://192.168.100.75:8553 | Dashboard endpoint URL |
-| CLAUTH_DASH_TOKEN | password | Dashboard token |
+| EPHYR_MCP_ENDPOINT | http://192.168.100.75:8554/mcp | MCP endpoint URL |
+| EPHYR_MCP_KEY | (built-in test key) | MCP API key |
+| EPHYR_DASH_ENDPOINT | http://192.168.100.75:8553 | Dashboard endpoint URL |
+| EPHYR_DASH_TOKEN | password | Dashboard token |
 
-A JSON report is written to `/tmp/clauth-smoke-report.json` after each run.
+A JSON report is written to `/tmp/ephyr-smoke-report.json` after each run.
 
 ---
 
@@ -303,7 +303,7 @@ Every brokered request with a CTT-E follows:
 
 ### Epoch Watermark Revocation
 
-Instead of per-token blocklists, Clauth uses epoch watermarking. When a task is revoked, its ID is recorded with a timestamp. Any token issued before the watermark is dead. Revoking a parent cascades to all children (their lineage includes the parent ID).
+Instead of per-token blocklists, Ephyr uses epoch watermarking. When a task is revoked, its ID is recorded with a timestamp. Any token issued before the watermark is dead. Revoking a parent cascades to all children (their lineage includes the parent ID).
 
 ### Capability Envelope
 

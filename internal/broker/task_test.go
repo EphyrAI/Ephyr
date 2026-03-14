@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sprawl/clauth/internal/policy"
-	"github.com/sprawl/clauth/internal/token"
+	"github.com/ben-spanswick/ephyr/internal/policy"
+	"github.com/ben-spanswick/ephyr/internal/token"
 )
 
 func TestCreateRootTask(t *testing.T) {
@@ -18,7 +18,7 @@ func TestCreateRootTask(t *testing.T) {
 		AgentName:   "agent-1",
 		Description: "test task",
 		TTL:         5 * time.Minute,
-		InitiatedBy: "clauth:local:uid:1000",
+		InitiatedBy: "ephyr:local:uid:1000",
 		Envelope: TaskEnvelope{
 			Targets:  []string{"dockerhost"},
 			Roles:    []string{"read"},
@@ -54,7 +54,7 @@ func TestCreateRootTask(t *testing.T) {
 	if task.Description != "test task" {
 		t.Errorf("expected 'test task', got %s", task.Description)
 	}
-	if task.InitiatedBy != "clauth:local:uid:1000" {
+	if task.InitiatedBy != "ephyr:local:uid:1000" {
 		t.Errorf("expected initiator, got %s", task.InitiatedBy)
 	}
 	if task.ExpiresAt.Before(task.CreatedAt) {
@@ -563,7 +563,7 @@ func createDelegatingParent(tm *TaskManager) *Task {
 		AgentName:   "agent-1",
 		Description: "parent task",
 		TTL:         60 * time.Minute,
-		InitiatedBy: "clauth:local:uid:1000",
+		InitiatedBy: "ephyr:local:uid:1000",
 		Envelope: TaskEnvelope{
 			Targets:  []string{"dockerhost", "hugoblog"},
 			Roles:    []string{"read", "operator"},

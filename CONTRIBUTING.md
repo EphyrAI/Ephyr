@@ -1,18 +1,18 @@
-# Contributing to Clauth
+# Contributing to Ephyr
 
-Thanks for your interest in contributing to Clauth! This document covers the basics.
+Thanks for your interest in contributing to Ephyr! This document covers the basics.
 
 ## Development Setup
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-org/clauth.git
-cd clauth
+git clone https://github.com/your-org/ephyr.git
+cd ephyr
 
 # Build all binaries
-go build -o bin/clauth-broker ./cmd/broker
-go build -o bin/clauth-signer ./cmd/signer
-go build -o bin/clauth ./cmd/clauth
+go build -o bin/ephyr-broker ./cmd/broker
+go build -o bin/ephyr-signer ./cmd/signer
+go build -o bin/ephyr ./cmd/ephyr
 
 # Run tests
 go test ./...

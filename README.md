@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">Clauth</h1>
+  <h1 align="center">Ephyr</h1>
   <p align="center"><i>pronounced "klawth"</i></p>
   <p align="center">
     <strong>A broker that gives AI agents ephemeral, auditable, policy-controlled access<br>to infrastructure -- without standing credentials.</strong>
@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ben-spanswick/Clauth/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ben-spanswick/Clauth/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/ben-spanswick/Ephyr/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ben-spanswick/Ephyr/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="#quick-start"><img alt="Go 1.24+" src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" /></a>
   <a href="#license"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue" /></a>
   <img alt="Brokered Access" src="https://img.shields.io/badge/Brokered-Least_Privilege-8B5CF6" />
@@ -16,11 +16,11 @@
 
 ---
 
-## What is Clauth?
+## What is Ephyr?
 
-Clauth is an access broker that gives AI agents ephemeral, policy-controlled access to infrastructure through a single MCP endpoint. It replaces scattered SSH keys, API tokens, and service credentials with one unified, auditable control plane -- agents connect to the broker, and the broker handles authentication, authorization, and credential injection on their behalf.
+Ephyr is an access broker that gives AI agents ephemeral, policy-controlled access to infrastructure through a single MCP endpoint. It replaces scattered SSH keys, API tokens, and service credentials with one unified, auditable control plane -- agents connect to the broker, and the broker handles authentication, authorization, and credential injection on their behalf.
 
-With v0.2, Clauth adds task-scoped portable identity: agents create tasks, receive signed tokens that scope all actions to a task ID with capability envelopes, and every command is correlated back to its originating task for full traceability.
+With v0.2, Ephyr adds task-scoped portable identity: agents create tasks, receive signed tokens that scope all actions to a task ID with capability envelopes, and every command is correlated back to its originating task for full traceability.
 
 ## Architecture
 
@@ -32,8 +32,8 @@ With v0.2, Clauth adds task-scoped portable identity: agents create tasks, recei
                                                   |
                                                   |
 +------------------+  Unix socket  +--------------+----------------+  Unix socket  +------------------+
-|                  |  /run/clauth/ |                               |  /run/clauth/ |                  |
-|   Agent (CLI)    |  broker.sock  |         clauth-broker         |  signer.sock  |  clauth-signer   |
+|                  |  /run/ephyr/ |                               |  /run/ephyr/ |                  |
+|   Agent (CLI)    |  broker.sock  |         ephyr-broker         |  signer.sock  |  ephyr-signer   |
 |                  +-------------->|                               +-------------->|                  |
 +------------------+               |  Policy engine   Sessions     |               |  CA key custody  |
                                    |  MCP server      Grant store  |               |  SSH cert signing|
@@ -54,25 +54,25 @@ With v0.2, Clauth adds task-scoped portable identity: agents create tasks, recei
 
 Three isolated processes with strict privilege separation:
 
-- **clauth-signer** -- Holds the Ed25519 CA private key. Signs SSH certificates and delegation certificates via Unix socket IPC. Runs in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. The CA key never leaves this process.
+- **ephyr-signer** -- Holds the Ed25519 CA private key. Signs SSH certificates and delegation certificates via Unix socket IPC. Runs in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. The CA key never leaves this process.
 
-- **clauth-broker** -- The control plane. Loads policy from YAML, evaluates requests, manages sessions/grants/certificates, serves the MCP endpoint (15 tools), proxies HTTP requests with credential injection, federates remote MCP servers, issues and validates task identity tokens, exports Prometheus metrics, and writes structured audit logs.
+- **ephyr-broker** -- The control plane. Loads policy from YAML, evaluates requests, manages sessions/grants/certificates, serves the MCP endpoint (15 tools), proxies HTTP requests with credential injection, federates remote MCP servers, issues and validates task identity tokens, exports Prometheus metrics, and writes structured audit logs.
 
-- **clauth** (CLI) -- Agent-side tool for direct SSH operations from the broker host.
+- **ephyr** (CLI) -- Agent-side tool for direct SSH operations from the broker host.
 
 ## Intended Deployment Model
 
-Clauth is designed for:
+Ephyr is designed for:
 
 - **Homelabs and power users** who give AI agents (Claude Code, etc.) access to their infrastructure
 - **Internal engineering teams** managing dev/staging/prod environments with AI-assisted operations
 - **Single-tenant environments** where a small number of trusted operators control the broker
 
-Clauth is **not** designed for multi-tenant SaaS, public-facing agent platforms, or environments where the broker operator is untrusted. It assumes a trusted administrator who defines policy and manages the broker.
+Ephyr is **not** designed for multi-tenant SaaS, public-facing agent platforms, or environments where the broker operator is untrusted. It assumes a trusted administrator who defines policy and manages the broker.
 
-## Why Clauth?
+## Why Ephyr?
 
-Static credentials for AI agents are a liability. SSH keys don't expire, API tokens can't be scoped per-task, and when an agent session ends the access remains. Clauth replaces that model:
+Static credentials for AI agents are a liability. SSH keys don't expire, API tokens can't be scoped per-task, and when an agent session ends the access remains. Ephyr replaces that model:
 
 - **One connection, all access** -- Agents connect to a single MCP endpoint. SSH targets, HTTP APIs, and remote MCP servers are all reachable through the broker. No direct backend access required.
 - **Ephemeral credentials** -- SSH certificates default to 5-minute TTL. Service and MCP grants auto-expire. When the task is done, access disappears.
@@ -122,13 +122,13 @@ JSON-RPC 2.0 over Streamable HTTP, implementing [MCP 2025-03-26](https://modelco
 
 | URI | Description |
 |-----|-------------|
-| `clauth://overview` | System summary, available targets, services, and agent permissions |
-| `clauth://targets` | SSH targets with hosts, ports, roles, and auto-approve status |
-| `clauth://services` | HTTP proxy services with credential injection details |
-| `clauth://roles` | Role definitions and SSH principal mappings |
-| `clauth://status` | Agent's active certificates, sessions, and recent activity |
-| `clauth://tools` | Quick reference for all MCP tools with parameters |
-| `clauth://remotes` | Federated MCP servers with connection status and available tools |
+| `ephyr://overview` | System summary, available targets, services, and agent permissions |
+| `ephyr://targets` | SSH targets with hosts, ports, roles, and auto-approve status |
+| `ephyr://services` | HTTP proxy services with credential injection details |
+| `ephyr://roles` | Role definitions and SSH principal mappings |
+| `ephyr://status` | Agent's active certificates, sessions, and recent activity |
+| `ephyr://tools` | Quick reference for all MCP tools with parameters |
+| `ephyr://remotes` | Federated MCP servers with connection status and available tools |
 
 ### SSH Certificate Authority
 
@@ -138,7 +138,7 @@ Persistent sessions reduce per-command latency from ~850ms to ~14ms for sequenti
 
 ### Task-Scoped Identity (v0.2) and Delegation (v0.3)
 
-Agents create tasks via `task_create` and receive a signed CTT-E (Clauth Task Token - Execution) JWT. The token carries:
+Agents create tasks via `task_create` and receive a signed CTT-E (Ephyr Task Token - Execution) JWT. The token carries:
 
 - **Task ID** -- ULID (lexicographically sortable, encodes creation time)
 - **Capability envelope** -- Upper-bound permissions (targets, roles, services, remotes, methods) resolved from RBAC policy at creation time
@@ -186,29 +186,29 @@ Fine-grained, per-agent access control across all three proxy paths (SSH, HTTP, 
 
 | Metric | Description |
 |--------|-------------|
-| `clauth_token_sign_seconds` | Token signing latency |
-| `clauth_token_validate_seconds` | Token validation latency |
-| `clauth_watermark_check_seconds` | Watermark revocation check latency |
-| `clauth_envelope_check_seconds` | Capability envelope check latency |
-| `clauth_policy_eval_seconds` | Policy evaluation latency |
-| `clauth_ssh_cert_seconds` | SSH certificate signing latency |
-| `clauth_delegation_ipc_seconds` | Delegation IPC latency |
-| `clauth_exec_e2e_seconds` | End-to-end exec latency |
+| `ephyr_token_sign_seconds` | Token signing latency |
+| `ephyr_token_validate_seconds` | Token validation latency |
+| `ephyr_watermark_check_seconds` | Watermark revocation check latency |
+| `ephyr_envelope_check_seconds` | Capability envelope check latency |
+| `ephyr_policy_eval_seconds` | Policy evaluation latency |
+| `ephyr_ssh_cert_seconds` | SSH certificate signing latency |
+| `ephyr_delegation_ipc_seconds` | Delegation IPC latency |
+| `ephyr_exec_e2e_seconds` | End-to-end exec latency |
 
 **Counters and gauges:**
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `clauth_tasks_created_total` | counter | Total tasks created |
-| `clauth_tasks_active` | gauge | Currently active tasks |
-| `clauth_tokens_signed_total` | counter | Total CTT-E tokens signed |
-| `clauth_tokens_validated_total` | counter | Total tokens validated |
-| `clauth_tokens_rejected_total` | counter | Total tokens rejected |
-| `clauth_watermark_revocations_total` | counter | Total watermark revocations |
-| `clauth_delegation_rotations_total` | counter | Total delegation cert rotations |
-| `clauth_legacy_requests_total` | counter | Requests without CTT (legacy mode) |
-| `clauth_auth_cache_hits_total` | counter | Auth cache hits (bcrypt bypassed) |
-| `clauth_auth_cache_misses_total` | counter | Auth cache misses (bcrypt required) |
+| `ephyr_tasks_created_total` | counter | Total tasks created |
+| `ephyr_tasks_active` | gauge | Currently active tasks |
+| `ephyr_tokens_signed_total` | counter | Total CTT-E tokens signed |
+| `ephyr_tokens_validated_total` | counter | Total tokens validated |
+| `ephyr_tokens_rejected_total` | counter | Total tokens rejected |
+| `ephyr_watermark_revocations_total` | counter | Total watermark revocations |
+| `ephyr_delegation_rotations_total` | counter | Total delegation cert rotations |
+| `ephyr_legacy_requests_total` | counter | Requests without CTT (legacy mode) |
+| `ephyr_auth_cache_hits_total` | counter | Auth cache hits (bcrypt bypassed) |
+| `ephyr_auth_cache_misses_total` | counter | Auth cache misses (bcrypt required) |
 
 ### Auth Cache
 
@@ -220,8 +220,8 @@ SHA-256 keyed bcrypt result cache with configurable TTL. Eliminates redundant bc
 | Warm auth (cache hit) | <1ms |
 | Speedup | 187x |
 | Default TTL | 60 seconds |
-| Configuration | `CLAUTH_AUTH_CACHE_TTL` env var |
-| Disable | `CLAUTH_AUTH_CACHE_TTL=0` or `off` or `false` |
+| Configuration | `EPHYR_AUTH_CACHE_TTL` env var |
+| Disable | `EPHYR_AUTH_CACHE_TTL=0` or `off` or `false` |
 
 ### Dashboard
 
@@ -259,7 +259,7 @@ Benchmarked on a Debian 12 LXC (1 vCPU, 512MB RAM):
 
 ## Security Boundaries
 
-### What Clauth enforces
+### What Ephyr enforces
 
 - **Access issuance policy** -- Which agents can reach which targets, with which roles, for how long
 - **Task-scoped identity** -- Capability envelopes bound what a token can do; watermark revocation invalidates instantly
@@ -284,10 +284,10 @@ Benchmarked on a Debian 12 LXC (1 vCPU, 512MB RAM):
 ### 1. Build
 
 ```bash
-git clone https://github.com/ben-spanswick/clauth.git
-cd clauth
+git clone https://github.com/ben-spanswick/ephyr.git
+cd ephyr
 make build
-# Output: bin/clauth-broker  bin/clauth-signer  bin/clauth
+# Output: bin/ephyr-broker  bin/ephyr-signer  bin/ephyr
 ```
 
 Requires Go 1.24+.
@@ -295,13 +295,13 @@ Requires Go 1.24+.
 ### 2. Generate CA key
 
 ```bash
-mkdir -p /etc/clauth
-ssh-keygen -t ed25519 -f /etc/clauth/ca_key -N ""
+mkdir -p /etc/ephyr
+ssh-keygen -t ed25519 -f /etc/ephyr/ca_key -N ""
 ```
 
 ### 3. Configure policy
 
-Create `/etc/clauth/policy.yaml` (see `configs/policy.yaml` for a complete example):
+Create `/etc/ephyr/policy.yaml` (see `configs/policy.yaml` for a complete example):
 
 ```yaml
 global:
@@ -343,10 +343,10 @@ Deploy the CA public key and create role accounts on each target:
 
 ```bash
 # On each target host:
-scp /etc/clauth/ca_key.pub target:/etc/ssh/clauth_ca.pub
+scp /etc/ephyr/ca_key.pub target:/etc/ssh/ephyr_ca.pub
 
 # Add to sshd_config:
-#   TrustedUserCAKeys /etc/ssh/clauth_ca.pub
+#   TrustedUserCAKeys /etc/ssh/ephyr_ca.pub
 #   AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
 
 # Create role accounts:
@@ -363,14 +363,14 @@ Or use the provisioning script: `deploy/scripts/provision-target.sh`
 ```bash
 sudo make install-user      # Create system user and directories
 sudo make install-systemd   # Install systemd units
-sudo systemctl enable --now clauth-signer clauth-broker
+sudo systemctl enable --now ephyr-signer ephyr-broker
 ```
 
 Or run directly:
 
 ```bash
-clauth-signer --ca-key /etc/clauth/ca_key --socket /run/clauth/signer.sock &
-clauth-broker --policy /etc/clauth/policy.yaml --admin-uid 0
+ephyr-signer --ca-key /etc/ephyr/ca_key --socket /run/ephyr/signer.sock &
+ephyr-broker --policy /etc/ephyr/policy.yaml --admin-uid 0
 ```
 
 ### 6. Connect an agent
@@ -380,7 +380,7 @@ Add to your `.claude/settings.json` (Claude Code), `claude_desktop_config.json` 
 ```json
 {
   "mcpServers": {
-    "clauth": {
+    "ephyr": {
       "type": "url",
       "url": "http://your-broker:8554/mcp",
       "headers": {
@@ -405,8 +405,8 @@ htpasswd -nbBC 10 "" "YOUR_KEY" | cut -d: -f2
 
 ```bash
 # Via CLI (on broker host)
-clauth exec webserver --role read -- systemctl status nginx
-clauth session create   # persistent session for faster sequential commands
+ephyr exec webserver --role read -- systemctl status nginx
+ephyr session create   # persistent session for faster sequential commands
 
 # Via MCP (from any connected agent)
 # Agent calls: exec { target: "webserver", role: "read", command: "systemctl status nginx" }
@@ -426,7 +426,7 @@ Broker and agent on the same Linux host. Agent connects via Unix socket or MCP o
 1. `make build && sudo make install`
 2. `sudo make install-user && sudo make install-systemd`
 3. Generate CA key, configure policy, deploy to target hosts
-4. `sudo systemctl enable --now clauth-signer clauth-broker`
+4. `sudo systemctl enable --now ephyr-signer ephyr-broker`
 
 ### Dedicated Host (VM / LXC / Bare Metal)
 
@@ -434,7 +434,7 @@ Recommended for production. Broker on its own host, agents connect over the netw
 
 1. Provision a Debian/Ubuntu host
 2. Build, install, configure (same as local)
-3. Set `CLAUTH_MCP_LISTEN=:8554` and `CLAUTH_DASHBOARD_LISTEN=:8553`
+3. Set `EPHYR_MCP_LISTEN=:8554` and `EPHYR_DASHBOARD_LISTEN=:8553`
 4. Generate MCP API key, add bcrypt hash to policy
 5. Configure firewall: allow 8554 (MCP) and 8553 (dashboard) from trusted networks
 6. Provision target hosts with `deploy/scripts/provision-target.sh`
@@ -449,17 +449,17 @@ All broker configuration can be set via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLAUTH_POLICY` | `/etc/clauth/policy.yaml` | Policy file path |
-| `CLAUTH_SIGNER_SOCKET` | `/run/clauth/signer.sock` | Signer IPC socket path |
-| `CLAUTH_LISTEN` | `/run/clauth/broker.sock` | Broker Unix socket path |
-| `CLAUTH_AUDIT_LOG` | `/var/log/clauth/audit.json` | Audit log path |
-| `CLAUTH_DASHBOARD_LISTEN` | `:8553` | Dashboard TCP listen address |
-| `CLAUTH_DASHBOARD_TOKEN` | *(auto-generated)* | Dashboard API/login token |
-| `CLAUTH_DASHBOARD_DIR` | `/opt/clauth/dashboard` | Dashboard static files directory |
-| `CLAUTH_MCP_LISTEN` | `:8554` | MCP server TCP listen address |
-| `CLAUTH_ADMIN_UIDS` | `0` | Comma-separated admin UIDs |
-| `CLAUTH_SOCKET_GROUP` | `clauth-agents` | Unix socket group ownership |
-| `CLAUTH_AUTH_CACHE_TTL` | `60s` | Auth cache TTL (duration string, or `0`/`off`/`false` to disable) |
+| `EPHYR_POLICY` | `/etc/ephyr/policy.yaml` | Policy file path |
+| `EPHYR_SIGNER_SOCKET` | `/run/ephyr/signer.sock` | Signer IPC socket path |
+| `EPHYR_LISTEN` | `/run/ephyr/broker.sock` | Broker Unix socket path |
+| `EPHYR_AUDIT_LOG` | `/var/log/ephyr/audit.json` | Audit log path |
+| `EPHYR_DASHBOARD_LISTEN` | `:8553` | Dashboard TCP listen address |
+| `EPHYR_DASHBOARD_TOKEN` | *(auto-generated)* | Dashboard API/login token |
+| `EPHYR_DASHBOARD_DIR` | `/opt/ephyr/dashboard` | Dashboard static files directory |
+| `EPHYR_MCP_LISTEN` | `:8554` | MCP server TCP listen address |
+| `EPHYR_ADMIN_UIDS` | `0` | Comma-separated admin UIDs |
+| `EPHYR_SOCKET_GROUP` | `ephyr-agents` | Unix socket group ownership |
+| `EPHYR_AUTH_CACHE_TTL` | `60s` | Auth cache TTL (duration string, or `0`/`off`/`false` to disable) |
 
 ### Policy Reference
 
@@ -494,7 +494,7 @@ POST /mcp -- JSON-RPC 2.0 (initialize, tools/list, tools/call, resources/list, r
 GET  /v1/metrics -- Prometheus metrics
 ```
 
-### Unix Socket API (`/run/clauth/broker.sock`)
+### Unix Socket API (`/run/ephyr/broker.sock`)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -518,11 +518,11 @@ All Unix socket endpoints above, plus dashboard-specific routes for summary, hos
 ## Project Structure
 
 ```
-clauth/
+ephyr/
 ├── cmd/
-│   ├── broker/            # clauth-broker entry point, flag parsing, signal handling
-│   ├── clauth/            # CLI tool: session, ssh, exec, service/remote discovery
-│   └── signer/            # clauth-signer entry point, CA key loading
+│   ├── broker/            # ephyr-broker entry point, flag parsing, signal handling
+│   ├── ephyr/            # CLI tool: session, ssh, exec, service/remote discovery
+│   └── signer/            # ephyr-signer entry point, CA key loading
 ├── internal/
 │   ├── audit/             # Structured JSON-line audit logger, anomaly detection
 │   ├── auth/              # Session manager, SO_PEERCRED extraction
@@ -540,7 +540,7 @@ clauth/
 ├── dashboard/
 │   └── index.html         # Single-page admin UI (~4,100 lines)
 ├── deploy/
-│   ├── systemd/           # clauth-broker.service, clauth-signer.service
+│   ├── systemd/           # ephyr-broker.service, ephyr-signer.service
 │   └── scripts/           # Target provisioning, sudoers, audit helpers
 ├── docs/                  # Detailed documentation
 │   ├── architecture.md    # Trust model, delegation chain, validation
@@ -552,7 +552,7 @@ clauth/
 │   └── THREAT_MODEL.md    # 12 enumerated threats with mitigations
 ├── .github/
 │   └── workflows/         # CI: build, test, lint (GitHub Actions)
-├── CLAUTH.md              # Agent-facing reference document
+├── EPHYR.md              # Agent-facing reference document
 ├── CONTRIBUTING.md        # Contributor guidelines
 ├── Makefile               # build, test, lint, install targets
 ├── go.mod                 # 3 direct dependencies
@@ -564,7 +564,7 @@ clauth/
 253 tests across 13 test files:
 
 - **Unit tests** -- Policy engine, RBAC resolution, delegation, revocation, grants, rate limiting, metrics, token signing/validation, activity store
-- **Integration tests** -- 8 end-to-end tests (`test/integration/smoke_test.go`) that run against a live Clauth instance: MCP handshake, tool listing, legacy compatibility, task lifecycle, task validation, metrics endpoint, and performance benchmarks
+- **Integration tests** -- 8 end-to-end tests (`test/integration/smoke_test.go`) that run against a live Ephyr instance: MCP handshake, tool listing, legacy compatibility, task lifecycle, task validation, metrics endpoint, and performance benchmarks
 
 ```bash
 make test                    # Unit tests

@@ -13,7 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// cmdInit generates an Ed25519 keypair at ~/.clauth/id_ed25519{,.pub}.
+// cmdInit generates an Ed25519 keypair at ~/.ephyr/id_ed25519{,.pub}.
 func cmdInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	force := fs.Bool("force", false, "Overwrite existing keypair")
@@ -53,7 +53,7 @@ func cmdInit(args []string) {
 	}
 
 	// Marshal private key to OpenSSH PEM format.
-	privPEM, err := ssh.MarshalPrivateKey(privKey, "clauth agent key")
+	privPEM, err := ssh.MarshalPrivateKey(privKey, "ephyr agent key")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: marshal private key: %v\n", err)
 		os.Exit(1)
@@ -123,13 +123,13 @@ func base64RawEncode(data []byte) string {
 	return string(result)
 }
 
-// defaultConfigDir returns the default clauth config directory.
+// defaultConfigDir returns the default ephyr config directory.
 func defaultConfigDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".clauth"
+		return ".ephyr"
 	}
-	return filepath.Join(home, ".clauth")
+	return filepath.Join(home, ".ephyr")
 }
 
 // readPublicKey reads the agent's public key from the config directory.
@@ -137,7 +137,7 @@ func readPublicKey(configDir string) (string, error) {
 	pubPath := filepath.Join(configDir, "id_ed25519.pub")
 	data, err := os.ReadFile(pubPath)
 	if err != nil {
-		return "", fmt.Errorf("read public key %s: %w (run 'clauth init' first)", pubPath, err)
+		return "", fmt.Errorf("read public key %s: %w (run 'ephyr init' first)", pubPath, err)
 	}
 	return string(data), nil
 }

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sprawl/clauth/internal/token"
+	"github.com/ben-spanswick/ephyr/internal/token"
 )
 
 // helper to build an MCPAgent with the given envelope.

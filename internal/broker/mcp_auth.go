@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sprawl/clauth/internal/policy"
+	"github.com/ben-spanswick/ephyr/internal/policy"
 	"golang.org/x/crypto/bcrypt"
 )
 

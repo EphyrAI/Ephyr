@@ -13,13 +13,13 @@ import (
 )
 
 const (
-	defaultSocket     = "/run/clauth/broker.sock"
+	defaultSocket     = "/run/ephyr/broker.sock"
 	defaultDuration   = "5m"
 	pollInterval      = 2 * time.Second
 	pollTimeout       = 5 * time.Minute
 )
 
-// cmdRequest handles: clauth request --target HOST --role ROLE [--duration DUR]
+// cmdRequest handles: ephyr request --target HOST --role ROLE [--duration DUR]
 func cmdRequest(args []string) {
 	fs := flag.NewFlagSet("request", flag.ExitOnError)
 	target := fs.String("target", "", "Target host name")
@@ -57,7 +57,7 @@ func cmdRequest(args []string) {
 	fmt.Printf("  Cert file: %s\n", certPath(*configDir, t))
 }
 
-// cmdSSH handles: clauth ssh --target HOST --role ROLE [--duration DUR]
+// cmdSSH handles: ephyr ssh --target HOST --role ROLE [--duration DUR]
 func cmdSSH(args []string) {
 	fs := flag.NewFlagSet("ssh", flag.ExitOnError)
 	target := fs.String("target", "", "Target host name")
@@ -100,7 +100,7 @@ func cmdSSH(args []string) {
 	os.Exit(exitCode)
 }
 
-// cmdExec handles: clauth exec --target HOST --role ROLE [--duration DUR] -- COMMAND...
+// cmdExec handles: ephyr exec --target HOST --role ROLE [--duration DUR] -- COMMAND...
 func cmdExec(args []string) {
 	// Find the "--" separator to split flags from the remote command.
 	dashIdx := -1
@@ -121,7 +121,7 @@ func cmdExec(args []string) {
 
 	if len(cmdArgs) == 0 {
 		fmt.Fprintln(os.Stderr, "error: no command specified after '--'")
-		fmt.Fprintln(os.Stderr, "Usage: clauth exec -t HOST -r ROLE -- COMMAND [ARGS...]")
+		fmt.Fprintln(os.Stderr, "Usage: ephyr exec -t HOST -r ROLE -- COMMAND [ARGS...]")
 		os.Exit(1)
 	}
 
@@ -164,7 +164,7 @@ func cmdExec(args []string) {
 	os.Exit(exitCode)
 }
 
-// cmdStatus handles: clauth status
+// cmdStatus handles: ephyr status
 func cmdStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
@@ -199,7 +199,7 @@ func cmdStatus(args []string) {
 	}
 }
 
-// cmdTargets handles: clauth targets
+// cmdTargets handles: ephyr targets
 func cmdTargets(args []string) {
 	fs := flag.NewFlagSet("targets", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
@@ -231,7 +231,7 @@ func cmdTargets(args []string) {
 	}
 }
 
-// cmdWhoami handles: clauth whoami
+// cmdWhoami handles: ephyr whoami
 func cmdWhoami(args []string) {
 	fs := flag.NewFlagSet("whoami", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
@@ -325,7 +325,7 @@ func pollForApproval(client *BrokerClient, requestID, configDir, target string) 
 	}
 }
 
-// saveCert writes a base64-encoded certificate to ~/.clauth/certs/<target>.cert
+// saveCert writes a base64-encoded certificate to ~/.ephyr/certs/<target>.cert
 func saveCert(configDir, target, certB64 string) error {
 	certsDir := filepath.Join(configDir, "certs")
 	if err := os.MkdirAll(certsDir, 0700); err != nil {

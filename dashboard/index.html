@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CLAUTH // SSH Certificate Broker</title>
+<title>EPHYR // SSH Certificate Broker</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script>
   // Apply saved theme before first paint to avoid flash
   (function() {
-    var t = localStorage.getItem('clauth-theme') || 'dark';
+    var t = localStorage.getItem('ephyr-theme') || 'dark';
     document.documentElement.setAttribute('data-theme', t);
   })();
 </script>
@@ -1180,7 +1180,7 @@ async function api(method, path, body, token) {
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
-  if (res.status === 401) { localStorage.removeItem('clauth_token'); throw new Error('UNAUTHORIZED'); }
+  if (res.status === 401) { localStorage.removeItem('ephyr_token'); throw new Error('UNAUTHORIZED'); }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -3320,7 +3320,7 @@ function TerminalInstance({ tab, token, onStatusChange }) {
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    term.writeln('\x1b[32m[CLAUTH Terminal]\x1b[0m Ready to connect.');
+    term.writeln('\x1b[32m[EPHYR Terminal]\x1b[0m Ready to connect.');
     term.writeln('');
 
     const resizeObserver = new ResizeObserver(() => {
@@ -3837,7 +3837,7 @@ function TerminalView({ hosts, token }) {
               <div className="form-group">
                 <label className="form-label">Auth Type</label>
                 <select className="form-select" value={formData.auth_type} onChange={e => setFormData(prev => ({ ...prev, auth_type: e.target.value }))}>
-                  <option value="certificate">Certificate (Clauth)</option>
+                  <option value="certificate">Certificate (Ephyr)</option>
                   <option value="password">Password</option>
                   <option value="key">SSH Key</option>
                 </select>
@@ -4125,7 +4125,7 @@ function SettingsView({ summary, token, wsStatus }) {
             )}
 
             <div className="rbac-note">
-              Role assignments are managed via <code>policy.yaml</code>. Reload policy with: <code>systemctl reload clauth-broker</code>
+              Role assignments are managed via <code>policy.yaml</code>. Reload policy with: <code>systemctl reload ephyr-broker</code>
             </div>
           </>
         )}
@@ -4139,11 +4139,11 @@ function SettingsView({ summary, token, wsStatus }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function ThemePicker() {
-  const [theme, setTheme] = useState(() => localStorage.getItem('clauth-theme') || 'dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem('ephyr-theme') || 'dark');
 
   const applyTheme = (t) => {
     setTheme(t);
-    localStorage.setItem('clauth-theme', t);
+    localStorage.setItem('ephyr-theme', t);
     document.documentElement.setAttribute('data-theme', t);
   };
 
@@ -4177,7 +4177,7 @@ function TokenModal({ onSubmit, error }) {
   return (
     <div className="modal-overlay">
       <div className="modal-box">
-        <h2>CLAUTH</h2>
+        <h2>EPHYR</h2>
         <div className="modal-sub">SSH CERTIFICATE BROKER</div>
         {error && <div className="modal-error">{error}</div>}
         <form onSubmit={handleSubmit}>
@@ -4196,7 +4196,7 @@ function TokenModal({ onSubmit, error }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function App() {
-  const [token, setToken] = useState(() => localStorage.getItem('clauth_token') || '');
+  const [token, setToken] = useState(() => localStorage.getItem('ephyr_token') || '');
   const [tokenError, setTokenError] = useState('');
   const [view, setView] = useState('overview');
   const [now, setNow] = useState(Date.now());
@@ -4336,13 +4336,13 @@ function App() {
   // Token submit
   const handleTokenSubmit = (t) => {
     setTokenError('');
-    localStorage.setItem('clauth_token', t);
+    localStorage.setItem('ephyr_token', t);
     setToken(t);
   };
 
   // Logout
   const handleLogout = () => {
-    localStorage.removeItem('clauth_token');
+    localStorage.removeItem('ephyr_token');
     if (wsRef.current) wsRef.current.close();
     setToken(''); setSummary({}); setHosts([]);
     setSessions([]); setEvents([]); setWsStatus('DISCONNECTED');
@@ -4410,7 +4410,7 @@ function App() {
     <div className="app-layout">
       <div className="sidebar">
         <div className="sidebar-brand">
-          <h1>CLAUTH</h1>
+          <h1>EPHYR</h1>
           <div className="subtitle">SSH CERTIFICATE BROKER</div>
         </div>
         <div className="sidebar-nav">

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sprawl/clauth/internal/broker"
+	"github.com/ben-spanswick/ephyr/internal/broker"
 )
 
 // version is set at build time via -ldflags.
@@ -41,28 +41,28 @@ func (m *multiUint32) Set(s string) error {
 
 func main() {
 	var (
-		policyPath     = flag.String("policy", envOrDefault("CLAUTH_POLICY", "/etc/clauth/policy.yaml"), "path to policy YAML file")
-		signerSocket   = flag.String("signer-socket", envOrDefault("CLAUTH_SIGNER_SOCKET", "/run/clauth/signer.sock"), "path to signer IPC socket")
-		listenSocket   = flag.String("listen", envOrDefault("CLAUTH_LISTEN", "/run/clauth/broker.sock"), "path for broker Unix socket")
-		auditLogPath   = flag.String("audit-log", envOrDefault("CLAUTH_AUDIT_LOG", "/var/log/clauth/audit.json"), "path to audit log file")
-		dashboardListen = flag.String("dashboard-listen", envOrDefault("CLAUTH_DASHBOARD_LISTEN", ":8553"), "TCP address for dashboard listener")
-		dashboardToken  = flag.String("dashboard-token", envOrDefault("CLAUTH_DASHBOARD_TOKEN", ""), "API token for dashboard (auto-generated if empty)")
-		socketGroup     = flag.String("socket-group", envOrDefault("CLAUTH_SOCKET_GROUP", "clauth-agents"), "Group for broker socket ownership")
-		dashboardDir    = flag.String("dashboard-dir", envOrDefault("CLAUTH_DASHBOARD_DIR", "/opt/clauth/dashboard"), "directory for static dashboard files")
-		mcpListen       = flag.String("mcp-listen", envOrDefault("CLAUTH_MCP_LISTEN", ":8554"), "TCP address for MCP listener")
+		policyPath     = flag.String("policy", envOrDefault("EPHYR_POLICY", "/etc/ephyr/policy.yaml"), "path to policy YAML file")
+		signerSocket   = flag.String("signer-socket", envOrDefault("EPHYR_SIGNER_SOCKET", "/run/ephyr/signer.sock"), "path to signer IPC socket")
+		listenSocket   = flag.String("listen", envOrDefault("EPHYR_LISTEN", "/run/ephyr/broker.sock"), "path for broker Unix socket")
+		auditLogPath   = flag.String("audit-log", envOrDefault("EPHYR_AUDIT_LOG", "/var/log/ephyr/audit.json"), "path to audit log file")
+		dashboardListen = flag.String("dashboard-listen", envOrDefault("EPHYR_DASHBOARD_LISTEN", ":8553"), "TCP address for dashboard listener")
+		dashboardToken  = flag.String("dashboard-token", envOrDefault("EPHYR_DASHBOARD_TOKEN", ""), "API token for dashboard (auto-generated if empty)")
+		socketGroup     = flag.String("socket-group", envOrDefault("EPHYR_SOCKET_GROUP", "ephyr-agents"), "Group for broker socket ownership")
+		dashboardDir    = flag.String("dashboard-dir", envOrDefault("EPHYR_DASHBOARD_DIR", "/opt/ephyr/dashboard"), "directory for static dashboard files")
+		mcpListen       = flag.String("mcp-listen", envOrDefault("EPHYR_MCP_LISTEN", ":8554"), "TCP address for MCP listener")
 		showVersion    = flag.Bool("version", false, "print version and exit")
 	)
 
 	var adminUIDs multiUint32
 	// Parse default admin UIDs from environment.
-	if envAdmins := os.Getenv("CLAUTH_ADMIN_UIDS"); envAdmins != "" {
+	if envAdmins := os.Getenv("EPHYR_ADMIN_UIDS"); envAdmins != "" {
 		for _, s := range strings.Split(envAdmins, ",") {
 			s = strings.TrimSpace(s)
 			if s == "" {
 				continue
 			}
 			if err := adminUIDs.Set(s); err != nil {
-				log.Fatalf("invalid CLAUTH_ADMIN_UIDS value: %v", err)
+				log.Fatalf("invalid EPHYR_ADMIN_UIDS value: %v", err)
 			}
 		}
 	}
@@ -70,7 +70,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("clauth-broker %s\n", version)
+		fmt.Printf("ephyr-broker %s\n", version)
 		os.Exit(0)
 	}
 
@@ -89,7 +89,7 @@ func main() {
 	}
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-	log.Printf("[broker] clauth-broker %s starting", version)
+	log.Printf("[broker] ephyr-broker %s starting", version)
 	log.Printf("[broker] policy:    %s", *policyPath)
 	log.Printf("[broker] signer:    %s", *signerSocket)
 	log.Printf("[broker] listen:    %s", *listenSocket)
@@ -102,13 +102,13 @@ func main() {
 
 	// Parse auth cache TTL. Default 60s, set to "0" to disable.
 	var authCacheTTL time.Duration
-	if v := os.Getenv("CLAUTH_AUTH_CACHE_TTL"); v != "" {
+	if v := os.Getenv("EPHYR_AUTH_CACHE_TTL"); v != "" {
 		if v == "0" || v == "off" || v == "false" {
 			authCacheTTL = -1 // sentinel: explicitly disabled
 		} else {
 			d, err := time.ParseDuration(v)
 			if err != nil {
-				log.Fatalf("invalid CLAUTH_AUTH_CACHE_TTL: %v", err)
+				log.Fatalf("invalid EPHYR_AUTH_CACHE_TTL: %v", err)
 			}
 			authCacheTTL = d
 		}

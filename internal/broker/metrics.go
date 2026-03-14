@@ -213,14 +213,14 @@ func (m *Metrics) ServePrometheus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 
 	histograms := []histogramDescriptor{
-		{"clauth_token_sign_seconds", "Token signing latency", &m.TokenSignLatency},
-		{"clauth_token_validate_seconds", "Token validation latency", &m.TokenValidateLatency},
-		{"clauth_watermark_check_seconds", "Watermark check latency", &m.WatermarkCheckLatency},
-		{"clauth_envelope_check_seconds", "Envelope check latency", &m.EnvelopeCheckLatency},
-		{"clauth_policy_eval_seconds", "Policy evaluation latency", &m.PolicyEvalLatency},
-		{"clauth_ssh_cert_seconds", "SSH certificate signing latency", &m.SSHCertLatency},
-		{"clauth_delegation_ipc_seconds", "Delegation IPC latency", &m.DelegationIPCLatency},
-		{"clauth_exec_e2e_seconds", "End-to-end exec latency", &m.ExecE2ELatency},
+		{"ephyr_token_sign_seconds", "Token signing latency", &m.TokenSignLatency},
+		{"ephyr_token_validate_seconds", "Token validation latency", &m.TokenValidateLatency},
+		{"ephyr_watermark_check_seconds", "Watermark check latency", &m.WatermarkCheckLatency},
+		{"ephyr_envelope_check_seconds", "Envelope check latency", &m.EnvelopeCheckLatency},
+		{"ephyr_policy_eval_seconds", "Policy evaluation latency", &m.PolicyEvalLatency},
+		{"ephyr_ssh_cert_seconds", "SSH certificate signing latency", &m.SSHCertLatency},
+		{"ephyr_delegation_ipc_seconds", "Delegation IPC latency", &m.DelegationIPCLatency},
+		{"ephyr_exec_e2e_seconds", "End-to-end exec latency", &m.ExecE2ELatency},
 	}
 
 	for _, hd := range histograms {
@@ -234,22 +234,22 @@ func (m *Metrics) ServePrometheus(w http.ResponseWriter, r *http.Request) {
 		val  *atomic.Int64
 	}
 	counters := []counterDesc{
-		{"clauth_tasks_created_total", "Total tasks created", &m.TasksCreated},
-		{"clauth_tasks_active", "Currently active tasks", &m.TasksActive},
-		{"clauth_tokens_signed_total", "Total CTT-E tokens signed", &m.TokensSigned},
-		{"clauth_tokens_delegated_total", "Total CTT-D tokens signed (delegations)", &m.TokensDelegated},
-		{"clauth_tokens_validated_total", "Total tokens validated", &m.TokensValidated},
-		{"clauth_tokens_rejected_total", "Total tokens rejected", &m.TokensRejected},
-		{"clauth_watermark_revocations_total", "Total watermark revocations", &m.WatermarkRevocations},
-		{"clauth_delegation_rotations_total", "Total delegation cert rotations", &m.DelegationRotations},
-		{"clauth_legacy_requests_total", "Requests without CTT (legacy mode)", &m.LegacyRequests},
-		{"clauth_auth_cache_hits_total", "Auth cache hits (bcrypt bypassed)", &m.AuthCacheHits},
-		{"clauth_auth_cache_misses_total", "Auth cache misses (bcrypt required)", &m.AuthCacheMisses},
+		{"ephyr_tasks_created_total", "Total tasks created", &m.TasksCreated},
+		{"ephyr_tasks_active", "Currently active tasks", &m.TasksActive},
+		{"ephyr_tokens_signed_total", "Total CTT-E tokens signed", &m.TokensSigned},
+		{"ephyr_tokens_delegated_total", "Total CTT-D tokens signed (delegations)", &m.TokensDelegated},
+		{"ephyr_tokens_validated_total", "Total tokens validated", &m.TokensValidated},
+		{"ephyr_tokens_rejected_total", "Total tokens rejected", &m.TokensRejected},
+		{"ephyr_watermark_revocations_total", "Total watermark revocations", &m.WatermarkRevocations},
+		{"ephyr_delegation_rotations_total", "Total delegation cert rotations", &m.DelegationRotations},
+		{"ephyr_legacy_requests_total", "Requests without CTT (legacy mode)", &m.LegacyRequests},
+		{"ephyr_auth_cache_hits_total", "Auth cache hits (bcrypt bypassed)", &m.AuthCacheHits},
+		{"ephyr_auth_cache_misses_total", "Auth cache misses (bcrypt required)", &m.AuthCacheMisses},
 	}
 
 	for _, c := range counters {
 		cType := "counter"
-		if c.name == "clauth_tasks_active" {
+		if c.name == "ephyr_tasks_active" {
 			cType = "gauge"
 		}
 		fmt.Fprintf(w, "# HELP %s %s\n", c.name, c.help)
@@ -264,9 +264,9 @@ func (m *Metrics) ServePrometheus(w http.ResponseWriter, r *http.Request) {
 		val  *atomic.Int64
 	}
 	gauges := []gaugeDesc{
-		{"clauth_active_watermarks", "Number of active revocation watermarks", &m.ActiveWatermarks},
-		{"clauth_delegation_cert_age_seconds", "Seconds since current delegation cert was issued", &m.DelegationCertAge},
-		{"clauth_delegation_certs_held", "Number of delegation certs in memory", &m.DelegationCertsHeld},
+		{"ephyr_active_watermarks", "Number of active revocation watermarks", &m.ActiveWatermarks},
+		{"ephyr_delegation_cert_age_seconds", "Seconds since current delegation cert was issued", &m.DelegationCertAge},
+		{"ephyr_delegation_certs_held", "Number of delegation certs in memory", &m.DelegationCertsHeld},
 	}
 
 	for _, g := range gauges {

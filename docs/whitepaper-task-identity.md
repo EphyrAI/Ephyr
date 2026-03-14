@@ -1,6 +1,6 @@
 # Task-Scoped Portable Identity for AI Agents
 
-**Clauth v0.2 Whitepaper**
+**Ephyr v0.2 Whitepaper**
 
 *March 2026*
 
@@ -31,7 +31,7 @@ As AI agents move from single-turn API consumers to multi-step infrastructure
 operators, the identity systems we use to govern their access have not kept
 pace. Agents today authenticate as coarse-grained service accounts or API key
 holders, with no concept of a discrete "task run" as a security boundary.
-Clauth v0.2 introduces **task-scoped portable identity** as a first-class
+Ephyr v0.2 introduces **task-scoped portable identity** as a first-class
 primitive: each agent task receives a cryptographically signed token (CTT-E)
 that carries a ULID-based task identifier, a capability envelope constraining
 what the task may do, and a lineage chain that enables hierarchical revocation
@@ -129,7 +129,7 @@ task**. Service accounts, API keys, OAuth2 client credentials, and even
 SPIFFE workload identities all operate at the workload or service level. None
 of them model the concept of a discrete task run as an identity boundary.
 
-This is the gap Clauth v0.2 fills.
+This is the gap Ephyr v0.2 fills.
 
 ---
 
@@ -190,7 +190,7 @@ task tools are simply not registered.
 
 ### 4.1 Three-Tier Model
 
-Clauth separates key custody, policy enforcement, and agent interaction into
+Ephyr separates key custody, policy enforcement, and agent interaction into
 three tiers:
 
 ```
@@ -198,20 +198,20 @@ three tiers:
 |                        TIER 1: ROOT CA                             |
 |                                                                    |
 |  +--------------------+                                            |
-|  |   clauth-signer    |  Holds Ed25519 root private key            |
+|  |   ephyr-signer    |  Holds Ed25519 root private key            |
 |  |                    |  Signs SSH certificates                    |
-|  |  /etc/clauth/ca_key|  Signs delegation certificates             |
+|  |  /etc/ephyr/ca_key|  Signs delegation certificates             |
 |  +--------+-----------+  Exposes Unix socket IPC only              |
 |           |                                                        |
 |     Unix socket                                                    |
-|     /run/clauth/signer.sock                                        |
+|     /run/ephyr/signer.sock                                        |
 |           |                                                        |
 +-----------|--------------------------------------------------------+
             |
 +-----------|--------------------------------------------------------+
 |           v             TIER 2: BROKER                             |
 |  +--------+-----------+                                            |
-|  |   clauth-broker    |  Holds ephemeral Ed25519 signing key       |
+|  |   ephyr-broker    |  Holds ephemeral Ed25519 signing key       |
 |  |                    |  Enforces RBAC policy                      |
 |  |  Delegation cert   |  Signs CTT-E tokens locally                |
 |  |  rotates every 50m |  Proxies SSH, HTTP, MCP                    |
@@ -233,7 +233,7 @@ three tiers:
 
 ### 4.2 Key Custody Guarantees
 
-**Tier 1 (Signer):** The root Ed25519 private key (`/etc/clauth/ca_key`,
+**Tier 1 (Signer):** The root Ed25519 private key (`/etc/ephyr/ca_key`,
 permissions 0600) never leaves the signer process. The signer exposes exactly
 four IPC actions over a Unix domain socket: `ping`, `sign` (SSH certs),
 `sign_delegation` (delegation certs), and `root_public_key`. The signer has
@@ -330,7 +330,7 @@ was rejected for three reasons:
 
 ### 5.1 CTT-E Format
 
-CTT-E (Clauth Task Token -- Execution) is a compact JWT with an EdDSA
+CTT-E (Ephyr Task Token -- Execution) is a compact JWT with an EdDSA
 signature. The format was chosen for three reasons: compact wire
 representation, well-understood validation semantics, and compatibility
 with existing JWT tooling for debugging (while not depending on it for
@@ -367,9 +367,9 @@ eliminates the entire class of JWT algorithm confusion attacks (e.g.,
 
 ```json
 {
-  "iss": "clauth:broker-prod-01",
+  "iss": "ephyr:broker-prod-01",
   "sub": "claude-agent",
-  "aud": "clauth-broker",
+  "aud": "ephyr-broker",
   "iat": 1741878000,
   "exp": 1741879800,
   "jti": "cte_01JQKX7M3NFGP4R5S6T7V8W9XY",
@@ -379,7 +379,7 @@ eliminates the entire class of JWT algorithm confusion attacks (e.g.,
     "parent_id":    "",
     "depth":        0,
     "lineage":      ["01JQKX7M3NFGP4R5S6T7V8W9XY"],
-    "initiated_by": "clauth:apikey:ak_claude",
+    "initiated_by": "ephyr:apikey:ak_claude",
     "description":  "Deploy monitoring stack to dockerhost"
   },
   "envelope": {
@@ -396,9 +396,9 @@ eliminates the entire class of JWT algorithm confusion attacks (e.g.,
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `iss` | string | Issuer. Format: `clauth:<broker-instance-id>`. Identifies which broker signed the token. |
+| `iss` | string | Issuer. Format: `ephyr:<broker-instance-id>`. Identifies which broker signed the token. |
 | `sub` | string | Subject. The agent name from RBAC policy. |
-| `aud` | string | Audience. Always `clauth-broker`. Prevents tokens from being accepted by unrelated services. |
+| `aud` | string | Audience. Always `ephyr-broker`. Prevents tokens from being accepted by unrelated services. |
 | `iat` | int64 | Issued At. Unix timestamp. Used by revocation watermarks. |
 | `exp` | int64 | Expires At. Unix timestamp. Hard upper bound on token lifetime. |
 | `jti` | string | JWT ID. Format: `cte_<ULID>` for execution tokens. Globally unique. |
@@ -468,11 +468,11 @@ capability-bearing tokens. They support contextual caveats, third-party
 attenuation, and efficient verification. We considered them and may adopt
 them in a future version. The current design uses JWT for three reasons:
 
-1. **Familiarity.** Security teams reviewing Clauth are far more likely to
+1. **Familiarity.** Security teams reviewing Ephyr are far more likely to
    have JWT experience than macaroon experience. Lowering the audit barrier
    is worth the tradeoff.
 
-2. **Explicit envelopes.** Clauth's capability model uses explicit arrays
+2. **Explicit envelopes.** Ephyr's capability model uses explicit arrays
    (targets, roles, services, methods, remotes), not arbitrary predicates.
    Macaroon caveats are more expressive than we need today, and that
    expressiveness creates a larger verification surface.
@@ -481,7 +481,7 @@ them in a future version. The current design uses JWT for three reasons:
    identity metadata (task ID, root ID, lineage chain). We would need to
    encode this as caveats, which is possible but awkward.
 
-If Clauth evolves to support third-party attenuation (e.g., an external
+If Ephyr evolves to support third-party attenuation (e.g., an external
 policy service adding caveats to a token), macaroons become the natural
 choice. This is noted in the roadmap.
 
@@ -551,27 +551,27 @@ The `initiated_by` field in task identity uses a URN scheme to identify the
 bootstrap identity that created a task:
 
 ```
-clauth:<namespace>:<type>:<value>
+ephyr:<namespace>:<type>:<value>
 
 Examples:
-  clauth:local:uid:1000          -- Local UID (Unix process identity)
-  clauth:apikey:ak_7f3b2a       -- API key (first 6 chars of agent name)
+  ephyr:local:uid:1000          -- Local UID (Unix process identity)
+  ephyr:apikey:ak_7f3b2a       -- API key (first 6 chars of agent name)
 ```
 
 **Namespaces:**
 
 | Namespace | Description | Example |
 |-----------|-------------|---------|
-| `local`   | Local system identity | `clauth:local:uid:1000` |
-| `apikey`  | API key authentication | `clauth:apikey:ak_claude` |
+| `local`   | Local system identity | `ephyr:local:uid:1000` |
+| `apikey`  | API key authentication | `ephyr:apikey:ak_claude` |
 
 **Extensibility:** The URN scheme is designed for future identity sources:
 
 ```
-clauth:oidc:google:user@example.com   -- OIDC identity (future)
-clauth:spiffe:cluster-a:workload-id   -- SPIFFE identity (future)
-clauth:mtls:cn:agent-prod-01          -- mTLS client cert (future)
-clauth:task:01JQKX...:delegated       -- Parent task delegation (Phase 2b)
+ephyr:oidc:google:user@example.com   -- OIDC identity (future)
+ephyr:spiffe:cluster-a:workload-id   -- SPIFFE identity (future)
+ephyr:mtls:cn:agent-prod-01          -- mTLS client cert (future)
+ephyr:task:01JQKX...:delegated       -- Parent task delegation (Phase 2b)
 ```
 
 **Policy matching:** The URN format enables policy rules like "only allow
@@ -604,7 +604,7 @@ hierarchies, all three approaches are poor fits:
 
 ### 7.2 Epoch Watermark Revocation
 
-Clauth uses a novel revocation mechanism called **epoch watermarks**. The
+Ephyr uses a novel revocation mechanism called **epoch watermarks**. The
 core idea:
 
 > Instead of recording *which tokens* are revoked, record *when tasks were
@@ -875,7 +875,7 @@ next.
                               |
                     +---------+---------+
                     |   7. Verify aud   |
-                    |   == "clauth-     |
+                    |   == "ephyr-     |
                     |      broker"      |
                     +---------+---------+
                               |
@@ -920,7 +920,7 @@ the current time. Reject if expired. Task tokens have a maximum TTL of
 1 hour.
 
 **Step 7: Verify audience.** Check that the `aud` claim equals
-`"clauth-broker"`. This prevents a CTT-E token from being accepted by
+`"ephyr-broker"`. This prevents a CTT-E token from being accepted by
 a different service that happens to trust the same root key. Reject if
 the audience does not match.
 
@@ -1031,13 +1031,13 @@ The auth cache avoids repeated bcrypt comparisons for the same API key:
 - Cache entries expire after 60 seconds (configurable).
 - Adding or removing agents invalidates the entire cache.
 - Cache is lock-free for reads (`sync.RWMutex` with read bias).
-- Observable via Prometheus counters: `clauth_auth_cache_hits_total`,
-  `clauth_auth_cache_misses_total`.
+- Observable via Prometheus counters: `ephyr_auth_cache_hits_total`,
+  `ephyr_auth_cache_misses_total`.
 
 ### 10.3 Measured Performance (Integration Tests)
 
 The following numbers are from the integration test suite running against
-the production Clauth instance on LXC CT 112 (1 vCPU, 512MB RAM):
+the production Ephyr instance on LXC CT 112 (1 vCPU, 512MB RAM):
 
 | Operation | Average Latency | Notes |
 |-----------|----------------|-------|
@@ -1082,12 +1082,12 @@ interpolation across bucket boundaries. These are exposed via the
 Prometheus `/v1/metrics` endpoint:
 
 ```
-clauth_token_sign_seconds_bucket{le="0.0001"} 47
-clauth_token_sign_seconds_bucket{le="0.0005"} 52
-clauth_token_sign_seconds_bucket{le="0.001"} 52
+ephyr_token_sign_seconds_bucket{le="0.0001"} 47
+ephyr_token_sign_seconds_bucket{le="0.0005"} 52
+ephyr_token_sign_seconds_bucket{le="0.001"} 52
 ...
-clauth_token_sign_seconds_sum 0.00234
-clauth_token_sign_seconds_count 52
+ephyr_token_sign_seconds_sum 0.00234
+ephyr_token_sign_seconds_count 52
 ```
 
 ### 10.5 Delegation Rotation Cost
@@ -1115,7 +1115,7 @@ read-write mutex.
 ## 11. Integration Test Results
 
 The integration test suite verifies the task identity system end-to-end
-against the running Clauth instance. The tests are in
+against the running Ephyr instance. The tests are in
 `test/integration/smoke_test.go` and exercise the full MCP protocol path.
 
 ### 11.1 Test Inventory
@@ -1136,7 +1136,7 @@ against the running Clauth instance. The tests are in
 | 12 | `TestTaskValidation` (bad TTL) | `task_create` with TTL > 1h is rejected ("exceed") |
 | 13 | `TestTaskValidation` (empty desc) | `task_create` with empty description is rejected ("required") |
 | 14 | `TestTaskValidation` (unknown revoke) | `task_revoke` on a nonexistent task ID is rejected |
-| 15 | `TestMetricsEndpoint` | Prometheus `/v1/metrics` returns `clauth_tasks_created_total`, `clauth_tokens_signed_total`, `clauth_watermark_revocations_total` |
+| 15 | `TestMetricsEndpoint` | Prometheus `/v1/metrics` returns `ephyr_tasks_created_total`, `ephyr_tokens_signed_total`, `ephyr_watermark_revocations_total` |
 | 16 | `TestPerformanceBench` (create) | 10 iterations of `task_create`, avg < 5ms |
 | 17 | `TestPerformanceBench` (list) | 10 iterations of `task_list`, avg < 5ms |
 | 18 | `TestPerformanceBench` (info) | 10 iterations of `task_info`, avg < 5ms |
@@ -1194,7 +1194,7 @@ unit test coverage:
 Everyone) provides workload identity via X.509 SVIDs (SPIFFE Verifiable
 Identity Documents). SPIRE is the reference implementation.
 
-| Dimension | SPIFFE/SPIRE | Clauth Task Identity |
+| Dimension | SPIFFE/SPIRE | Ephyr Task Identity |
 |-----------|-------------|---------------------|
 | Identity granularity | Workload (pod, VM, process) | Task (single agent task run) |
 | Identity format | X.509 SVID or JWT SVID | CTT-E (JWT + EdDSA) |
@@ -1209,10 +1209,10 @@ Identity Documents). SPIRE is the reference implementation.
 
 **Assessment:** SPIFFE solves a broader problem (general workload identity
 across clusters) and is appropriate for Kubernetes-native environments.
-Clauth solves a narrower problem (task-scoped identity for AI agents) with
+Ephyr solves a narrower problem (task-scoped identity for AI agents) with
 much lower operational complexity. The two are complementary: a future
-Clauth version could accept SPIFFE SVIDs as a bootstrap identity
-(`clauth:spiffe:...` URN), using SPIFFE for workload attestation and Clauth
+Ephyr version could accept SPIFFE SVIDs as a bootstrap identity
+(`ephyr:spiffe:...` URN), using SPIFFE for workload attestation and Ephyr
 for task-scoped access control.
 
 ### 12.2 OAuth2 Client Credentials
@@ -1220,7 +1220,7 @@ for task-scoped access control.
 OAuth2 client credentials grant is the most common pattern for service-to-
 service authentication.
 
-| Dimension | OAuth2 Client Credentials | Clauth Task Identity |
+| Dimension | OAuth2 Client Credentials | Ephyr Task Identity |
 |-----------|--------------------------|---------------------|
 | Identity granularity | Client (service/application) | Task |
 | Token format | JWT or opaque | CTT-E (JWT + EdDSA) |
@@ -1232,7 +1232,7 @@ service authentication.
 | Dependencies | Authorization server (Keycloak, Auth0, etc.) | Built-in to broker |
 
 **Assessment:** OAuth2 scopes are flat string labels ("read:servers",
-"write:configs"). Clauth envelopes are multi-dimensional (target AND role
+"write:configs"). Ephyr envelopes are multi-dimensional (target AND role
 AND service AND method). The envelope model captures the natural structure of
 infrastructure access more precisely than scope strings. Additionally,
 OAuth2 has no concept of task lineage, cascading revocation, or monotonic
@@ -1243,7 +1243,7 @@ attenuation.
 The simplest approach: issue short-lived API keys, rotate frequently, revoke
 by deleting the key.
 
-| Dimension | API Key Rotation | Clauth Task Identity |
+| Dimension | API Key Rotation | Ephyr Task Identity |
 |-----------|-----------------|---------------------|
 | Identity granularity | Key holder (agent or operator) | Task |
 | Scoping | Key-level (all or nothing) | Per-task envelope |
@@ -1254,7 +1254,7 @@ by deleting the key.
 
 **Assessment:** API key rotation provides the weakest identity model. It
 cannot scope permissions to a task, cannot revoke a single task without
-killing the agent, and cannot delegate with attenuation. Clauth supports
+killing the agent, and cannot delegate with attenuation. Ephyr supports
 API key authentication as the *bootstrap* mechanism (how an agent proves it
 is authorized to create tasks), but the API key is not the task's identity.
 
@@ -1262,7 +1262,7 @@ is authorized to create tasks), but the API key is not the task's identity.
 
 Web-style session tokens (e.g., signed cookies, Redis-backed sessions).
 
-| Dimension | Session Tokens | Clauth Task Identity |
+| Dimension | Session Tokens | Ephyr Task Identity |
 |-----------|---------------|---------------------|
 | Identity granularity | Session (user login) | Task |
 | Scoping | Session-level roles | Per-task envelope |
@@ -1279,7 +1279,7 @@ watermark map. No external store is consulted during validation.
 ### 12.5 Summary Matrix
 
 ```
-                    API Key  OAuth2  Session  SPIFFE  Clauth
+                    API Key  OAuth2  Session  SPIFFE  Ephyr
                     -------  ------  -------  ------  ------
 Task-level scope       -       -       -        -       Y
 Capability envelope    -       ~       -        -       Y
@@ -1302,7 +1302,7 @@ Y = yes, ~ = partial, - = no, * = Phase 2b
 
 **Status:** Implemented in v0.3.0 (2026-03-13).
 
-Phase 2b implements CTT-D (Clauth Task Token -- Delegation), enabling
+Phase 2b implements CTT-D (Ephyr Task Token -- Delegation), enabling
 parent tasks to spawn child tasks with attenuated capabilities via the
 `task_delegate` MCP tool. The broker's `SignCTTD()` issues delegation
 tokens, `Validate()` verifies them, and `CreateChildTask()` enforces
@@ -1344,7 +1344,7 @@ Child Task (depth=1, envelope={targets: [A]}, parent_id=parent.id)
 
 **Status:** Designed, not yet implemented.
 
-The Clauth dashboard will receive task-specific views:
+The Ephyr dashboard will receive task-specific views:
 
 - **Task Tree:** Visual hierarchy of active tasks, their lineage, and
   envelope summaries.
@@ -1359,17 +1359,17 @@ The Clauth dashboard will receive task-specific views:
 
 **Status:** Conceptual.
 
-When Clauth federates with remote MCP servers, task identity should flow
+When Ephyr federates with remote MCP servers, task identity should flow
 across federation boundaries:
 
-- The parent Clauth instance issues a CTT-E with the remote server in the
+- The parent Ephyr instance issues a CTT-E with the remote server in the
   `remotes` envelope.
 - The remote server validates the token's signature chain back to the
   parent's root public key (exchanged during federation setup).
 - Actions on the remote server are attributed to the originating task ID.
 - Revocation propagates via webhook notification.
 
-This enables a multi-Clauth topology where each instance manages its own
+This enables a multi-Ephyr topology where each instance manages its own
 hosts but tasks can span instances.
 
 ### 13.4 Future Considerations
@@ -1396,7 +1396,7 @@ discrete task run. This gap creates security failures that grow more severe
 as agents gain more autonomy: no blast radius containment, no audit
 correlation, no delegation control, and no targeted revocation.
 
-Clauth v0.2 addresses this gap by making the task the fundamental unit of
+Ephyr v0.2 addresses this gap by making the task the fundamental unit of
 identity. Each task receives a cryptographically signed token (CTT-E) that
 carries:
 
@@ -1433,9 +1433,9 @@ audit log shows task 01JQKX7M, initiated by ak_claude, running
 difference between "the child agent inherited everything" and "the child
 agent received exactly the subset of permissions needed for its subtask."
 
-Clauth v0.2 is the foundation. Delegation tokens (Phase 2b) will enable
+Ephyr v0.2 is the foundation. Delegation tokens (Phase 2b) will enable
 parent-to-child spawning with monotonic attenuation. Federated task
-identity (Phase 3) will extend task scoping across Clauth instances.
+identity (Phase 3) will extend task scoping across Ephyr instances.
 But the core primitive -- the task as an identity unit, with a signed
 token, a bounded envelope, and a revocable lineage -- is complete and
 operational today.
@@ -1458,9 +1458,9 @@ operational today.
 
 ```json
 {
-  "iss": "clauth:<broker-id>",
+  "iss": "ephyr:<broker-id>",
   "sub": "<agent-name>",
-  "aud": "clauth-broker",
+  "aud": "ephyr-broker",
   "iat": <unix-timestamp>,
   "exp": <unix-timestamp>,
   "jti": "cte_<26-char-ULID>",
@@ -1470,7 +1470,7 @@ operational today.
     "parent_id":    "<26-char-ULID or empty>",
     "depth":        <int>,
     "lineage":      ["<ULID>", ...],
-    "initiated_by": "clauth:<namespace>:<type>:<value>",
+    "initiated_by": "ephyr:<namespace>:<type>:<value>",
     "description":  "<string>"
   },
   "envelope": {
@@ -1539,39 +1539,39 @@ Random: 80-bit cryptographic random
 
 | Metric | Description |
 |--------|-------------|
-| `clauth_tasks_created_total` | Total tasks created |
-| `clauth_tokens_signed_total` | Total CTT-E tokens signed |
-| `clauth_tokens_validated_total` | Total tokens validated |
-| `clauth_tokens_rejected_total` | Total tokens rejected |
-| `clauth_watermark_revocations_total` | Total watermark revocations |
-| `clauth_delegation_rotations_total` | Total delegation cert rotations |
-| `clauth_legacy_requests_total` | Requests without CTT (legacy mode) |
-| `clauth_auth_cache_hits_total` | Auth cache hits (bcrypt bypassed) |
-| `clauth_auth_cache_misses_total` | Auth cache misses (bcrypt required) |
+| `ephyr_tasks_created_total` | Total tasks created |
+| `ephyr_tokens_signed_total` | Total CTT-E tokens signed |
+| `ephyr_tokens_validated_total` | Total tokens validated |
+| `ephyr_tokens_rejected_total` | Total tokens rejected |
+| `ephyr_watermark_revocations_total` | Total watermark revocations |
+| `ephyr_delegation_rotations_total` | Total delegation cert rotations |
+| `ephyr_legacy_requests_total` | Requests without CTT (legacy mode) |
+| `ephyr_auth_cache_hits_total` | Auth cache hits (bcrypt bypassed) |
+| `ephyr_auth_cache_misses_total` | Auth cache misses (bcrypt required) |
 
 ### Gauges
 
 | Metric | Description |
 |--------|-------------|
-| `clauth_tasks_active` | Currently active tasks |
-| `clauth_active_watermarks` | Active revocation watermarks |
-| `clauth_delegation_cert_age_seconds` | Age of current delegation cert |
-| `clauth_delegation_certs_held` | Delegation certs in memory |
+| `ephyr_tasks_active` | Currently active tasks |
+| `ephyr_active_watermarks` | Active revocation watermarks |
+| `ephyr_delegation_cert_age_seconds` | Age of current delegation cert |
+| `ephyr_delegation_certs_held` | Delegation certs in memory |
 
 ### Histograms
 
 | Metric | Description |
 |--------|-------------|
-| `clauth_token_sign_seconds` | Token signing latency |
-| `clauth_token_validate_seconds` | Token validation latency |
-| `clauth_watermark_check_seconds` | Watermark check latency |
-| `clauth_envelope_check_seconds` | Envelope check latency |
-| `clauth_policy_eval_seconds` | Policy evaluation latency |
-| `clauth_ssh_cert_seconds` | SSH certificate signing latency |
-| `clauth_delegation_ipc_seconds` | Delegation IPC latency |
-| `clauth_exec_e2e_seconds` | End-to-end exec latency |
+| `ephyr_token_sign_seconds` | Token signing latency |
+| `ephyr_token_validate_seconds` | Token validation latency |
+| `ephyr_watermark_check_seconds` | Watermark check latency |
+| `ephyr_envelope_check_seconds` | Envelope check latency |
+| `ephyr_policy_eval_seconds` | Policy evaluation latency |
+| `ephyr_ssh_cert_seconds` | SSH certificate signing latency |
+| `ephyr_delegation_ipc_seconds` | Delegation IPC latency |
+| `ephyr_exec_e2e_seconds` | End-to-end exec latency |
 
 ---
 
-*This document describes Clauth v0.2.0-alpha as implemented on 2026-03-13.
-Source code: `/opt/clauth/` on LXC CT 112 (192.168.100.75).*
+*This document describes Ephyr v0.2.0-alpha as implemented on 2026-03-13.
+Source code: `/opt/ephyr/` on LXC CT 112 (192.168.100.75).*

@@ -1,8 +1,8 @@
-# Clauth Security Model
+# Ephyr Security Model
 
 ## Overview
 
-Clauth's security model is built on defense in depth: multiple independent
+Ephyr's security model is built on defense in depth: multiple independent
 layers of authentication, authorization, and isolation work together so that
 the failure of any single layer does not compromise the system. The CA private
 key -- the crown jewel -- is isolated in a process with no network access,
@@ -22,7 +22,7 @@ and every operation is logged to an append-only audit trail.
 | Credentials leak through logs/APIs | All sensitive values are masked or redacted |
 
 **Adversary tiers:**
-1. **Unprivileged local user** -- can reach broker socket if in `clauth-agents`
+1. **Unprivileged local user** -- can reach broker socket if in `ephyr-agents`
    group, but cannot impersonate another UID (SO_PEERCRED is kernel-enforced)
 2. **Compromised agent** -- has a valid session and can request certs within
    policy limits, but cannot exceed rate limits, role boundaries, or caps
@@ -75,7 +75,7 @@ cryptographically random (8 bytes from `crypto/rand`).
 
 ## Authorization Model
 
-### Policy Structure (`/etc/clauth/policy.yaml`)
+### Policy Structure (`/etc/ephyr/policy.yaml`)
 
 Four sections: `global` (cluster limits), `agents` (per-agent identity/caps),
 `roles` (role-to-principal mappings), `targets` (hosts with access rules).
@@ -184,10 +184,10 @@ Cache entries expire after a configurable TTL (default 60 seconds). This bounds
 the window during which a revoked or rotated API key could still authenticate:
 
 - **Best case:** Key rotation takes effect within one request (cache miss).
-- **Worst case:** A revoked key remains valid for up to `CLAUTH_AUTH_CACHE_TTL`
+- **Worst case:** A revoked key remains valid for up to `EPHYR_AUTH_CACHE_TTL`
   seconds after the policy is reloaded.
 
-For environments requiring immediate key revocation, set `CLAUTH_AUTH_CACHE_TTL=0`
+For environments requiring immediate key revocation, set `EPHYR_AUTH_CACHE_TTL=0`
 to disable the cache entirely. Every MCP request will then perform a full bcrypt
 comparison.
 
@@ -233,14 +233,14 @@ only benefits legitimate, previously-authenticated agents.
 |-----------|--------|
 | `MemoryDenyWriteExecute=yes` | No W+X memory (blocks shellcode) |
 | `RestrictAddressFamilies=AF_UNIX` | No TCP/UDP/raw -- Unix only |
-| `ReadWritePaths=/run/clauth` | Socket directory only |
+| `ReadWritePaths=/run/ephyr` | Socket directory only |
 
 ### Broker-Specific
 
 | Directive | Effect |
 |-----------|--------|
 | `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6` | Unix + TCP |
-| `ReadWritePaths=/run/clauth /var/log/clauth /var/lib/clauth` | Socket, logs, config |
+| `ReadWritePaths=/run/ephyr /var/log/ephyr /var/lib/ephyr` | Socket, logs, config |
 
 ---
 
@@ -253,7 +253,7 @@ the kernel level. Communication exclusively via Unix socket.
 
 ### Broker Socket
 
-Path `/run/clauth/broker.sock`, permissions 0660, group `clauth-agents`.
+Path `/run/ephyr/broker.sock`, permissions 0660, group `ephyr-agents`.
 Only members of the group can connect. SO_PEERCRED identifies every caller.
 
 ### HTTP Proxy Network Policy
@@ -272,7 +272,7 @@ External modes: `deny` (block all public), `restricted` (allow-list only),
 
 ### Host Firewall (nftables)
 
-Default-drop input policy on the Clauth broker host:
+Default-drop input policy on the Ephyr broker host:
 - Allow SSH + dashboard (8553) + MCP (8554) from `192.168.0.0/16`
 - Allow established/related + loopback
 - Drop everything else
@@ -305,7 +305,7 @@ resistance, and universal OpenSSH support.
 
 ## Audit and Compliance
 
-### Audit Log (`/var/log/clauth/audit.json`)
+### Audit Log (`/var/log/ephyr/audit.json`)
 
 Newline-delimited JSON, every security-relevant operation logged.
 
@@ -352,5 +352,5 @@ target requests, rate-limit spikes, off-hours activity, and repeated denials.
 
 **Operations:** Review the activity dashboard regularly. Use host toggles
 during maintenance. Hot-reload policy via SIGHUP (`systemctl reload
-clauth-broker`). Test policy changes with the unit tests (`engine_test.go`,
+ephyr-broker`). Test policy changes with the unit tests (`engine_test.go`,
 `load_test.go`) before production.

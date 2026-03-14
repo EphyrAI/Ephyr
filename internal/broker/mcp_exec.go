@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sprawl/clauth/internal/audit"
-	"github.com/sprawl/clauth/internal/signer"
+	"github.com/ben-spanswick/ephyr/internal/audit"
+	"github.com/ben-spanswick/ephyr/internal/signer"
 	"golang.org/x/crypto/ssh"
 )
 

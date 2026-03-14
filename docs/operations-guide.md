@@ -1,6 +1,6 @@
-# Clauth Operations & Troubleshooting Guide
+# Ephyr Operations & Troubleshooting Guide
 
-Production operations reference for the Clauth agent access broker.
+Production operations reference for the Ephyr agent access broker.
 This is the first document to reach for when on-call.
 
 ---
@@ -11,47 +11,47 @@ This is the first document to reach for when on-call.
 
 | Path | Description |
 |------|-------------|
-| `/etc/clauth/ca_key` | Ed25519 CA private key (mode 0600) |
-| `/etc/clauth/policy.yaml` | Policy config (agents, targets, roles, RBAC) |
-| `/var/lib/clauth/services.json` | HTTP proxy service configs (credentials in plaintext) |
-| `/var/lib/clauth/remotes.json` | Federated MCP server configs |
-| `/var/lib/clauth/network_policy.json` | CIDR allow/deny for HTTP proxy |
-| `/var/lib/clauth/hosts.json` | Per-host runtime config (reconciled from policy) |
-| `/var/log/clauth/audit.json` | Audit log (JSON lines, append-only) |
-| `/run/clauth/signer.sock` | Signer IPC Unix socket |
-| `/run/clauth/broker.sock` | Broker Unix socket |
-| `/opt/clauth/` | Source code (Go, git repo) |
-| `/usr/local/bin/clauth-broker` | Broker binary |
-| `/usr/local/bin/clauth-signer` | Signer binary |
-| `/usr/local/bin/clauth` | CLI binary |
-| `/etc/systemd/system/clauth-signer.service` | Signer unit file |
-| `/etc/systemd/system/clauth-broker.service` | Broker unit file |
-| `/etc/tmpfiles.d/clauth.conf` | tmpfiles.d entry for /run/clauth |
+| `/etc/ephyr/ca_key` | Ed25519 CA private key (mode 0600) |
+| `/etc/ephyr/policy.yaml` | Policy config (agents, targets, roles, RBAC) |
+| `/var/lib/ephyr/services.json` | HTTP proxy service configs (credentials in plaintext) |
+| `/var/lib/ephyr/remotes.json` | Federated MCP server configs |
+| `/var/lib/ephyr/network_policy.json` | CIDR allow/deny for HTTP proxy |
+| `/var/lib/ephyr/hosts.json` | Per-host runtime config (reconciled from policy) |
+| `/var/log/ephyr/audit.json` | Audit log (JSON lines, append-only) |
+| `/run/ephyr/signer.sock` | Signer IPC Unix socket |
+| `/run/ephyr/broker.sock` | Broker Unix socket |
+| `/opt/ephyr/` | Source code (Go, git repo) |
+| `/usr/local/bin/ephyr-broker` | Broker binary |
+| `/usr/local/bin/ephyr-signer` | Signer binary |
+| `/usr/local/bin/ephyr` | CLI binary |
+| `/etc/systemd/system/ephyr-signer.service` | Signer unit file |
+| `/etc/systemd/system/ephyr-broker.service` | Broker unit file |
+| `/etc/tmpfiles.d/ephyr.conf` | tmpfiles.d entry for /run/ephyr |
 
 ### Ports
 
 | Port | Service | Auth |
 |------|---------|------|
-| 8553 | Dashboard (HTTP) | Token (`CLAUTH_DASHBOARD_TOKEN`) |
+| 8553 | Dashboard (HTTP) | Token (`EPHYR_DASHBOARD_TOKEN`) |
 | 8554 | MCP server (JSON-RPC 2.0 over HTTP) | API key (bcrypt hash in policy.yaml) |
 
 ### Critical Commands
 
 ```bash
 # Service management
-systemctl restart clauth-signer clauth-broker   # Full restart (signer first)
-systemctl reload clauth-broker                   # Hot-reload policy.yaml (SIGHUP)
-systemctl status clauth-signer clauth-broker     # Check both services
+systemctl restart ephyr-signer ephyr-broker   # Full restart (signer first)
+systemctl reload ephyr-broker                   # Hot-reload policy.yaml (SIGHUP)
+systemctl status ephyr-signer ephyr-broker     # Check both services
 
 # Logs
-journalctl -u clauth-broker -f                   # Follow broker logs
-journalctl -u clauth-signer -f                   # Follow signer logs
-journalctl -u clauth-broker --since "10 min ago" # Recent broker logs
-journalctl -u clauth-signer -u clauth-broker -n 100  # Last 100 lines, both
+journalctl -u ephyr-broker -f                   # Follow broker logs
+journalctl -u ephyr-signer -f                   # Follow signer logs
+journalctl -u ephyr-broker --since "10 min ago" # Recent broker logs
+journalctl -u ephyr-signer -u ephyr-broker -n 100  # Last 100 lines, both
 
 # Audit log
-tail -f /var/log/clauth/audit.json | jq .        # Follow audit log (pretty)
-tail -20 /var/log/clauth/audit.json | jq .        # Last 20 events
+tail -f /var/log/ephyr/audit.json | jq .        # Follow audit log (pretty)
+tail -20 /var/log/ephyr/audit.json | jq .        # Last 20 events
 
 # Quick health check
 curl -s http://localhost:8553/v1/dashboard/status \
@@ -72,25 +72,25 @@ curl -s -X POST http://localhost:8554/mcp \
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLAUTH_POLICY` | (flag: `--policy`) | Path to policy.yaml |
-| `CLAUTH_SIGNER_SOCKET` | (flag: `--signer-socket`) | Signer Unix socket path |
-| `CLAUTH_LISTEN` | (flag: `--listen`) | Broker Unix socket path |
-| `CLAUTH_AUDIT_LOG` | (flag: `--audit-log`) | Audit log file path |
-| `CLAUTH_DASHBOARD_LISTEN` | `:8553` | Dashboard TCP listen address |
-| `CLAUTH_DASHBOARD_TOKEN` | (none) | Dashboard authentication token |
-| `CLAUTH_DASHBOARD_DIR` | embedded | Dashboard static files directory |
-| `CLAUTH_MCP_LISTEN` | (none) | MCP server TCP listen address (e.g. `:8554`) |
-| `CLAUTH_ADMIN_UIDS` | `0` | Comma-separated UIDs for admin access |
-| `CLAUTH_AUTH_CACHE_TTL` | `60s` | Auth cache TTL (0 to disable) |
-| `CLAUTH_SOCKET_GROUP` | (none) | Group for broker socket permissions |
-| `CLAUTH_BROKER_UID` | (none) | Broker UID (set in signer unit) |
+| `EPHYR_POLICY` | (flag: `--policy`) | Path to policy.yaml |
+| `EPHYR_SIGNER_SOCKET` | (flag: `--signer-socket`) | Signer Unix socket path |
+| `EPHYR_LISTEN` | (flag: `--listen`) | Broker Unix socket path |
+| `EPHYR_AUDIT_LOG` | (flag: `--audit-log`) | Audit log file path |
+| `EPHYR_DASHBOARD_LISTEN` | `:8553` | Dashboard TCP listen address |
+| `EPHYR_DASHBOARD_TOKEN` | (none) | Dashboard authentication token |
+| `EPHYR_DASHBOARD_DIR` | embedded | Dashboard static files directory |
+| `EPHYR_MCP_LISTEN` | (none) | MCP server TCP listen address (e.g. `:8554`) |
+| `EPHYR_ADMIN_UIDS` | `0` | Comma-separated UIDs for admin access |
+| `EPHYR_AUTH_CACHE_TTL` | `60s` | Auth cache TTL (0 to disable) |
+| `EPHYR_SOCKET_GROUP` | (none) | Group for broker socket permissions |
+| `EPHYR_BROKER_UID` | (none) | Broker UID (set in signer unit) |
 
 ### System Users and Groups
 
 | User/Group | UID/GID | Purpose |
 |------------|---------|---------|
-| `clauth-broker` | 999 | Runs both signer and broker processes |
-| `clauth-agents` | (group) | Socket access group; agent users added here |
+| `ephyr-broker` | 999 | Runs both signer and broker processes |
+| `ephyr-agents` | (group) | Socket access group; agent users added here |
 | Agent UID | 1000 | Blocked from backend IPs by nftables |
 
 ---
@@ -99,42 +99,42 @@ curl -s -X POST http://localhost:8554/mcp \
 
 ### Architecture
 
-Clauth runs as two cooperating systemd services:
+Ephyr runs as two cooperating systemd services:
 
-1. **clauth-signer** -- Holds the CA private key. Accepts delegation and signing
-   requests over a Unix socket at `/run/clauth/signer.sock`. Restricted to
+1. **ephyr-signer** -- Holds the CA private key. Accepts delegation and signing
+   requests over a Unix socket at `/run/ephyr/signer.sock`. Restricted to
    `AF_UNIX` only (no network access). Must start first.
 
-2. **clauth-broker** -- Policy engine, MCP server, HTTP proxy, dashboard, and
+2. **ephyr-broker** -- Policy engine, MCP server, HTTP proxy, dashboard, and
    audit. Connects to signer via its Unix socket. Listens on TCP ports 8553
    (dashboard) and 8554 (MCP). Handles all agent-facing operations.
 
-Both run as user `clauth-broker`. The runtime directory `/run/clauth/` is
+Both run as user `ephyr-broker`. The runtime directory `/run/ephyr/` is
 managed by `tmpfiles.d` (not `RuntimeDirectory`), configured at
-`/etc/tmpfiles.d/clauth.conf`:
+`/etc/tmpfiles.d/ephyr.conf`:
 
 ```
-d /run/clauth 0755 clauth-broker clauth-agents -
+d /run/ephyr 0755 ephyr-broker ephyr-agents -
 ```
 
-The broker unit has `Requires=clauth-signer.service` and
-`After=clauth-signer.service`, so systemd enforces ordering on normal start.
+The broker unit has `Requires=ephyr-signer.service` and
+`After=ephyr-signer.service`, so systemd enforces ordering on normal start.
 
 ### Starting Services
 
 ```bash
 # Normal start (systemd handles ordering)
-systemctl start clauth-signer clauth-broker
+systemctl start ephyr-signer ephyr-broker
 
 # Enable on boot
-systemctl enable clauth-signer clauth-broker
+systemctl enable ephyr-signer ephyr-broker
 ```
 
 ### Stopping Services
 
 ```bash
 # Stop broker first, then signer
-systemctl stop clauth-broker clauth-signer
+systemctl stop ephyr-broker ephyr-signer
 ```
 
 Stopping the signer while the broker is running will cause delegation rotation
@@ -147,7 +147,7 @@ running. Active SSH sessions are unaffected until their certificates expire.
 
 ```bash
 # Full restart
-systemctl restart clauth-signer clauth-broker
+systemctl restart ephyr-signer ephyr-broker
 ```
 
 Do NOT restart them in the wrong order. If the broker starts before the signer
@@ -158,23 +158,23 @@ If you accidentally restarted only the broker and it failed:
 
 ```bash
 # Check signer is up
-systemctl is-active clauth-signer
+systemctl is-active ephyr-signer
 
 # If signer is down, bring both up in order
-systemctl restart clauth-signer && sleep 1 && systemctl restart clauth-broker
+systemctl restart ephyr-signer && sleep 1 && systemctl restart ephyr-broker
 ```
 
 ### Checking Health
 
 ```bash
 # Both services should be "active (running)"
-systemctl status clauth-signer clauth-broker
+systemctl status ephyr-signer ephyr-broker
 
 # Check broker is listening
 ss -tlnp | grep -E '855[34]'
 
 # Check Unix sockets exist
-ls -la /run/clauth/
+ls -la /run/ephyr/
 
 # Dashboard health endpoint
 curl -s http://localhost:8553/v1/dashboard/status \
@@ -189,35 +189,35 @@ curl -s http://localhost:8553/v1/metrics \
 
 ```bash
 # Follow broker logs (most useful)
-journalctl -u clauth-broker -f
+journalctl -u ephyr-broker -f
 
 # Follow signer logs
-journalctl -u clauth-signer -f
+journalctl -u ephyr-signer -f
 
 # Both together
-journalctl -u clauth-signer -u clauth-broker -f
+journalctl -u ephyr-signer -u ephyr-broker -f
 
 # Filter by time range
-journalctl -u clauth-broker --since "2026-03-13 10:00:00" --until "2026-03-13 11:00:00"
+journalctl -u ephyr-broker --since "2026-03-13 10:00:00" --until "2026-03-13 11:00:00"
 
 # Only errors
-journalctl -u clauth-broker -p err
+journalctl -u ephyr-broker -p err
 
 # Structured audit log (separate from journalctl)
 # Each line is a complete JSON object
-tail -f /var/log/clauth/audit.json | jq .
+tail -f /var/log/ephyr/audit.json | jq .
 
 # Filter audit log for specific agent
-tail -1000 /var/log/clauth/audit.json | jq 'select(.agent == "claude")'
+tail -1000 /var/log/ephyr/audit.json | jq 'select(.agent == "claude")'
 
 # Filter audit log for specific event type
-tail -1000 /var/log/clauth/audit.json | jq 'select(.event_type == "cert_issued")'
+tail -1000 /var/log/ephyr/audit.json | jq 'select(.event_type == "cert_issued")'
 
 # Filter for errors and alerts
-tail -1000 /var/log/clauth/audit.json | jq 'select(.severity == "ERROR" or .severity == "ALERT")'
+tail -1000 /var/log/ephyr/audit.json | jq 'select(.severity == "ERROR" or .severity == "ALERT")'
 
 # Count events by type in last N lines
-tail -5000 /var/log/clauth/audit.json | jq -r '.event_type' | sort | uniq -c | sort -rn
+tail -5000 /var/log/ephyr/audit.json | jq -r '.event_type' | sort | uniq -c | sort -rn
 ```
 
 ### Hot-Reload Policy (No Restart)
@@ -228,13 +228,13 @@ connections or clearing state.
 
 ```bash
 # Hot-reload (preferred for policy changes)
-systemctl reload clauth-broker
+systemctl reload ephyr-broker
 
 # Verify reload succeeded
-journalctl -u clauth-broker --since "1 min ago" | grep -i reload
+journalctl -u ephyr-broker --since "1 min ago" | grep -i reload
 
 # Expected log line on success:
-# [policy] reloaded policy from /etc/clauth/policy.yaml (3 targets, 1 agent)
+# [policy] reloaded policy from /etc/ephyr/policy.yaml (3 targets, 1 agent)
 ```
 
 What hot-reload does:
@@ -273,85 +273,85 @@ Authentication uses the dashboard token.
 
 | Metric | Description |
 |--------|-------------|
-| `clauth_token_sign_seconds` | CTT-E token signing latency |
-| `clauth_token_validate_seconds` | Token validation latency |
-| `clauth_watermark_check_seconds` | Revocation watermark check latency |
-| `clauth_envelope_check_seconds` | Capability envelope check latency |
-| `clauth_policy_eval_seconds` | Policy evaluation latency |
-| `clauth_ssh_cert_seconds` | SSH certificate signing latency (IPC to signer) |
-| `clauth_delegation_ipc_seconds` | Delegation IPC latency |
-| `clauth_exec_e2e_seconds` | End-to-end exec latency (includes SSH) |
+| `ephyr_token_sign_seconds` | CTT-E token signing latency |
+| `ephyr_token_validate_seconds` | Token validation latency |
+| `ephyr_watermark_check_seconds` | Revocation watermark check latency |
+| `ephyr_envelope_check_seconds` | Capability envelope check latency |
+| `ephyr_policy_eval_seconds` | Policy evaluation latency |
+| `ephyr_ssh_cert_seconds` | SSH certificate signing latency (IPC to signer) |
+| `ephyr_delegation_ipc_seconds` | Delegation IPC latency |
+| `ephyr_exec_e2e_seconds` | End-to-end exec latency (includes SSH) |
 
 **Counters:**
 
 | Metric | Description |
 |--------|-------------|
-| `clauth_tasks_created_total` | Total tasks created |
-| `clauth_tokens_signed_total` | Total CTT-E tokens signed |
-| `clauth_tokens_validated_total` | Total tokens validated |
-| `clauth_tokens_rejected_total` | Total tokens rejected |
-| `clauth_watermark_revocations_total` | Total watermark revocations |
-| `clauth_delegation_rotations_total` | Total delegation cert rotations |
-| `clauth_legacy_requests_total` | Requests without CTT (legacy mode) |
-| `clauth_auth_cache_hits_total` | Auth cache hits (bcrypt bypassed) |
-| `clauth_auth_cache_misses_total` | Auth cache misses (bcrypt required) |
+| `ephyr_tasks_created_total` | Total tasks created |
+| `ephyr_tokens_signed_total` | Total CTT-E tokens signed |
+| `ephyr_tokens_validated_total` | Total tokens validated |
+| `ephyr_tokens_rejected_total` | Total tokens rejected |
+| `ephyr_watermark_revocations_total` | Total watermark revocations |
+| `ephyr_delegation_rotations_total` | Total delegation cert rotations |
+| `ephyr_legacy_requests_total` | Requests without CTT (legacy mode) |
+| `ephyr_auth_cache_hits_total` | Auth cache hits (bcrypt bypassed) |
+| `ephyr_auth_cache_misses_total` | Auth cache misses (bcrypt required) |
 
 **Gauges:**
 
 | Metric | Description |
 |--------|-------------|
-| `clauth_tasks_active` | Currently active tasks |
-| `clauth_active_watermarks` | Number of active revocation watermarks |
-| `clauth_delegation_cert_age_seconds` | Seconds since current delegation cert was issued |
-| `clauth_delegation_certs_held` | Number of delegation certs in memory (1 or 2) |
+| `ephyr_tasks_active` | Currently active tasks |
+| `ephyr_active_watermarks` | Number of active revocation watermarks |
+| `ephyr_delegation_cert_age_seconds` | Seconds since current delegation cert was issued |
+| `ephyr_delegation_certs_held` | Number of delegation certs in memory (1 or 2) |
 
 ### Key Metrics to Alert On
 
 | Metric | Condition | Severity | Meaning |
 |--------|-----------|----------|---------|
-| `clauth_tokens_rejected_total` | Rate > 5/min | Warning | Possible credential compromise or misconfiguration |
-| `clauth_delegation_cert_age_seconds` | > 3600 | Critical | Delegation cert not rotating (signer may be down) |
-| `clauth_delegation_certs_held` | 0 | Critical | No delegation cert -- task identity broken |
-| `clauth_auth_cache_misses_total` / (`hits` + `misses`) | > 0.5 sustained | Warning | Cache not effective; check TTL or key rotation |
-| `clauth_ssh_cert_seconds` p99 | > 0.05 (50ms) | Warning | Signer IPC is slow; check signer health |
-| `clauth_exec_e2e_seconds` p99 | > 10s | Warning | SSH exec latency is high; check target host health |
-| `clauth_active_watermarks` | > 100 | Info | Many revocations active; check for runaway task creation |
+| `ephyr_tokens_rejected_total` | Rate > 5/min | Warning | Possible credential compromise or misconfiguration |
+| `ephyr_delegation_cert_age_seconds` | > 3600 | Critical | Delegation cert not rotating (signer may be down) |
+| `ephyr_delegation_certs_held` | 0 | Critical | No delegation cert -- task identity broken |
+| `ephyr_auth_cache_misses_total` / (`hits` + `misses`) | > 0.5 sustained | Warning | Cache not effective; check TTL or key rotation |
+| `ephyr_ssh_cert_seconds` p99 | > 0.05 (50ms) | Warning | Signer IPC is slow; check signer health |
+| `ephyr_exec_e2e_seconds` p99 | > 10s | Warning | SSH exec latency is high; check target host health |
+| `ephyr_active_watermarks` | > 100 | Info | Many revocations active; check for runaway task creation |
 
 ### Grafana Dashboard Suggestions
 
 **Panel 1: Request Rate (Counter rate)**
 ```
-rate(clauth_tokens_validated_total[5m])
-rate(clauth_tokens_rejected_total[5m])
-rate(clauth_auth_cache_hits_total[5m])
-rate(clauth_auth_cache_misses_total[5m])
+rate(ephyr_tokens_validated_total[5m])
+rate(ephyr_tokens_rejected_total[5m])
+rate(ephyr_auth_cache_hits_total[5m])
+rate(ephyr_auth_cache_misses_total[5m])
 ```
 
 **Panel 2: Latency Heatmap (Histogram)**
 ```
-rate(clauth_token_validate_seconds_bucket[5m])
-rate(clauth_exec_e2e_seconds_bucket[5m])
-rate(clauth_ssh_cert_seconds_bucket[5m])
+rate(ephyr_token_validate_seconds_bucket[5m])
+rate(ephyr_exec_e2e_seconds_bucket[5m])
+rate(ephyr_ssh_cert_seconds_bucket[5m])
 ```
 
 **Panel 3: Task Lifecycle (Gauge + Counter rate)**
 ```
-clauth_tasks_active
-rate(clauth_tasks_created_total[5m])
-rate(clauth_watermark_revocations_total[5m])
+ephyr_tasks_active
+rate(ephyr_tasks_created_total[5m])
+rate(ephyr_watermark_revocations_total[5m])
 ```
 
 **Panel 4: Delegation Health (Gauge)**
 ```
-clauth_delegation_cert_age_seconds
-clauth_delegation_certs_held
-rate(clauth_delegation_rotations_total[5m])
+ephyr_delegation_cert_age_seconds
+ephyr_delegation_certs_held
+rate(ephyr_delegation_rotations_total[5m])
 ```
 
 **Panel 5: Auth Cache Efficiency (Derived)**
 ```
-rate(clauth_auth_cache_hits_total[5m]) /
-  (rate(clauth_auth_cache_hits_total[5m]) + rate(clauth_auth_cache_misses_total[5m]))
+rate(ephyr_auth_cache_hits_total[5m]) /
+  (rate(ephyr_auth_cache_hits_total[5m]) + rate(ephyr_auth_cache_misses_total[5m]))
 ```
 
 ### Health Checks
@@ -396,7 +396,7 @@ cost 10).
    `SHA-256(apiKey)` with the configured TTL.
 
 Cache entries are keyed on SHA-256 of the raw API key -- never the key itself.
-Entries expire after `CLAUTH_AUTH_CACHE_TTL` (default 60 seconds).
+Entries expire after `EPHYR_AUTH_CACHE_TTL` (default 60 seconds).
 
 The cache is invalidated entirely when:
 - An agent is added or removed (policy reload via SIGHUP)
@@ -408,15 +408,15 @@ Set via environment variable in the broker's systemd drop-in:
 
 ```bash
 # Create or edit drop-in
-systemctl edit clauth-broker
+systemctl edit ephyr-broker
 
 # Add under [Service]:
-# Environment=CLAUTH_AUTH_CACHE_TTL=120s
+# Environment=EPHYR_AUTH_CACHE_TTL=120s
 ```
 
 Then restart the broker:
 ```bash
-systemctl restart clauth-signer clauth-broker
+systemctl restart ephyr-signer ephyr-broker
 ```
 
 **Recommended TTL values:**
@@ -431,7 +431,7 @@ systemctl restart clauth-signer clauth-broker
 
 ### When to Disable
 
-Set `CLAUTH_AUTH_CACHE_TTL=0` to disable the cache:
+Set `EPHYR_AUTH_CACHE_TTL=0` to disable the cache:
 - During a security investigation (ensures key changes take effect instantly)
 - When debugging authentication failures (eliminates cache as a variable)
 - After revoking/rotating an API key (until you confirm the old key is rejected)
@@ -447,8 +447,8 @@ curl -s http://localhost:8553/v1/metrics \
   | grep auth_cache
 
 # Expected output:
-# clauth_auth_cache_hits_total 1234
-# clauth_auth_cache_misses_total 56
+# ephyr_auth_cache_hits_total 1234
+# ephyr_auth_cache_misses_total 56
 
 # Calculate hit ratio
 curl -s http://localhost:8553/v1/metrics \
@@ -468,7 +468,7 @@ A healthy cache hit ratio is above 90%. If misses are high:
 ### Overview
 
 Tasks provide scoped identity for agent work. Each task gets a CTT-E
-(Clauth Task Token -- Execution) signed by the broker's delegation key.
+(Ephyr Task Token -- Execution) signed by the broker's delegation key.
 Tasks have ULIDs, lineage tracking, capability envelopes, and TTLs (max 1 hour).
 
 ### Creating Tasks (via MCP)
@@ -581,10 +581,10 @@ If an agent's task token is compromised:
    htpasswd -nbBC 10 "" "new-api-key-here" | cut -d: -f2
 
    # Edit policy.yaml and update the agent's api_key_hash
-   vim /etc/clauth/policy.yaml
+   vim /etc/ephyr/policy.yaml
 
    # Hot-reload (invalidates auth cache too)
-   systemctl reload clauth-broker
+   systemctl reload ephyr-broker
    ```
 
 3. **Verify old key is rejected:**
@@ -599,7 +599,7 @@ If an agent's task token is compromised:
 
 4. **Check audit log for unauthorized access attempts:**
    ```bash
-   tail -1000 /var/log/clauth/audit.json \
+   tail -1000 /var/log/ephyr/audit.json \
      | jq 'select(.severity == "WARN" or .severity == "ERROR")'
    ```
 
@@ -615,9 +615,9 @@ curl -s http://localhost:8553/v1/metrics \
   | grep -E 'delegation_(cert_age|certs_held|rotations)'
 
 # Expected healthy output:
-# clauth_delegation_cert_age_seconds <value < 3600>
-# clauth_delegation_certs_held 1 or 2
-# clauth_delegation_rotations_total <incrementing count>
+# ephyr_delegation_cert_age_seconds <value < 3600>
+# ephyr_delegation_certs_held 1 or 2
+# ephyr_delegation_rotations_total <incrementing count>
 ```
 
 - `cert_age > 3600`: The delegation cert has expired. Signer may be down.
@@ -633,7 +633,7 @@ curl -s http://localhost:8553/v1/metrics \
 
 ### Policy File Structure
 
-The policy file at `/etc/clauth/policy.yaml` has four top-level sections:
+The policy file at `/etc/ephyr/policy.yaml` has four top-level sections:
 
 ```yaml
 # Global settings
@@ -738,14 +738,14 @@ agents:
    # ... repeat for each backend IP
    ```
 
-4. Add the agent's system user to the `clauth-agents` group:
+4. Add the agent's system user to the `ephyr-agents` group:
    ```bash
-   usermod -aG clauth-agents <username>
+   usermod -aG ephyr-agents <username>
    ```
 
 5. Hot-reload:
    ```bash
-   systemctl reload clauth-broker
+   systemctl reload ephyr-broker
    ```
 
 ### Adding a New Target
@@ -766,7 +766,7 @@ agents:
 2. Deploy the CA public key to the target host:
    ```bash
    # Extract CA public key
-   ssh-keygen -y -f /etc/clauth/ca_key > /tmp/ca_key.pub
+   ssh-keygen -y -f /etc/ephyr/ca_key > /tmp/ca_key.pub
 
    # Copy to target
    scp /tmp/ca_key.pub root@192.168.100.200:/etc/ssh/
@@ -792,7 +792,7 @@ agents:
 
 4. Hot-reload:
    ```bash
-   systemctl reload clauth-broker
+   systemctl reload ephyr-broker
    ```
 
 5. Update nftables if agents should be blocked from direct access:
@@ -816,7 +816,7 @@ agents:
 
 4. Hot-reload:
    ```bash
-   systemctl reload clauth-broker
+   systemctl reload ephyr-broker
    ```
 
 ### RBAC Configuration
@@ -877,17 +877,17 @@ High-frequency automation may need 200+.
 
 ### CA Key
 
-The CA key at `/etc/clauth/ca_key` is an Ed25519 private key. It is the root
+The CA key at `/etc/ephyr/ca_key` is an Ed25519 private key. It is the root
 of trust for all SSH certificates. The signer process holds it in memory and
 never exposes it over the network.
 
 **Backup the CA key:**
 ```bash
 # Copy to offline storage (USB, vault, etc.)
-cp /etc/clauth/ca_key /secure/backup/clauth-ca-key-$(date +%Y%m%d)
+cp /etc/ephyr/ca_key /secure/backup/ephyr-ca-key-$(date +%Y%m%d)
 
 # Verify the backup
-ssh-keygen -y -f /secure/backup/clauth-ca-key-* > /dev/null && echo "OK"
+ssh-keygen -y -f /secure/backup/ephyr-ca-key-* > /dev/null && echo "OK"
 ```
 
 **CA key rotation:**
@@ -897,26 +897,26 @@ This is a disruptive operation.
 
 1. Generate a new CA key:
    ```bash
-   ssh-keygen -t ed25519 -f /etc/clauth/ca_key.new -N "" -C "clauth-ca-$(date +%Y%m%d)"
+   ssh-keygen -t ed25519 -f /etc/ephyr/ca_key.new -N "" -C "ephyr-ca-$(date +%Y%m%d)"
    ```
 
 2. Deploy the new public key to all targets:
    ```bash
-   ssh-keygen -y -f /etc/clauth/ca_key.new > /tmp/ca_key_new.pub
+   ssh-keygen -y -f /etc/ephyr/ca_key.new > /tmp/ca_key_new.pub
    # For each target: append to TrustedUserCAKeys or replace
    ```
 
 3. Swap keys:
    ```bash
-   mv /etc/clauth/ca_key /etc/clauth/ca_key.old
-   mv /etc/clauth/ca_key.new /etc/clauth/ca_key
-   chown clauth-broker:clauth-broker /etc/clauth/ca_key
-   chmod 0600 /etc/clauth/ca_key
+   mv /etc/ephyr/ca_key /etc/ephyr/ca_key.old
+   mv /etc/ephyr/ca_key.new /etc/ephyr/ca_key
+   chown ephyr-broker:ephyr-broker /etc/ephyr/ca_key
+   chmod 0600 /etc/ephyr/ca_key
    ```
 
 4. Restart services:
    ```bash
-   systemctl restart clauth-signer clauth-broker
+   systemctl restart ephyr-signer ephyr-broker
    ```
 
 5. Verify:
@@ -968,14 +968,14 @@ The rotation loop runs in a background goroutine. On each rotation:
 Monitor rotation health:
 ```bash
 # Should see rotation events roughly every 50 minutes
-journalctl -u clauth-broker | grep delegation | tail -10
+journalctl -u ephyr-broker | grep delegation | tail -10
 ```
 
 ### Verifying Certificate Chain
 
 ```bash
 # Check the CA public key
-ssh-keygen -y -f /etc/clauth/ca_key
+ssh-keygen -y -f /etc/ephyr/ca_key
 
 # On a target host, verify the TrustedUserCAKeys matches
 ssh root@<target> 'cat /etc/ssh/ca_key.pub'
@@ -990,8 +990,8 @@ ssh root@<target> 'cat /etc/ssh/ca_key.pub'
 ### Overview
 
 The proxy engine handles HTTP requests on behalf of agents with automatic
-credential injection. Services are configured in `/var/lib/clauth/services.json`.
-Network policy is in `/var/lib/clauth/network_policy.json`.
+credential injection. Services are configured in `/var/lib/ephyr/services.json`.
+Network policy is in `/var/lib/ephyr/network_policy.json`.
 
 ### Adding a Service
 
@@ -1069,7 +1069,7 @@ Disabled services reject all proxy requests with "service is disabled."
 
 ### Network Policy
 
-The network policy file `/var/lib/clauth/network_policy.json` controls what
+The network policy file `/var/lib/ephyr/network_policy.json` controls what
 the proxy can reach:
 
 ```json
@@ -1088,7 +1088,7 @@ the proxy can reach:
 
 Changes to `network_policy.json` require a broker restart (not hot-reloadable):
 ```bash
-systemctl restart clauth-signer clauth-broker
+systemctl restart ephyr-signer ephyr-broker
 ```
 
 ### Testing Proxy Connectivity
@@ -1124,10 +1124,10 @@ curl -s -X POST http://localhost:8554/mcp \
 
 ### Overview
 
-MCP federation allows Clauth to aggregate tools from remote MCP servers.
+MCP federation allows Ephyr to aggregate tools from remote MCP servers.
 Remote tools appear namespaced as `{remote_name}.{tool_name}` (e.g.,
 `demo-tools.roll_dice`). Federation state is persisted in
-`/var/lib/clauth/remotes.json`.
+`/var/lib/ephyr/remotes.json`.
 
 ### Adding a Remote MCP Server
 
@@ -1197,7 +1197,7 @@ If a remote shows status `error` or `disconnected`:
 
 2. **Check network policy allows the remote's IP:**
    ```bash
-   cat /var/lib/clauth/network_policy.json | jq .allow_cidrs
+   cat /var/lib/ephyr/network_policy.json | jq .allow_cidrs
    ```
 
 3. **Check nftables is not blocking the broker:**
@@ -1209,7 +1209,7 @@ If a remote shows status `error` or `disconnected`:
 
 4. **Check broker logs for federation errors:**
    ```bash
-   journalctl -u clauth-broker | grep federation | tail -20
+   journalctl -u ephyr-broker | grep federation | tail -20
    ```
 
 5. **Check the remote state in detail:**
@@ -1245,7 +1245,7 @@ Checklist:
 
 2. **Check the bcrypt hash in policy.yaml:**
    ```bash
-   grep api_key_hash /etc/clauth/policy.yaml
+   grep api_key_hash /etc/ephyr/policy.yaml
    # Verify the hash matches the key:
    python3 -c "
    import bcrypt
@@ -1260,12 +1260,12 @@ Checklist:
    # Temporarily disable cache
    # Or wait for TTL to expire (default 60s)
    # Or reload policy (clears cache)
-   systemctl reload clauth-broker
+   systemctl reload ephyr-broker
    ```
 
 4. **Check the agent is registered:**
    ```bash
-   grep -A5 "agents:" /etc/clauth/policy.yaml
+   grep -A5 "agents:" /etc/ephyr/policy.yaml
    ```
 
 5. **Check MCP port is listening:**
@@ -1296,22 +1296,22 @@ Checklist:
 
 2. **Check signer is running:**
    ```bash
-   systemctl is-active clauth-signer
+   systemctl is-active ephyr-signer
    ```
 
 3. **Check signer socket exists:**
    ```bash
-   ls -la /run/clauth/signer.sock
+   ls -la /run/ephyr/signer.sock
    ```
 
 4. **Check broker logs for delegation errors:**
    ```bash
-   journalctl -u clauth-broker | grep -i delegation | tail -10
+   journalctl -u ephyr-broker | grep -i delegation | tail -10
    ```
 
 5. **If signer was restarted, restart broker too:**
    ```bash
-   systemctl restart clauth-signer clauth-broker
+   systemctl restart ephyr-signer ephyr-broker
    ```
 
 ### "SSH exec times out"
@@ -1347,7 +1347,7 @@ Checklist:
 
 5. **Check the audit log for cert issuance:**
    ```bash
-   tail -50 /var/log/clauth/audit.json | jq 'select(.event_type == "cert_issued" or .event_type == "cert_denied")'
+   tail -50 /var/log/ephyr/audit.json | jq 'select(.event_type == "cert_issued" or .event_type == "cert_denied")'
    ```
 
 6. **Check the command timeout setting:**
@@ -1366,7 +1366,7 @@ Checklist:
 
 2. **Check the broker's event hub:**
    ```bash
-   journalctl -u clauth-broker | grep -i websocket | tail -5
+   journalctl -u ephyr-broker | grep -i websocket | tail -5
    ```
 
 3. **Hard-refresh the dashboard:**
@@ -1374,7 +1374,7 @@ Checklist:
 
 4. **Check the broker is still running:**
    ```bash
-   systemctl is-active clauth-broker
+   systemctl is-active ephyr-broker
    ```
 
 ### "Metrics not updating"
@@ -1407,30 +1407,30 @@ Checklist:
 
 ### "Delegation key not rotating"
 
-Symptoms: `clauth_delegation_cert_age_seconds` keeps growing past 3600.
+Symptoms: `ephyr_delegation_cert_age_seconds` keeps growing past 3600.
 
 Checklist:
 
 1. **Check signer is running and healthy:**
    ```bash
-   systemctl status clauth-signer
-   journalctl -u clauth-signer --since "1 hour ago"
+   systemctl status ephyr-signer
+   journalctl -u ephyr-signer --since "1 hour ago"
    ```
 
 2. **Check signer socket is accessible:**
    ```bash
-   ls -la /run/clauth/signer.sock
-   # Should be owned by clauth-broker:clauth-agents
+   ls -la /run/ephyr/signer.sock
+   # Should be owned by ephyr-broker:ephyr-agents
    ```
 
 3. **Check broker logs for rotation failures:**
    ```bash
-   journalctl -u clauth-broker | grep "rotation failed" | tail -5
+   journalctl -u ephyr-broker | grep "rotation failed" | tail -5
    ```
 
 4. **Force rotation by restarting:**
    ```bash
-   systemctl restart clauth-signer clauth-broker
+   systemctl restart ephyr-signer ephyr-broker
    ```
    This triggers a fresh delegation request at startup.
 
@@ -1464,21 +1464,21 @@ Checklist:
 
 | Item | Path | Notes |
 |------|------|-------|
-| CA private key | `/etc/clauth/ca_key` | Root of trust. Without this, all target hosts need new CA key deployed. |
-| Policy config | `/etc/clauth/policy.yaml` | Agent definitions, targets, RBAC. Can be rebuilt but tedious. |
-| Service configs | `/var/lib/clauth/services.json` | Contains plaintext credentials for proxied services. |
-| Remote configs | `/var/lib/clauth/remotes.json` | Federation server definitions. |
-| Network policy | `/var/lib/clauth/network_policy.json` | Proxy CIDR allow/deny rules. |
-| Host configs | `/var/lib/clauth/hosts.json` | Runtime host config (reconciled from policy). |
+| CA private key | `/etc/ephyr/ca_key` | Root of trust. Without this, all target hosts need new CA key deployed. |
+| Policy config | `/etc/ephyr/policy.yaml` | Agent definitions, targets, RBAC. Can be rebuilt but tedious. |
+| Service configs | `/var/lib/ephyr/services.json` | Contains plaintext credentials for proxied services. |
+| Remote configs | `/var/lib/ephyr/remotes.json` | Federation server definitions. |
+| Network policy | `/var/lib/ephyr/network_policy.json` | Proxy CIDR allow/deny rules. |
+| Host configs | `/var/lib/ephyr/hosts.json` | Runtime host config (reconciled from policy). |
 
 **Important (recommended to back up):**
 
 | Item | Path | Notes |
 |------|------|-------|
-| Audit log | `/var/log/clauth/audit.json` | Compliance trail. Can grow large. |
+| Audit log | `/var/log/ephyr/audit.json` | Compliance trail. Can grow large. |
 | nftables rules | `nft list ruleset` output | Network isolation rules. |
-| Systemd overrides | `/etc/systemd/system/clauth-broker.service.d/` | Environment variable overrides. |
-| Source code | `/opt/clauth/` | Git repo, can be re-cloned. |
+| Systemd overrides | `/etc/systemd/system/ephyr-broker.service.d/` | Environment variable overrides. |
+| Source code | `/opt/ephyr/` | Git repo, can be re-cloned. |
 
 ### What is Ephemeral (No Backup Needed)
 
@@ -1496,21 +1496,21 @@ Checklist:
 
 ```bash
 #!/bin/bash
-# Clauth backup script -- run as root
-BACKUP_DIR="/backup/clauth/$(date +%Y%m%d-%H%M%S)"
+# Ephyr backup script -- run as root
+BACKUP_DIR="/backup/ephyr/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 
 # Critical files
-cp /etc/clauth/ca_key "$BACKUP_DIR/"
-cp /etc/clauth/policy.yaml "$BACKUP_DIR/"
-cp /var/lib/clauth/services.json "$BACKUP_DIR/"
-cp /var/lib/clauth/remotes.json "$BACKUP_DIR/"
-cp /var/lib/clauth/network_policy.json "$BACKUP_DIR/"
-cp /var/lib/clauth/hosts.json "$BACKUP_DIR/" 2>/dev/null
+cp /etc/ephyr/ca_key "$BACKUP_DIR/"
+cp /etc/ephyr/policy.yaml "$BACKUP_DIR/"
+cp /var/lib/ephyr/services.json "$BACKUP_DIR/"
+cp /var/lib/ephyr/remotes.json "$BACKUP_DIR/"
+cp /var/lib/ephyr/network_policy.json "$BACKUP_DIR/"
+cp /var/lib/ephyr/hosts.json "$BACKUP_DIR/" 2>/dev/null
 
 # Systemd overrides
-cp -r /etc/systemd/system/clauth-broker.service.d "$BACKUP_DIR/" 2>/dev/null
-cp -r /etc/systemd/system/clauth-signer.service.d "$BACKUP_DIR/" 2>/dev/null
+cp -r /etc/systemd/system/ephyr-broker.service.d "$BACKUP_DIR/" 2>/dev/null
+cp -r /etc/systemd/system/ephyr-signer.service.d "$BACKUP_DIR/" 2>/dev/null
 
 # nftables
 nft list ruleset > "$BACKUP_DIR/nftables.conf"
@@ -1528,7 +1528,7 @@ ls -la "$BACKUP_DIR"
 
 From a backup to a fresh Debian 12 LXC:
 
-1. **Install Go and build Clauth:**
+1. **Install Go and build Ephyr:**
    ```bash
    # Install Go 1.24+
    wget https://go.dev/dl/go1.24.1.linux-amd64.tar.gz
@@ -1536,8 +1536,8 @@ From a backup to a fresh Debian 12 LXC:
    export PATH=$PATH:/usr/local/go/bin
 
    # Clone or copy source
-   cp -r /backup/clauth-source /opt/clauth
-   cd /opt/clauth
+   cp -r /backup/ephyr-source /opt/ephyr
+   cd /opt/ephyr
    make install
    ```
 
@@ -1548,24 +1548,24 @@ From a backup to a fresh Debian 12 LXC:
 
 3. **Restore configuration:**
    ```bash
-   cp /backup/ca_key /etc/clauth/ca_key
-   cp /backup/policy.yaml /etc/clauth/policy.yaml
-   chown clauth-broker:clauth-broker /etc/clauth/ca_key
-   chmod 0600 /etc/clauth/ca_key
-   chmod 0640 /etc/clauth/policy.yaml
+   cp /backup/ca_key /etc/ephyr/ca_key
+   cp /backup/policy.yaml /etc/ephyr/policy.yaml
+   chown ephyr-broker:ephyr-broker /etc/ephyr/ca_key
+   chmod 0600 /etc/ephyr/ca_key
+   chmod 0640 /etc/ephyr/policy.yaml
 
-   cp /backup/services.json /var/lib/clauth/
-   cp /backup/remotes.json /var/lib/clauth/
-   cp /backup/network_policy.json /var/lib/clauth/
-   cp /backup/hosts.json /var/lib/clauth/ 2>/dev/null
-   chown clauth-broker:clauth-agents /var/lib/clauth/*.json
-   chmod 0640 /var/lib/clauth/*.json
+   cp /backup/services.json /var/lib/ephyr/
+   cp /backup/remotes.json /var/lib/ephyr/
+   cp /backup/network_policy.json /var/lib/ephyr/
+   cp /backup/hosts.json /var/lib/ephyr/ 2>/dev/null
+   chown ephyr-broker:ephyr-agents /var/lib/ephyr/*.json
+   chmod 0640 /var/lib/ephyr/*.json
    ```
 
 4. **Restore systemd units and overrides:**
    ```bash
    make install-systemd
-   cp -r /backup/clauth-broker.service.d /etc/systemd/system/ 2>/dev/null
+   cp -r /backup/ephyr-broker.service.d /etc/systemd/system/ 2>/dev/null
    systemctl daemon-reload
    ```
 
@@ -1576,12 +1576,12 @@ From a backup to a fresh Debian 12 LXC:
 
 6. **Start services:**
    ```bash
-   systemctl enable --now clauth-signer clauth-broker
+   systemctl enable --now ephyr-signer ephyr-broker
    ```
 
 7. **Verify:**
    ```bash
-   systemctl status clauth-signer clauth-broker
+   systemctl status ephyr-signer ephyr-broker
    curl -s http://localhost:8553/v1/dashboard/status \
      -H "Authorization: Bearer password" | jq .
    ```
@@ -1593,7 +1593,7 @@ From a backup to a fresh Debian 12 LXC:
 ### Build New Binaries
 
 ```bash
-cd /opt/clauth
+cd /opt/ephyr
 
 # Pull latest code
 git pull origin main
@@ -1602,8 +1602,8 @@ git pull origin main
 make build
 
 # Verify binaries
-./bin/clauth-broker --version 2>/dev/null || echo "Check build output"
-./bin/clauth-signer --version 2>/dev/null || echo "Check build output"
+./bin/ephyr-broker --version 2>/dev/null || echo "Check build output"
+./bin/ephyr-signer --version 2>/dev/null || echo "Check build output"
 ```
 
 ### Pre-Upgrade Checks
@@ -1613,12 +1613,12 @@ make build
 make test
 
 # Check for breaking changes in policy format
-diff <(git show HEAD~1:configs/policy.yaml 2>/dev/null) /etc/clauth/policy.yaml
+diff <(git show HEAD~1:configs/policy.yaml 2>/dev/null) /etc/ephyr/policy.yaml
 
 # Backup current binaries
-cp /usr/local/bin/clauth-broker /usr/local/bin/clauth-broker.bak
-cp /usr/local/bin/clauth-signer /usr/local/bin/clauth-signer.bak
-cp /usr/local/bin/clauth /usr/local/bin/clauth.bak
+cp /usr/local/bin/ephyr-broker /usr/local/bin/ephyr-broker.bak
+cp /usr/local/bin/ephyr-signer /usr/local/bin/ephyr-signer.bak
+cp /usr/local/bin/ephyr /usr/local/bin/ephyr.bak
 ```
 
 ### Rolling Restart
@@ -1628,9 +1628,9 @@ cp /usr/local/bin/clauth /usr/local/bin/clauth.bak
 make install
 
 # Restart signer first, then broker
-systemctl restart clauth-signer
+systemctl restart ephyr-signer
 sleep 2
-systemctl restart clauth-broker
+systemctl restart ephyr-broker
 ```
 
 This causes a brief interruption:
@@ -1645,7 +1645,7 @@ This causes a brief interruption:
 
 ```bash
 # 1. Check services are running
-systemctl status clauth-signer clauth-broker
+systemctl status ephyr-signer ephyr-broker
 
 # 2. Check delegation key was established
 curl -s http://localhost:8553/v1/metrics \
@@ -1673,7 +1673,7 @@ curl -s -X POST http://localhost:8554/mcp \
 curl -sf http://localhost:8553/ > /dev/null && echo "Dashboard OK"
 
 # 6. Check audit log for startup event
-tail -5 /var/log/clauth/audit.json | jq 'select(.event_type == "startup")'
+tail -5 /var/log/ephyr/audit.json | jq 'select(.event_type == "startup")'
 ```
 
 ### Rollback Procedure
@@ -1682,25 +1682,25 @@ If the upgrade causes issues:
 
 ```bash
 # Restore old binaries
-cp /usr/local/bin/clauth-broker.bak /usr/local/bin/clauth-broker
-cp /usr/local/bin/clauth-signer.bak /usr/local/bin/clauth-signer
-cp /usr/local/bin/clauth.bak /usr/local/bin/clauth
+cp /usr/local/bin/ephyr-broker.bak /usr/local/bin/ephyr-broker
+cp /usr/local/bin/ephyr-signer.bak /usr/local/bin/ephyr-signer
+cp /usr/local/bin/ephyr.bak /usr/local/bin/ephyr
 
 # Restart with old binaries
-systemctl restart clauth-signer
+systemctl restart ephyr-signer
 sleep 2
-systemctl restart clauth-broker
+systemctl restart ephyr-broker
 
 # Verify
-systemctl status clauth-signer clauth-broker
+systemctl status ephyr-signer ephyr-broker
 ```
 
 If the policy format changed between versions and the old binary cannot load
 the new policy, restore the old policy too:
 
 ```bash
-cp /backup/policy.yaml /etc/clauth/policy.yaml
-systemctl reload clauth-broker
+cp /backup/policy.yaml /etc/ephyr/policy.yaml
+systemctl reload ephyr-broker
 ```
 
 ---
@@ -1709,20 +1709,20 @@ systemctl reload clauth-broker
 
 ### Running the Smoke Test Suite
 
-The integration tests live at `/opt/clauth/test/integration/smoke_test.go`
+The integration tests live at `/opt/ephyr/test/integration/smoke_test.go`
 and require a running broker instance. They test the MCP protocol end-to-end.
 
 ```bash
-cd /opt/clauth
+cd /opt/ephyr
 
 # Run integration tests (requires running broker)
 /usr/local/go/bin/go test -tags integration -v -timeout 120s ./test/integration/
 
 # Run with custom endpoint (default: http://192.168.100.75:8554/mcp)
-CLAUTH_MCP_ENDPOINT="http://localhost:8554/mcp" \
-CLAUTH_MCP_KEY="<API_KEY>" \
-CLAUTH_DASH_ENDPOINT="http://localhost:8553" \
-CLAUTH_DASH_TOKEN="password" \
+EPHYR_MCP_ENDPOINT="http://localhost:8554/mcp" \
+EPHYR_MCP_KEY="<API_KEY>" \
+EPHYR_DASH_ENDPOINT="http://localhost:8553" \
+EPHYR_DASH_TOKEN="password" \
   /usr/local/go/bin/go test -tags integration -v -timeout 120s ./test/integration/
 
 # Run a specific test
@@ -1746,7 +1746,7 @@ CLAUTH_DASH_TOKEN="password" \
 
 ```
 --- PASS: TestMCPInitialize (0.01s)
-    smoke_test.go:120:   [PASS] mcp_initialize - server=clauth protocol=2025-03-26 (5.23ms)
+    smoke_test.go:120:   [PASS] mcp_initialize - server=ephyr protocol=2025-03-26 (5.23ms)
 --- PASS: TestTaskLifecycle (0.05s)
     smoke_test.go:250:   [PASS] task_create - task_id=01JQXYZ... (12.45ms)
     smoke_test.go:260:   [PASS] task_info - remaining_ttl=29m59s (3.21ms)
@@ -1780,7 +1780,7 @@ If latencies are significantly above these baselines:
 ### Running Unit Tests
 
 ```bash
-cd /opt/clauth
+cd /opt/ephyr
 
 # All unit tests with race detection
 /usr/local/go/bin/go test -race ./...
@@ -1831,7 +1831,7 @@ table inet filter {
 
 The output chain blocks UID 1000 (agent) from directly connecting to backend
 hosts. The broker (UID 999) is unrestricted and proxies all agent requests.
-This ensures agents can only reach backends through Clauth's audited paths.
+This ensures agents can only reach backends through Ephyr's audited paths.
 
 To add a new backend to the block list:
 ```bash

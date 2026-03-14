@@ -21,11 +21,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sprawl/clauth/internal/audit"
-	"github.com/sprawl/clauth/internal/auth"
-	"github.com/sprawl/clauth/internal/policy"
-	"github.com/sprawl/clauth/internal/signer"
-	"github.com/sprawl/clauth/internal/token"
+	"github.com/ben-spanswick/ephyr/internal/audit"
+	"github.com/ben-spanswick/ephyr/internal/auth"
+	"github.com/ben-spanswick/ephyr/internal/policy"
+	"github.com/ben-spanswick/ephyr/internal/signer"
+	"github.com/ben-spanswick/ephyr/internal/token"
 )
 
 // BrokerConfig holds all configuration for the broker server.
@@ -35,7 +35,7 @@ type BrokerConfig struct {
 	ListenSocket   string   // path for the broker's own Unix socket
 	AuditLogPath   string   // path to the audit log file
 	AdminUIDs      []uint32 // UIDs allowed admin operations
-	SocketGroup    string   // group name for broker socket (e.g. "clauth-agents")
+	SocketGroup    string   // group name for broker socket (e.g. "ephyr-agents")
 	DashboardAddr  string   // TCP address for dashboard listener (e.g. ":8553")
 	DashboardToken string   // API token for dashboard authentication
 	DashboardDir   string   // directory for serving static dashboard files
@@ -110,16 +110,16 @@ type BrokerServer struct {
 func NewBrokerServer(cfg BrokerConfig) (*BrokerServer, error) {
 	// Apply defaults.
 	if cfg.ListenSocket == "" {
-		cfg.ListenSocket = "/run/clauth/broker.sock"
+		cfg.ListenSocket = "/run/ephyr/broker.sock"
 	}
 	if cfg.SignerSocket == "" {
-		cfg.SignerSocket = "/run/clauth/signer.sock"
+		cfg.SignerSocket = "/run/ephyr/signer.sock"
 	}
 	if cfg.PolicyPath == "" {
-		cfg.PolicyPath = "/etc/clauth/policy.yaml"
+		cfg.PolicyPath = "/etc/ephyr/policy.yaml"
 	}
 	if cfg.AuditLogPath == "" {
-		cfg.AuditLogPath = "/var/log/clauth/audit.json"
+		cfg.AuditLogPath = "/var/log/ephyr/audit.json"
 	}
 
 	// Load policy.
@@ -165,7 +165,7 @@ func NewBrokerServer(cfg BrokerConfig) (*BrokerServer, error) {
 		startTime:    time.Now(),
 		eventHub:     NewEventHub(),
 		hostCtl:      NewHostController(),
-		configMgr:    NewConfigManager("/var/lib/clauth/hosts.json"),
+		configMgr:    NewConfigManager("/var/lib/ephyr/hosts.json"),
 	}
 
 	// Seed host configs from policy targets.
@@ -232,7 +232,7 @@ func (bs *BrokerServer) ListenAndServe() error {
 	}
 	bs.listener = listener
 
-	// Set socket permissions: owner=clauth-broker, group=clauth-agents (or configured group).
+	// Set socket permissions: owner=ephyr-broker, group=ephyr-agents (or configured group).
 	if err := os.Chmod(bs.cfg.ListenSocket, 0660); err != nil {
 		listener.Close()
 		return fmt.Errorf("broker: chmod socket: %w", err)
@@ -494,7 +494,7 @@ func (bs *BrokerServer) startMCPListener() {
 	// Initialize proxy engine.
 	proxyPolicy := DefaultNetworkPolicy
 	// Load network policy overrides from services config dir.
-	npPath := "/var/lib/clauth/network_policy.json"
+	npPath := "/var/lib/ephyr/network_policy.json"
 	if npData, err := os.ReadFile(npPath); err == nil {
 		var np NetworkPolicy
 		if err := json.Unmarshal(npData, &np); err == nil {
@@ -504,12 +504,12 @@ func (bs *BrokerServer) startMCPListener() {
 			log.Printf("[mcp] warning: failed to parse %s: %v, using defaults", npPath, err)
 		}
 	}
-	proxyEngine := NewProxyEngine(bs, "/var/lib/clauth/services.json", proxyPolicy)
+	proxyEngine := NewProxyEngine(bs, "/var/lib/ephyr/services.json", proxyPolicy)
 	mcpSrv.SetProxyEngine(proxyEngine)
 	bs.proxyEngine = proxyEngine
 
 	// Initialize MCP federation engine.
-	fed := NewMCPFederator(bs, "/var/lib/clauth/remotes.json")
+	fed := NewMCPFederator(bs, "/var/lib/ephyr/remotes.json")
 	mcpSrv.SetFederator(fed)
 	bs.federator = fed
 

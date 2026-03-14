@@ -80,7 +80,7 @@ func (c *BrokerClient) ListRemotes() ([]RemoteInfo, error) {
 	return result, nil
 }
 
-// cmdServices handles: clauth services
+// cmdServices handles: ephyr services
 func cmdServices(args []string) {
 	fs := flag.NewFlagSet("services", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
@@ -119,7 +119,7 @@ func cmdServices(args []string) {
 	}
 }
 
-// cmdRemotes handles: clauth remotes
+// cmdRemotes handles: ephyr remotes
 func cmdRemotes(args []string) {
 	fs := flag.NewFlagSet("remotes", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")

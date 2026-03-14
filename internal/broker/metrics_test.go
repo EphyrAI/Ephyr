@@ -260,17 +260,17 @@ func TestPrometheusOutputFormat(t *testing.T) {
 
 	// Check for expected Prometheus format elements.
 	expectedStrings := []string{
-		"# HELP clauth_token_sign_seconds Token signing latency",
-		"# TYPE clauth_token_sign_seconds histogram",
-		`clauth_token_sign_seconds_bucket{le="0.0001"} 1`,
-		`clauth_token_sign_seconds_bucket{le="0.0005"} 2`,
-		`clauth_token_sign_seconds_bucket{le="+Inf"} 3`,
-		"clauth_token_sign_seconds_count 3",
-		"clauth_tasks_created_total 42",
-		"clauth_tokens_signed_total 250",
-		"clauth_active_watermarks 3",
-		"# TYPE clauth_tasks_created_total counter",
-		"# TYPE clauth_active_watermarks gauge",
+		"# HELP ephyr_token_sign_seconds Token signing latency",
+		"# TYPE ephyr_token_sign_seconds histogram",
+		`ephyr_token_sign_seconds_bucket{le="0.0001"} 1`,
+		`ephyr_token_sign_seconds_bucket{le="0.0005"} 2`,
+		`ephyr_token_sign_seconds_bucket{le="+Inf"} 3`,
+		"ephyr_token_sign_seconds_count 3",
+		"ephyr_tasks_created_total 42",
+		"ephyr_tokens_signed_total 250",
+		"ephyr_active_watermarks 3",
+		"# TYPE ephyr_tasks_created_total counter",
+		"# TYPE ephyr_active_watermarks gauge",
 	}
 
 	for _, exp := range expectedStrings {
@@ -296,13 +296,13 @@ func TestPrometheusHistogramCumulative(t *testing.T) {
 
 	// Prometheus histograms must be cumulative.
 	expectedCumulative := []string{
-		`clauth_exec_e2e_seconds_bucket{le="0.0001"} 1`,  // 1
-		`clauth_exec_e2e_seconds_bucket{le="0.0005"} 1`,  // still 1
-		`clauth_exec_e2e_seconds_bucket{le="0.001"} 1`,   // still 1
-		`clauth_exec_e2e_seconds_bucket{le="0.005"} 2`,   // 1+1
-		`clauth_exec_e2e_seconds_bucket{le="0.01"} 2`,    // still 2
-		`clauth_exec_e2e_seconds_bucket{le="0.05"} 2`,    // still 2
-		`clauth_exec_e2e_seconds_bucket{le="+Inf"} 3`,    // all 3
+		`ephyr_exec_e2e_seconds_bucket{le="0.0001"} 1`,  // 1
+		`ephyr_exec_e2e_seconds_bucket{le="0.0005"} 1`,  // still 1
+		`ephyr_exec_e2e_seconds_bucket{le="0.001"} 1`,   // still 1
+		`ephyr_exec_e2e_seconds_bucket{le="0.005"} 2`,   // 1+1
+		`ephyr_exec_e2e_seconds_bucket{le="0.01"} 2`,    // still 2
+		`ephyr_exec_e2e_seconds_bucket{le="0.05"} 2`,    // still 2
+		`ephyr_exec_e2e_seconds_bucket{le="+Inf"} 3`,    // all 3
 	}
 
 	for _, exp := range expectedCumulative {
@@ -428,14 +428,14 @@ func TestPrometheusAllHistogramsPresent(t *testing.T) {
 	body := rec.Body.String()
 
 	expectedHistograms := []string{
-		"clauth_token_sign_seconds",
-		"clauth_token_validate_seconds",
-		"clauth_watermark_check_seconds",
-		"clauth_envelope_check_seconds",
-		"clauth_policy_eval_seconds",
-		"clauth_ssh_cert_seconds",
-		"clauth_delegation_ipc_seconds",
-		"clauth_exec_e2e_seconds",
+		"ephyr_token_sign_seconds",
+		"ephyr_token_validate_seconds",
+		"ephyr_watermark_check_seconds",
+		"ephyr_envelope_check_seconds",
+		"ephyr_policy_eval_seconds",
+		"ephyr_ssh_cert_seconds",
+		"ephyr_delegation_ipc_seconds",
+		"ephyr_exec_e2e_seconds",
 	}
 
 	for _, name := range expectedHistograms {
@@ -460,14 +460,14 @@ func TestPrometheusAllCountersPresent(t *testing.T) {
 	body := rec.Body.String()
 
 	expectedCounters := []string{
-		"clauth_tasks_created_total",
-		"clauth_tasks_active",
-		"clauth_tokens_signed_total",
-		"clauth_tokens_validated_total",
-		"clauth_tokens_rejected_total",
-		"clauth_watermark_revocations_total",
-		"clauth_delegation_rotations_total",
-		"clauth_legacy_requests_total",
+		"ephyr_tasks_created_total",
+		"ephyr_tasks_active",
+		"ephyr_tokens_signed_total",
+		"ephyr_tokens_validated_total",
+		"ephyr_tokens_rejected_total",
+		"ephyr_watermark_revocations_total",
+		"ephyr_delegation_rotations_total",
+		"ephyr_legacy_requests_total",
 	}
 
 	for _, name := range expectedCounters {
@@ -487,9 +487,9 @@ func TestPrometheusAllGaugesPresent(t *testing.T) {
 	body := rec.Body.String()
 
 	expectedGauges := []string{
-		"clauth_active_watermarks",
-		"clauth_delegation_cert_age_seconds",
-		"clauth_delegation_certs_held",
+		"ephyr_active_watermarks",
+		"ephyr_delegation_cert_age_seconds",
+		"ephyr_delegation_certs_held",
 	}
 
 	for _, name := range expectedGauges {

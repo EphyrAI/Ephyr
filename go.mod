@@ -1,4 +1,4 @@
-module github.com/sprawl/clauth
+module github.com/ben-spanswick/ephyr
 
 go 1.24.1
 

@@ -563,8 +563,8 @@ func TestTaskTokenAuditCorrelation(t *testing.T) {
 
 	// Step 1: Snapshot metrics before.
 	metricsBefore := enfGetMetrics(t)
-	tasksCreatedBefore := enfExtractMetricValue(metricsBefore, "clauth_tasks_created_total")
-	tokensSignedBefore := enfExtractMetricValue(metricsBefore, "clauth_tokens_signed_total")
+	tasksCreatedBefore := enfExtractMetricValue(metricsBefore, "ephyr_tasks_created_total")
+	tokensSignedBefore := enfExtractMetricValue(metricsBefore, "ephyr_tokens_signed_total")
 	t.Logf("  Metrics before: tasks_created=%s tokens_signed=%s", tasksCreatedBefore, tokensSignedBefore)
 
 	// Step 2: Create a task and note the task_id.
@@ -585,35 +585,35 @@ func TestTaskTokenAuditCorrelation(t *testing.T) {
 
 	// Step 4: Check metrics after.
 	metricsAfter := enfGetMetrics(t)
-	tasksCreatedAfter := enfExtractMetricValue(metricsAfter, "clauth_tasks_created_total")
-	tokensSignedAfter := enfExtractMetricValue(metricsAfter, "clauth_tokens_signed_total")
+	tasksCreatedAfter := enfExtractMetricValue(metricsAfter, "ephyr_tasks_created_total")
+	tokensSignedAfter := enfExtractMetricValue(metricsAfter, "ephyr_tokens_signed_total")
 	t.Logf("  Metrics after: tasks_created=%s tokens_signed=%s", tasksCreatedAfter, tokensSignedAfter)
 
 	// Verify tasks_created incremented.
 	if tasksCreatedAfter <= tasksCreatedBefore {
-		t.Errorf("  [FAIL] clauth_tasks_created_total did not increment: before=%s after=%s",
+		t.Errorf("  [FAIL] ephyr_tasks_created_total did not increment: before=%s after=%s",
 			tasksCreatedBefore, tasksCreatedAfter)
 	} else {
-		t.Logf("  [PASS] clauth_tasks_created_total incremented: %s -> %s",
+		t.Logf("  [PASS] ephyr_tasks_created_total incremented: %s -> %s",
 			tasksCreatedBefore, tasksCreatedAfter)
 	}
 
 	// Verify tokens_signed incremented.
 	if tokensSignedAfter <= tokensSignedBefore {
-		t.Errorf("  [FAIL] clauth_tokens_signed_total did not increment: before=%s after=%s",
+		t.Errorf("  [FAIL] ephyr_tokens_signed_total did not increment: before=%s after=%s",
 			tokensSignedBefore, tokensSignedAfter)
 	} else {
-		t.Logf("  [PASS] clauth_tokens_signed_total incremented: %s -> %s",
+		t.Logf("  [PASS] ephyr_tokens_signed_total incremented: %s -> %s",
 			tokensSignedBefore, tokensSignedAfter)
 	}
 
 	// Step 5: When enforcement is wired in, we should also see:
-	// - clauth_tokens_validated_total increment (for task token auth)
-	// - clauth_envelope_check_seconds histogram observations
+	// - ephyr_tokens_validated_total increment (for task token auth)
+	// - ephyr_envelope_check_seconds histogram observations
 	// For now, just check they exist in the metrics output.
 	for _, metric := range []string{
-		"clauth_tokens_validated_total",
-		"clauth_envelope_check_seconds_count",
+		"ephyr_tokens_validated_total",
+		"ephyr_envelope_check_seconds_count",
 	} {
 		val := enfExtractMetricValue(metricsAfter, metric)
 		if val == "" {
@@ -836,7 +836,7 @@ func TestEnvelopeContents(t *testing.T) {
 
 func TestEnforcementSummary(t *testing.T) {
 	t.Log("\n" + strings.Repeat("=", 72))
-	t.Log("  CLAUTH v0.2 PHASE 2a.1 — ENFORCEMENT TEST REPORT")
+	t.Log("  EPHYR v0.2 PHASE 2a.1 — ENFORCEMENT TEST REPORT")
 	t.Log(strings.Repeat("=", 72))
 	t.Log("")
 	t.Log("  Test coverage:")

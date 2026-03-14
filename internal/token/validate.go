@@ -42,7 +42,7 @@ func (v *Validator) AddDelegation(cert *DelegationCert) {
 //  4. Verify delegation cert hasn't expired
 //  5. Verify CTT-E signature against delegated public key
 //  6. Verify CTT-E hasn't expired
-//  7. Verify audience is "clauth-broker"
+//  7. Verify audience is "ephyr-broker"
 //  8. Return parsed TaskClaims
 func (v *Validator) ValidateCTTE(tokenStr string) (*TaskClaims, error) {
 	return v.validateAt(tokenStr, time.Now(), TokenTypeCTTE)
@@ -159,7 +159,7 @@ func (v *Validator) validateAt(tokenStr string, now time.Time, allowedTypes ...T
 	}
 
 	// Step 7: Verify audience.
-	if claims.Audience != "clauth-broker" {
+	if claims.Audience != "ephyr-broker" {
 		return nil, fmt.Errorf("token: unexpected audience: %s", claims.Audience)
 	}
 

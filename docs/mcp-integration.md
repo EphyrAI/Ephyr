@@ -1,6 +1,6 @@
-# Clauth MCP Integration Guide
+# Ephyr MCP Integration Guide
 
-How to connect AI agents to Clauth infrastructure operations via the Model Context
+How to connect AI agents to Ephyr infrastructure operations via the Model Context
 Protocol (MCP).
 
 ---
@@ -9,13 +9,13 @@ Protocol (MCP).
 
 The Model Context Protocol (MCP) is a structured tool interface for large language
 models. It uses JSON-RPC 2.0 over HTTP to expose server-side "tools" that any
-compatible AI agent can discover and call. Clauth implements MCP Streamable HTTP
+compatible AI agent can discover and call. Ephyr implements MCP Streamable HTTP
 transport (protocol version `2025-03-26`), exposing infrastructure
 operations -- SSH command execution, session management, and authenticated HTTP
 proxying -- as tools that agents can invoke programmatically.
 
 The key benefit: agents do not need SSH keys, credentials, or direct network access
-to target hosts. Clauth handles ephemeral certificate generation, credential
+to target hosts. Ephyr handles ephemeral certificate generation, credential
 injection, and audit logging transparently.
 
 ---
@@ -31,7 +31,7 @@ injection, and audit logging transparently.
          │ Authorization: Bearer <api-key>
          ▼
 ┌─────────────────────────────────────────────┐
-│   Clauth Broker (port 8554)                 │
+│   Ephyr Broker (port 8554)                 │
 │                                             │
 │   ┌───────────┐  ┌──────────────────────┐   │
 │   │ MCP Router│  │ Resource Provider    │   │
@@ -59,7 +59,7 @@ injection, and audit logging transparently.
           │ Unix socket IPC
           ▼
 ┌─────────────────────┐
-│   Clauth Signer     │
+│   Ephyr Signer     │
 │                     │
 │   Ed25519 CA Key    │
 │   Certificate Gen   │
@@ -87,7 +87,7 @@ injection, and audit logging transparently.
 
 **Data flow for resource reads:**
 
-1. Agent sends `resources/read` with a `clauth://` URI.
+1. Agent sends `resources/read` with a `ephyr://` URI.
 2. Broker dynamically generates Markdown content from live policy, config, and
    state data.
 3. Content returned as a `text` resource in the JSON-RPC response.
@@ -98,19 +98,19 @@ injection, and audit logging transparently.
 
 ### 1. Generate API Key
 
-On the Clauth broker host, generate a bcrypt hash for the agent's API key:
+On the Ephyr broker host, generate a bcrypt hash for the agent's API key:
 
 ```bash
 # Generate a random key
-openssl rand -base64 32 > /etc/clauth/mcp_api_key
+openssl rand -base64 32 > /etc/ephyr/mcp_api_key
 
 # Hash it for policy.yaml
-htpasswd -nbBC 10 "" "$(cat /etc/clauth/mcp_api_key)" | cut -d: -f2
+htpasswd -nbBC 10 "" "$(cat /etc/ephyr/mcp_api_key)" | cut -d: -f2
 ```
 
 ### 2. Configure Policy
 
-Add the API key hash and MCP settings to `/etc/clauth/policy.yaml`:
+Add the API key hash and MCP settings to `/etc/ephyr/policy.yaml`:
 
 ```yaml
 agents:
@@ -152,7 +152,7 @@ targets:
 Reload the broker to apply:
 
 ```bash
-systemctl reload clauth-broker
+systemctl reload ephyr-broker
 ```
 
 ### 3. Configure Client
@@ -163,7 +163,7 @@ Add the MCP server to your AI agent's configuration. For Claude Code, edit
 ```json
 {
   "mcpServers": {
-    "clauth": {
+    "ephyr": {
       "type": "url",
       "url": "http://BROKER_HOST:8554/mcp",
       "headers": {
@@ -253,7 +253,7 @@ curl -X POST http://BROKER_HOST:8554/mcp \
       }
     },
     "serverInfo": {
-      "name": "clauth-broker",
+      "name": "ephyr-broker",
       "version": "0.1.0"
     }
   }
@@ -339,13 +339,13 @@ JSON Schema for input parameters. See "Available Tools" below for details.
   "result": {
     "resources": [
       {
-        "uri": "clauth://overview",
+        "uri": "ephyr://overview",
         "name": "System Overview",
         "description": "High-level summary of broker capabilities, targets, services, and agent permissions",
         "mimeType": "text/markdown"
       },
       {
-        "uri": "clauth://targets",
+        "uri": "ephyr://targets",
         "name": "SSH Targets",
         "description": "Available SSH targets with hosts, ports, allowed roles, TTLs, auto-approve status",
         "mimeType": "text/markdown"
@@ -366,7 +366,7 @@ All 7 resources are documented in the "MCP Resources" section below.
   "jsonrpc": "2.0",
   "id": 5,
   "method": "resources/read",
-  "params": { "uri": "clauth://overview" }
+  "params": { "uri": "ephyr://overview" }
 }
 ```
 
@@ -378,9 +378,9 @@ All 7 resources are documented in the "MCP Resources" section below.
   "id": 5,
   "result": {
     "contents": [{
-      "uri": "clauth://overview",
+      "uri": "ephyr://overview",
       "mimeType": "text/markdown",
-      "text": "# Clauth System Overview\n\n## Available SSH Targets (3)\n..."
+      "text": "# Ephyr System Overview\n\n## Available SSH Targets (3)\n..."
     }]
   }
 }
@@ -670,7 +670,7 @@ Lists active (non-expired) SSH certificates issued to the authenticated agent.
 
 ### 7. `http_request`
 
-Makes an HTTP request through the authenticated proxy. Clauth injects the
+Makes an HTTP request through the authenticated proxy. Ephyr injects the
 appropriate credentials for the target service -- the agent never sees tokens,
 passwords, or API keys.
 
@@ -769,7 +769,7 @@ are available for proxying.
 
 **Notes:**
 - Credentials are never included in the response -- only auth type is shown.
-- Service configuration is managed via `/var/lib/clauth/services.json` or
+- Service configuration is managed via `/var/lib/ephyr/services.json` or
   the dashboard's Services view.
 
 ---
@@ -806,7 +806,7 @@ remote servers and their tools.
 **Notes:**
 - Returns only remotes the authenticated agent is allowed to access per RBAC policy.
 - Federated tools from remotes appear as `{server}.{tool}` (e.g., `demo-tools.roll_dice`).
-- Remote configuration is managed via `/var/lib/clauth/remotes.json` or
+- Remote configuration is managed via `/var/lib/ephyr/remotes.json` or
   the dashboard's MCP Servers view.
 
 ---
@@ -829,24 +829,24 @@ transparently, injecting credentials if configured.
 
 Resources are a read-only discovery mechanism in MCP. Unlike tools, which perform
 actions, resources provide structured information that agents can read to understand
-the system they are connected to. Clauth exposes 7 resources under the `clauth://`
+the system they are connected to. Ephyr exposes 7 resources under the `ephyr://`
 URI scheme.
 
 ### Why Resources Matter
 
-When an AI agent connects to Clauth via MCP, it has no inherent knowledge of what
+When an AI agent connects to Ephyr via MCP, it has no inherent knowledge of what
 targets exist, what roles are available, or what services can be proxied. Without
 resources, the agent would need hardcoded documentation or trial-and-error tool
 calls to discover the environment.
 
 Resources solve this with **agent self-discovery**: on first connection, the agent
-reads `clauth://overview` and immediately understands the full scope of available
+reads `ephyr://overview` and immediately understands the full scope of available
 infrastructure. This is the recommended bootstrap pattern for any MCP client
 integration.
 
 ### Available Resources
 
-#### `clauth://overview` -- System Overview
+#### `ephyr://overview` -- System Overview
 
 High-level summary of everything the broker offers. This is the recommended first
 resource for any agent to read after initialization.
@@ -861,7 +861,7 @@ resource for any agent to read after initialization.
 **Example content** (abbreviated):
 
 ```markdown
-# Clauth System Overview
+# Ephyr System Overview
 ## Available SSH Targets (3)
 | Target | Host | Roles | TTL | Auto-approve |
 | web-server | TARGET_HOST:22 | read, operator, admin | 5m | yes |
@@ -879,7 +879,7 @@ Agent: claude | Roles: read, operator, admin | Max certs: 5 | Auto-approve: yes
 
 ---
 
-#### `clauth://targets` -- SSH Targets
+#### `ephyr://targets` -- SSH Targets
 
 Detailed information about each SSH target the agent can access.
 
@@ -903,7 +903,7 @@ Host: TARGET_HOST:22 | Roles: read, operator | TTL: 5m | Auto-approve: yes
 
 ---
 
-#### `clauth://services` -- HTTP Proxy Services
+#### `ephyr://services` -- HTTP Proxy Services
 
 Detailed information about each configured HTTP proxy service.
 
@@ -930,7 +930,7 @@ Credentials injected automatically -- never provide tokens or API keys.
 
 ---
 
-#### `clauth://roles` -- Roles & Permissions
+#### `ephyr://roles` -- Roles & Permissions
 
 Explains the role hierarchy and what each role can do.
 
@@ -956,7 +956,7 @@ Start with read, escalate to operator/admin only when needed.
 
 ---
 
-#### `clauth://status` -- Agent Status
+#### `ephyr://status` -- Agent Status
 
 Shows the authenticated agent's current state -- active certificates, open
 sessions, and recent activity. This resource is agent-specific: each agent
@@ -984,7 +984,7 @@ sees only its own data.
 
 ---
 
-#### `clauth://tools` -- Tools Reference
+#### `ephyr://tools` -- Tools Reference
 
 Quick-reference card for all 14 MCP tools. Designed for agents that want a
 compact cheat-sheet without reading full documentation.
@@ -1012,7 +1012,7 @@ compact cheat-sheet without reading full documentation.
 
 ---
 
-#### `clauth://remotes` -- Federated MCP Servers
+#### `ephyr://remotes` -- Federated MCP Servers
 
 Lists configured federated MCP servers, their connection status, and
 available tools.
@@ -1041,7 +1041,7 @@ Resources use two JSON-RPC methods:
 
 **`resources/list`** -- Returns the full catalog of available resources. Takes no
 parameters. The response includes each resource's URI, human-readable name,
-description, and MIME type. All Clauth resources return `text/markdown`.
+description, and MIME type. All Ephyr resources return `text/markdown`.
 
 **`resources/read`** -- Returns the content of a single resource. Takes one
 parameter: `uri` (string). The URI must match one of the URIs returned by
@@ -1051,7 +1051,7 @@ parameter: `uri` (string). The URI must match one of the URIs returned by
 
 - Unknown URI returns JSON-RPC error code `-32602` (invalid params) with
   message `"unknown resource URI"`.
-- Resources that depend on agent identity (like `clauth://status`) use the
+- Resources that depend on agent identity (like `ephyr://status`) use the
   same API key authentication as tool calls.
 
 **Caching:** Resource content is generated dynamically on each read from live
@@ -1065,22 +1065,22 @@ The recommended bootstrap sequence for a new agent connection:
 ```
 1. initialize          -- establish MCP session
 2. resources/list      -- discover available resources
-3. resources/read      -- read clauth://overview (understand the environment)
+3. resources/read      -- read ephyr://overview (understand the environment)
 4. tools/list          -- discover available tools
 5. tools/call          -- begin operations with full context
 ```
 
 This pattern is superior to starting with `tools/list` because the agent gains
 contextual understanding (what targets exist, what roles mean, what services are
-available) before it starts executing operations. The `clauth://overview` resource
+available) before it starts executing operations. The `ephyr://overview` resource
 is specifically designed to give an agent everything it needs in a single read.
 
 For deeper dives, the agent can read additional resources as needed:
 
-- Before SSH operations: read `clauth://targets` and `clauth://roles`
-- Before HTTP proxy operations: read `clauth://services`
-- To check current state: read `clauth://status`
-- For tool usage reminders: read `clauth://tools`
+- Before SSH operations: read `ephyr://targets` and `ephyr://roles`
+- Before HTTP proxy operations: read `ephyr://services`
+- To check current state: read `ephyr://status`
+- For tool usage reminders: read `ephyr://tools`
 
 ---
 
@@ -1255,18 +1255,18 @@ before performing any operations:
 
 // Step 2: Discover available resources
 {"method": "resources/list", "params": {}}
-// Returns: 7 resources with clauth:// URIs
+// Returns: 7 resources with ephyr:// URIs
 
 // Step 3: Read the system overview to understand what's available
-{"method": "resources/read", "params": {"uri": "clauth://overview"}}
+{"method": "resources/read", "params": {"uri": "ephyr://overview"}}
 // Returns: Markdown with targets, services, agent permissions, quick-start
 
 // Step 4: Read roles to understand permission model
-{"method": "resources/read", "params": {"uri": "clauth://roles"}}
+{"method": "resources/read", "params": {"uri": "ephyr://roles"}}
 // Returns: Markdown explaining read/operator/admin roles and when to use each
 
 // Step 5: Check current state (any leftover sessions from previous work?)
-{"method": "resources/read", "params": {"uri": "clauth://status"}}
+{"method": "resources/read", "params": {"uri": "ephyr://status"}}
 // Returns: Active certs, sessions, recent activity
 
 // Step 6: Now the agent has full context -- begin operations
@@ -1277,9 +1277,9 @@ before performing any operations:
 ```
 
 This workflow demonstrates the self-discovery pattern: the agent reads resources
-to build situational awareness before taking action. The `clauth://overview`
+to build situational awareness before taking action. The `ephyr://overview`
 resource alone provides enough context for most operations, but reading
-`clauth://roles` and `clauth://status` gives the agent a complete picture.
+`ephyr://roles` and `ephyr://status` gives the agent a complete picture.
 
 ---
 
@@ -1289,14 +1289,14 @@ resource alone provides enough context for most operations, but reading
 
 - API keys are stored as bcrypt hashes in `policy.yaml` -- plaintext keys are
   never stored in the policy file.
-- The test key file `/etc/clauth/mcp_api_key` should be removed in production.
+- The test key file `/etc/ephyr/mcp_api_key` should be removed in production.
 - Rotate API keys by generating a new hash and reloading the broker.
 
 ### Certificate Lifecycle
 
 - Ephemeral Ed25519 keypairs are generated in memory and never written to disk.
 - Certificates have a 5-minute TTL by default (configurable per target).
-- The CA key (`/etc/clauth/ca_key`) is only accessible to the signer process.
+- The CA key (`/etc/ephyr/ca_key`) is only accessible to the signer process.
 - Signer and broker communicate via Unix socket with strict file permissions.
 
 ### Network Security
@@ -1304,7 +1304,7 @@ resource alone provides enough context for most operations, but reading
 - MCP port 8554 is firewalled to `192.168.0.0/16` (local network only).
 - HTTP proxy enforces network policy: RFC 1918 and explicitly allowed domains.
 - External access (e.g., GitHub API) requires explicit domain allowlisting in
-  `/var/lib/clauth/network_policy.json`.
+  `/var/lib/ephyr/network_policy.json`.
 
 ### Role-Based Access Control
 
@@ -1316,7 +1316,7 @@ resource alone provides enough context for most operations, but reading
 
 ### Audit Trail
 
-- Every tool call and resource read is logged to `/var/log/clauth/audit.json`.
+- Every tool call and resource read is logged to `/var/log/ephyr/audit.json`.
 - Audit entries include: timestamp, agent name, tool/resource, parameters,
   target, role, result status, and duration.
 - Logs are rotated by logrotate (30-day retention).
@@ -1332,7 +1332,7 @@ resource alone provides enough context for most operations, but reading
 
 ### Credential Isolation
 
-- HTTP proxy credentials are stored in `/var/lib/clauth/services.json` (0600).
+- HTTP proxy credentials are stored in `/var/lib/ephyr/services.json` (0600).
 - Credentials are injected by the broker at proxy time -- agents never see them.
 - Credential values are redacted in all API responses, logs, and dashboard views.
 - The `list_services` tool returns only auth type, never credential values.
@@ -1345,26 +1345,26 @@ resource alone provides enough context for most operations, but reading
 
 ```bash
 # Check if broker is running
-systemctl status clauth-broker
+systemctl status ephyr-broker
 
 # Check if MCP is enabled and port is bound
 ss -tlnp | grep 8554
 
 # Check broker logs for startup errors
-journalctl -u clauth-broker -n 50
+journalctl -u ephyr-broker -n 50
 
 # Verify MCP is enabled in policy
-grep -A2 'mcp:' /etc/clauth/policy.yaml
+grep -A2 'mcp:' /etc/ephyr/policy.yaml
 ```
 
 ### 401 Unauthorized
 
 ```bash
 # Verify API key matches the hash in policy.yaml
-cat /etc/clauth/mcp_api_key
+cat /etc/ephyr/mcp_api_key
 
 # Re-hash and compare
-htpasswd -nbBC 10 "" "$(cat /etc/clauth/mcp_api_key)" | cut -d: -f2
+htpasswd -nbBC 10 "" "$(cat /etc/ephyr/mcp_api_key)" | cut -d: -f2
 
 # Check that Authorization header format is correct
 # Must be: "Bearer <key>" (with space, case-sensitive)
@@ -1412,21 +1412,21 @@ ls -la /etc/ssh/auth_principals/
 
 ```bash
 # Check signer is running
-systemctl status clauth-signer
+systemctl status ephyr-signer
 
 # Check socket exists and has correct permissions
-ls -la /run/clauth/signer.sock
+ls -la /run/ephyr/signer.sock
 
 # Restart both services (signer first!)
-systemctl restart clauth-signer
-systemctl restart clauth-broker
+systemctl restart ephyr-signer
+systemctl restart ephyr-broker
 ```
 
 ### High Latency on exec
 
 - Use sessions for repeated commands (14ms vs 850ms).
 - Check target host SSH server load.
-- Verify signer socket is on tmpfs (should be `/run/clauth/`).
+- Verify signer socket is on tmpfs (should be `/run/ephyr/`).
 - Check for DNS resolution delays (use IPs in host config).
 
 ### Dashboard Shows Stale Data
@@ -1437,7 +1437,7 @@ curl -s http://BROKER_HOST:8553/v1/dashboard/activity/summary \
   -H "Authorization: Bearer YOUR_DASHBOARD_TOKEN"
 
 # Restart broker if needed
-systemctl restart clauth-signer && systemctl restart clauth-broker
+systemctl restart ephyr-signer && systemctl restart ephyr-broker
 ```
 
 ---
@@ -1560,7 +1560,7 @@ all active tasks for the agent (same as `task_list`).
     "content": [
       {
         "type": "text",
-        "text": "{"task":{"id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","agent_name":"claude","description":"Investigate unhealthy n8n container on dockerhost","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","root_id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","parent_id":"","depth":0,"lineage":["01JQXYZ1A2B3C4D5E6F7G8H9JK"],"initiated_by":"clauth:apikey:ak_claude","envelope":{"targets":["dockerhost"],"roles":["operator"],"services":[],"remotes":[],"methods":[]}},"remaining_ttl":"12m30s","is_revoked":false}"
+        "text": "{"task":{"id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","agent_name":"claude","description":"Investigate unhealthy n8n container on dockerhost","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","root_id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","parent_id":"","depth":0,"lineage":["01JQXYZ1A2B3C4D5E6F7G8H9JK"],"initiated_by":"ephyr:apikey:ak_claude","envelope":{"targets":["dockerhost"],"roles":["operator"],"services":[],"remotes":[],"methods":[]}},"remaining_ttl":"12m30s","is_revoked":false}"
       }
     ]
   }
@@ -1676,7 +1676,7 @@ The broker caches successful API key authentication results to avoid repeated
 bcrypt comparisons on every MCP request. Cache behavior:
 
 - **Cache key:** SHA-256 fingerprint of the API key (the raw key is never stored)
-- **Default TTL:** 60 seconds (configurable via `CLAUTH_AUTH_CACHE_TTL`)
+- **Default TTL:** 60 seconds (configurable via `EPHYR_AUTH_CACHE_TTL`)
 - **Invalidation:** Cache is automatically cleared when agents are added or removed
 
 **Measured latency (cold vs warm):**
@@ -1692,7 +1692,7 @@ sequences of tool calls (e.g., session-based workflows with multiple `exec`
 calls).
 
 To disable the cache (e.g., in environments where immediate key revocation is
-required), set `CLAUTH_AUTH_CACHE_TTL=0`.
+required), set `EPHYR_AUTH_CACHE_TTL=0`.
 
 ### SSH Execution: Sessions vs One-Shot
 

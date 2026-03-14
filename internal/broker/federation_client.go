@@ -67,7 +67,7 @@ func (f *MCPFederator) discoverRemote(state *RemoteMCPState) error {
 		"protocolVersion": "2025-03-26",
 		"capabilities":    map[string]interface{}{},
 		"clientInfo": map[string]string{
-			"name":    "clauth-federator",
+			"name":    "ephyr-federator",
 			"version": "1.0.0",
 		},
 	}

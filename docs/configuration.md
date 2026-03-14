@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Complete reference for all Clauth configuration options, covering the policy
+Complete reference for all Ephyr configuration options, covering the policy
 file, environment variables, CLI flags, target provisioning, service proxy
 configuration, and network policy.
 
@@ -11,15 +11,15 @@ configuration, and network policy.
 The policy file is the central configuration that controls which agents exist,
 what roles are available, which targets can be accessed, and what limits apply.
 It is loaded at startup and can be hot-reloaded by sending SIGHUP to the
-broker process (or running `systemctl reload clauth-broker`).
+broker process (or running `systemctl reload ephyr-broker`).
 
-Default path: `/etc/clauth/policy.yaml`
+Default path: `/etc/ephyr/policy.yaml`
 
 ### Full Annotated Example
 
 ```yaml
-# Clauth Policy -- full reference example
-# Hot-reload: send SIGHUP to the broker, or systemctl reload clauth-broker
+# Ephyr Policy -- full reference example
+# Hot-reload: send SIGHUP to the broker, or systemctl reload ephyr-broker
 
 global:
   max_active_certs: 10      # Maximum certificates active across ALL agents
@@ -156,7 +156,7 @@ consuming its max_concurrent_certs limit with stale certificates.
 
 ## RBAC (Per-Agent Permissions)
 
-Clauth supports fine-grained, per-agent access control across SSH targets,
+Ephyr supports fine-grained, per-agent access control across SSH targets,
 HTTP proxy services, MCP federation, and the dashboard. Permissions are defined
 in `policy.yaml` using a template inheritance model.
 
@@ -387,29 +387,29 @@ In this example:
 All environment variables have corresponding CLI flags. The flag takes
 precedence if both are set.
 
-### Broker (clauth-broker)
+### Broker (ephyr-broker)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| CLAUTH_POLICY | /etc/clauth/policy.yaml | Path to the policy YAML file. |
-| CLAUTH_SIGNER_SOCKET | /run/clauth/signer.sock | Path to the signer's IPC Unix socket. |
-| CLAUTH_LISTEN | /run/clauth/broker.sock | Path for the broker's own Unix socket (agent API). |
-| CLAUTH_AUDIT_LOG | /var/log/clauth/audit.json | Path to the append-only JSON audit log file. |
-| CLAUTH_ADMIN_UIDS | 0 | Comma-separated list of UIDs allowed to perform admin operations (e.g., host toggle). Default is root only. |
-| CLAUTH_DASHBOARD_LISTEN | :8553 | TCP bind address for the web dashboard. Set to empty to disable. |
-| CLAUTH_DASHBOARD_TOKEN | (auto-generated) | Bearer token for dashboard API authentication. If empty, a random 48-hex-char token is generated at startup and logged (first 4 and last 4 chars only). |
-| CLAUTH_DASHBOARD_DIR | /opt/clauth/dashboard | Directory containing static dashboard files (index.html, etc.). |
-| CLAUTH_MCP_LISTEN | :8554 | TCP bind address for the MCP JSON-RPC endpoint. Set to empty to disable. |
-| CLAUTH_SOCKET_GROUP | clauth-agents | Unix group name for the broker socket. The socket is chown'd to this group with 0660 permissions so group members can connect. |
-| CLAUTH_AUTH_CACHE_TTL | 60s | TTL for the MCP API key authentication cache. Accepts Go duration strings (e.g., `"30s"`, `"2m"`, `"0"`). Set to `"0"` to disable caching entirely -- every MCP request will perform a full bcrypt comparison. The cache avoids repeated bcrypt work for the same API key within the TTL window. |
+| EPHYR_POLICY | /etc/ephyr/policy.yaml | Path to the policy YAML file. |
+| EPHYR_SIGNER_SOCKET | /run/ephyr/signer.sock | Path to the signer's IPC Unix socket. |
+| EPHYR_LISTEN | /run/ephyr/broker.sock | Path for the broker's own Unix socket (agent API). |
+| EPHYR_AUDIT_LOG | /var/log/ephyr/audit.json | Path to the append-only JSON audit log file. |
+| EPHYR_ADMIN_UIDS | 0 | Comma-separated list of UIDs allowed to perform admin operations (e.g., host toggle). Default is root only. |
+| EPHYR_DASHBOARD_LISTEN | :8553 | TCP bind address for the web dashboard. Set to empty to disable. |
+| EPHYR_DASHBOARD_TOKEN | (auto-generated) | Bearer token for dashboard API authentication. If empty, a random 48-hex-char token is generated at startup and logged (first 4 and last 4 chars only). |
+| EPHYR_DASHBOARD_DIR | /opt/ephyr/dashboard | Directory containing static dashboard files (index.html, etc.). |
+| EPHYR_MCP_LISTEN | :8554 | TCP bind address for the MCP JSON-RPC endpoint. Set to empty to disable. |
+| EPHYR_SOCKET_GROUP | ephyr-agents | Unix group name for the broker socket. The socket is chown'd to this group with 0660 permissions so group members can connect. |
+| EPHYR_AUTH_CACHE_TTL | 60s | TTL for the MCP API key authentication cache. Accepts Go duration strings (e.g., `"30s"`, `"2m"`, `"0"`). Set to `"0"` to disable caching entirely -- every MCP request will perform a full bcrypt comparison. The cache avoids repeated bcrypt work for the same API key within the TTL window. |
 
-### Signer (clauth-signer)
+### Signer (ephyr-signer)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| CLAUTH_CA_KEY | /etc/clauth/ca_key | Path to the Ed25519 CA private key file. |
-| CLAUTH_SOCKET | /run/clauth/signer.sock | Unix socket path for the signer's IPC listener. |
-| CLAUTH_BROKER_UID | -1 (any) | UID allowed to connect to the signer socket. Set to the clauth-broker user's UID (e.g., 999) to restrict access. -1 allows any caller. |
+| EPHYR_CA_KEY | /etc/ephyr/ca_key | Path to the Ed25519 CA private key file. |
+| EPHYR_SOCKET | /run/ephyr/signer.sock | Unix socket path for the signer's IPC listener. |
+| EPHYR_BROKER_UID | -1 (any) | UID allowed to connect to the signer socket. Set to the ephyr-broker user's UID (e.g., 999) to restrict access. -1 allows any caller. |
 
 ### BrokerConfig Struct Reference
 
@@ -418,7 +418,7 @@ environment variables above. The `AuthCacheTTL` field controls the auth cache:
 
 | Field | Type | Env Variable | Default | Description |
 |-------|------|-------------|---------|-------------|
-| `AuthCacheTTL` | `time.Duration` | `CLAUTH_AUTH_CACHE_TTL` | 60s | TTL for cached MCP authentication results. Set to 0 to disable. When set to a negative sentinel value (-1), caching is explicitly disabled. |
+| `AuthCacheTTL` | `time.Duration` | `EPHYR_AUTH_CACHE_TTL` | 60s | TTL for cached MCP authentication results. Set to 0 to disable. When set to a negative sentinel value (-1), caching is explicitly disabled. |
 
 The cache uses SHA-256 fingerprints of API keys as cache keys (the raw key is
 never stored in the cache). Cache entries are automatically invalidated when
@@ -428,43 +428,43 @@ agents are added or removed from the policy.
 
 ## CLI Flags
 
-### clauth-broker
+### ephyr-broker
 
 ```
-  -policy PATH             Policy YAML file (env: CLAUTH_POLICY)
-  -signer-socket PATH      Signer IPC socket (env: CLAUTH_SIGNER_SOCKET)
-  -listen PATH             Broker API socket (env: CLAUTH_LISTEN)
-  -audit-log PATH          Audit log file (env: CLAUTH_AUDIT_LOG)
-  -admin-uid UID           Admin UID, repeatable (env: CLAUTH_ADMIN_UIDS)
-  -dashboard-listen ADDR   Dashboard TCP address (env: CLAUTH_DASHBOARD_LISTEN)
-  -dashboard-token TOKEN   Dashboard API token (env: CLAUTH_DASHBOARD_TOKEN)
-  -dashboard-dir DIR       Dashboard static files (env: CLAUTH_DASHBOARD_DIR)
-  -mcp-listen ADDR         MCP TCP address (env: CLAUTH_MCP_LISTEN)
-  -socket-group GROUP      Socket group name (env: CLAUTH_SOCKET_GROUP)
-  -auth-cache-ttl DUR      Auth cache TTL (env: CLAUTH_AUTH_CACHE_TTL, default 60s, 0 disables)
+  -policy PATH             Policy YAML file (env: EPHYR_POLICY)
+  -signer-socket PATH      Signer IPC socket (env: EPHYR_SIGNER_SOCKET)
+  -listen PATH             Broker API socket (env: EPHYR_LISTEN)
+  -audit-log PATH          Audit log file (env: EPHYR_AUDIT_LOG)
+  -admin-uid UID           Admin UID, repeatable (env: EPHYR_ADMIN_UIDS)
+  -dashboard-listen ADDR   Dashboard TCP address (env: EPHYR_DASHBOARD_LISTEN)
+  -dashboard-token TOKEN   Dashboard API token (env: EPHYR_DASHBOARD_TOKEN)
+  -dashboard-dir DIR       Dashboard static files (env: EPHYR_DASHBOARD_DIR)
+  -mcp-listen ADDR         MCP TCP address (env: EPHYR_MCP_LISTEN)
+  -socket-group GROUP      Socket group name (env: EPHYR_SOCKET_GROUP)
+  -auth-cache-ttl DUR      Auth cache TTL (env: EPHYR_AUTH_CACHE_TTL, default 60s, 0 disables)
   -version                 Print version and exit
 ```
 
 The -admin-uid flag can be repeated to allow multiple admin UIDs:
 ```bash
-clauth-broker -admin-uid 0 -admin-uid 1000
+ephyr-broker -admin-uid 0 -admin-uid 1000
 ```
 
-### clauth-signer
+### ephyr-signer
 
 ```
-  -ca-key PATH             CA private key file (env: CLAUTH_CA_KEY)
-  -socket PATH             IPC Unix socket (env: CLAUTH_SOCKET)
-  -broker-uid UID          Allowed caller UID (env: CLAUTH_BROKER_UID)
+  -ca-key PATH             CA private key file (env: EPHYR_CA_KEY)
+  -socket PATH             IPC Unix socket (env: EPHYR_SOCKET)
+  -broker-uid UID          Allowed caller UID (env: EPHYR_BROKER_UID)
 ```
 
-### clauth (Agent CLI)
+### ephyr (Agent CLI)
 
 All subcommands accept these global flags:
 
 ```
-  --socket PATH            Broker socket (default: /run/clauth/broker.sock)
-  --config-dir DIR         Config directory (default: ~/.clauth)
+  --socket PATH            Broker socket (default: /run/ephyr/broker.sock)
+  --config-dir DIR         Config directory (default: ~/.ephyr)
 ```
 
 Subcommand-specific flags:
@@ -483,7 +483,7 @@ Subcommand-specific flags:
 
 **exec** additionally requires -- followed by the remote command:
 ```bash
-clauth exec -t myhost -r operator -- systemctl status nginx
+ephyr exec -t myhost -r operator -- systemctl status nginx
 ```
 
 **status:** No additional flags. Lists active certificates with TTL remaining.
@@ -497,15 +497,15 @@ clauth exec -t myhost -r operator -- systemctl status nginx
 ## Target Host Provisioning
 
 Each SSH target must be configured to accept certificates signed by the
-Clauth CA. This involves five components.
+Ephyr CA. This involves five components.
 
 ### 1. CA Public Key
 
 Copy the CA public key to the target host:
 
 ```bash
-# On the Clauth broker host:
-scp /etc/clauth/ca_key.pub root@target:/etc/ssh/clauth_ca.pub
+# On the Ephyr broker host:
+scp /etc/ephyr/ca_key.pub root@target:/etc/ssh/ephyr_ca.pub
 ```
 
 ### 2. sshd_config
@@ -513,7 +513,7 @@ scp /etc/clauth/ca_key.pub root@target:/etc/ssh/clauth_ca.pub
 Add these directives to /etc/ssh/sshd_config on the target:
 
 ```
-TrustedUserCAKeys /etc/ssh/clauth_ca.pub
+TrustedUserCAKeys /etc/ssh/ephyr_ca.pub
 AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
 ```
 
@@ -562,21 +562,21 @@ the target user.
 Configure sudo access per role as needed:
 
 ```bash
-# /etc/sudoers.d/clauth-agent-op
+# /etc/sudoers.d/ephyr-agent-op
 agent-op ALL=(ALL) NOPASSWD: /usr/bin/systemctl status *, \
                              /usr/bin/systemctl restart *, \
                              /usr/bin/docker ps, \
                              /usr/bin/docker logs *
 
-# /etc/sudoers.d/clauth-agent-admin
+# /etc/sudoers.d/ephyr-agent-admin
 agent-admin ALL=(ALL) NOPASSWD: ALL
 ```
 
 Lock sudoers files with chattr to prevent modification:
 
 ```bash
-chmod 440 /etc/sudoers.d/clauth-agent-*
-chattr +i /etc/sudoers.d/clauth-agent-*
+chmod 440 /etc/sudoers.d/ephyr-agent-*
+chattr +i /etc/sudoers.d/ephyr-agent-*
 ```
 
 After all changes, restart sshd:
@@ -591,7 +591,7 @@ systemctl restart sshd
 
 The HTTP proxy subsystem allows MCP agents to make authenticated HTTP requests
 to internal and external services. Service configurations are stored in
-/var/lib/clauth/services.json and can be managed via the dashboard API or
+/var/lib/ephyr/services.json and can be managed via the dashboard API or
 directly in the file.
 
 ### File Format
@@ -768,7 +768,7 @@ Allow specific external APIs:
 ## Host Configuration (hosts.json)
 
 The broker maintains a persistent host configuration file at
-/var/lib/clauth/hosts.json for dashboard-managed settings that go beyond
+/var/lib/ephyr/hosts.json for dashboard-managed settings that go beyond
 the policy file (SSH credentials for terminal, OS info, display settings).
 
 On startup, any targets defined in policy.yaml that do not have an existing
@@ -822,7 +822,7 @@ empty string. Boolean fields are always applied (can toggle off).
 ## MCP Tools Reference
 
 The MCP endpoint exposes these tools via JSON-RPC 2.0 at POST /mcp on the
-TCP address configured by CLAUTH_MCP_LISTEN (default :8554):
+TCP address configured by EPHYR_MCP_LISTEN (default :8554):
 
 | Tool | Description | Required Args |
 |------|-------------|---------------|
@@ -850,7 +850,7 @@ agent api_key_hash fields.
 
 ## Dashboard API Endpoints
 
-All dashboard endpoints require a Bearer token (set via CLAUTH_DASHBOARD_TOKEN).
+All dashboard endpoints require a Bearer token (set via EPHYR_DASHBOARD_TOKEN).
 Static files (/ and /static/*) are served without authentication.
 
 ### Core

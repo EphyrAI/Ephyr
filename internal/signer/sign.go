@@ -51,8 +51,8 @@ func Sign(ca *CA, p SignParams) (*SignResult, error) {
 	validAfter := now.Add(-30 * time.Second)  // clock skew grace
 	validBefore := now.Add(p.Duration)
 
-	// Build Key ID: clauth:{agent}@{target}:{serial_hex}
-	keyID := fmt.Sprintf("clauth:%s:%016x", p.KeyID, serial)
+	// Build Key ID: ephyr:{agent}@{target}:{serial_hex}
+	keyID := fmt.Sprintf("ephyr:%s:%016x", p.KeyID, serial)
 
 	// Standard extensions for interactive sessions.
 	extensions := map[string]string{

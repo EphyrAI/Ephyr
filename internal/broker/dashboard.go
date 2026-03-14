@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"crypto/subtle"
-	"github.com/sprawl/clauth/internal/audit"
+	"github.com/ben-spanswick/ephyr/internal/audit"
 )
 
 // dashboardAuth returns middleware that validates a dashboard API token.

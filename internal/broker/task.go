@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sprawl/clauth/internal/policy"
-	"github.com/sprawl/clauth/internal/token"
+	"github.com/ben-spanswick/ephyr/internal/policy"
+	"github.com/ben-spanswick/ephyr/internal/token"
 )
 
 // Task represents an active agent task run with scoped identity.
@@ -19,7 +19,7 @@ type Task struct {
 	Description string       `json:"description"`
 	Depth       int          `json:"depth"`        // 0 = root
 	Lineage     []string     `json:"lineage"`      // [root, ..., self]
-	InitiatedBy string       `json:"initiated_by"` // "clauth:local:uid:1000" etc.
+	InitiatedBy string       `json:"initiated_by"` // "ephyr:local:uid:1000" etc.
 	CreatedAt   time.Time    `json:"created_at"`
 	ExpiresAt   time.Time    `json:"expires_at"`
 	Envelope    TaskEnvelope `json:"envelope"`

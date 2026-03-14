@@ -1,17 +1,17 @@
-# Clauth API Reference
+# Ephyr API Reference
 
-Complete reference for all Clauth broker API endpoints across the Unix socket,
+Complete reference for all Ephyr broker API endpoints across the Unix socket,
 Dashboard TCP, MCP, and WebSocket interfaces.
 
 ---
 
 ## Authentication
 
-Clauth exposes three distinct listeners, each with its own authentication scheme:
+Ephyr exposes three distinct listeners, each with its own authentication scheme:
 
 | Interface | Transport | Default Address | Auth Method |
 |-----------|-----------|-----------------|-------------|
-| Unix Socket API | Unix domain socket | `/run/clauth/broker.sock` | Peer credential (UID) + session token |
+| Unix Socket API | Unix domain socket | `/run/ephyr/broker.sock` | Peer credential (UID) + session token |
 | Dashboard API | TCP | `:8553` | Dashboard token via `Authorization: Bearer {token}` |
 | MCP API | TCP | `:8554` | API key via `Authorization: Bearer {api-key}` (bcrypt-verified) |
 
@@ -19,7 +19,7 @@ Clauth exposes three distinct listeners, each with its own authentication scheme
 caller UID from SO_PEERCRED automatically. Most endpoints additionally require a
 session token passed via `Authorization: Bearer {token}` or `X-Session-Token: {token}`.
 
-**Dashboard API** -- The dashboard token is configured via the CLAUTH_DASHBOARD_TOKEN
+**Dashboard API** -- The dashboard token is configured via the EPHYR_DASHBOARD_TOKEN
 environment variable in the broker systemd unit. All `/v1/dashboard/*` and `/v1/events`
 endpoints require this token. Static file requests (`/` and `/static/*`) are exempt.
 Token comparison uses `crypto/subtle.ConstantTimeCompare` to prevent timing attacks.
@@ -60,12 +60,12 @@ All API errors return a JSON object with an `error` field:
 
 ## Unix Socket API
 
-Default socket path: `/run/clauth/broker.sock` (permissions 0660, group `clauth-agents`)
+Default socket path: `/run/ephyr/broker.sock` (permissions 0660, group `ephyr-agents`)
 
 All curl examples use `--unix-socket` to connect:
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock http://localhost/v1/...
+curl --unix-socket /run/ephyr/broker.sock http://localhost/v1/...
 ```
 
 ---
@@ -97,7 +97,7 @@ Health check endpoint. **No authentication required.**
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock http://localhost/v1/health
+curl --unix-socket /run/ephyr/broker.sock http://localhost/v1/health
 ```
 
 ---
@@ -143,7 +143,7 @@ in the request body.
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock \
+curl --unix-socket /run/ephyr/broker.sock \
   -X POST http://localhost/v1/session
 ```
 
@@ -180,7 +180,7 @@ The `token` field is masked: first 8 characters + `...` + last 8 characters.
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock \
+curl --unix-socket /run/ephyr/broker.sock \
   -H "Authorization: Bearer $TOKEN" \
   http://localhost/v1/session
 ```
@@ -263,7 +263,7 @@ host access controller, and returns one of three outcomes:
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock \
+curl --unix-socket /run/ephyr/broker.sock \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -302,7 +302,7 @@ Returns an empty array `[]` (never null) when no certs are active.
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock http://localhost/v1/certs
+curl --unix-socket /run/ephyr/broker.sock http://localhost/v1/certs
 ```
 
 ---
@@ -333,7 +333,7 @@ from the policy engine tracking (frees a concurrent cert slot).
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock \
+curl --unix-socket /run/ephyr/broker.sock \
   -X DELETE http://localhost/v1/certs/a1b2c3d4
 ```
 
@@ -365,7 +365,7 @@ is handled by the dashboard token middleware.
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock \
+curl --unix-socket /run/ephyr/broker.sock \
   -H "Authorization: Bearer $TOKEN" \
   http://localhost/v1/targets
 ```
@@ -392,7 +392,7 @@ with the additional `request_id` field.
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock \
+curl --unix-socket /run/ephyr/broker.sock \
   -X POST http://localhost/v1/approve/req-abc123
 ```
 
@@ -424,7 +424,7 @@ the pending queue without issuing a certificate.
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock \
+curl --unix-socket /run/ephyr/broker.sock \
   -X POST http://localhost/v1/deny/req-abc123
 ```
 
@@ -457,7 +457,7 @@ HostController (defaults to enabled on startup).
 **Example:**
 
 ```bash
-curl --unix-socket /run/clauth/broker.sock \
+curl --unix-socket /run/ephyr/broker.sock \
   -X POST http://localhost/v1/admin/hosts/webserver/toggle
 ```
 
@@ -481,7 +481,7 @@ Overview statistics for the dashboard home view.
 
 ```json
 {
-  "hostname": "Clauth",
+  "hostname": "Ephyr",
   "ip": "BROKER_HOST",
   "uptime": "4h 32m",
   "broker_status": "healthy",
@@ -564,7 +564,7 @@ List active certificate sessions with real-time TTL countdown.
 
 ### GET /v1/dashboard/audit
 
-Recent entries from the on-disk audit log (`/var/log/clauth/audit.json`).
+Recent entries from the on-disk audit log (`/var/log/ephyr/audit.json`).
 
 **Query parameters:**
 
@@ -703,7 +703,7 @@ only non-zero fields are applied. New configs are created with all provided fiel
 Validation: host must be valid IP or hostname, port 1-65535, VLAN 1-4094,
 TTL values must be valid Go durations.
 
-Persisted atomically to `/var/lib/clauth/hosts.json` (0600).
+Persisted atomically to `/var/lib/ephyr/hosts.json` (0600).
 
 ---
 
@@ -789,7 +789,7 @@ Create or update an HTTP proxy service configuration.
 | `description` | string | No | Human-readable description |
 | `headers` | object | No | Extra headers injected into every request |
 
-Persisted atomically to `/var/lib/clauth/services.json`.
+Persisted atomically to `/var/lib/ephyr/services.json`.
 
 ---
 
@@ -904,7 +904,7 @@ curl -s -X POST http://BROKER:8554/mcp \
   "id": 1,
   "result": {
     "protocolVersion": "2025-03-26",
-    "serverInfo": {"name": "clauth", "version": "1.0.0"},
+    "serverInfo": {"name": "ephyr", "version": "1.0.0"},
     "capabilities": {
       "tools": {"listChanged": false},
       "resources": {"listChanged": false}
@@ -930,12 +930,12 @@ curl -s -X POST http://BROKER:8554/mcp \
   "id": 2,
   "result": {
     "resources": [
-      {"uri": "clauth://overview", "name": "System Overview", "description": "High-level summary of Clauth broker capabilities, available targets, services, and your agent permissions", "mimeType": "text/markdown"},
-      {"uri": "clauth://targets", "name": "SSH Targets", "description": "Available SSH targets with hosts, ports, allowed roles, TTLs, and auto-approve status", "mimeType": "text/markdown"},
-      {"uri": "clauth://services", "name": "HTTP Proxy Services", "description": "Configured web services accessible through the authenticated HTTP proxy with credential injection", "mimeType": "text/markdown"},
-      {"uri": "clauth://roles", "name": "Roles & Permissions", "description": "Available roles, their SSH principals, and what each role can do on targets", "mimeType": "text/markdown"},
-      {"uri": "clauth://status", "name": "Agent Status", "description": "Your current active certificates, sessions, and recent activity", "mimeType": "text/markdown"},
-      {"uri": "clauth://tools", "name": "Tools Reference", "description": "Quick reference for all available MCP tools with parameters and usage examples", "mimeType": "text/markdown"}
+      {"uri": "ephyr://overview", "name": "System Overview", "description": "High-level summary of Ephyr broker capabilities, available targets, services, and your agent permissions", "mimeType": "text/markdown"},
+      {"uri": "ephyr://targets", "name": "SSH Targets", "description": "Available SSH targets with hosts, ports, allowed roles, TTLs, and auto-approve status", "mimeType": "text/markdown"},
+      {"uri": "ephyr://services", "name": "HTTP Proxy Services", "description": "Configured web services accessible through the authenticated HTTP proxy with credential injection", "mimeType": "text/markdown"},
+      {"uri": "ephyr://roles", "name": "Roles & Permissions", "description": "Available roles, their SSH principals, and what each role can do on targets", "mimeType": "text/markdown"},
+      {"uri": "ephyr://status", "name": "Agent Status", "description": "Your current active certificates, sessions, and recent activity", "mimeType": "text/markdown"},
+      {"uri": "ephyr://tools", "name": "Tools Reference", "description": "Quick reference for all available MCP tools with parameters and usage examples", "mimeType": "text/markdown"}
     ]
   }
 }
@@ -951,7 +951,7 @@ curl -s -X POST http://BROKER:8554/mcp \
     "jsonrpc": "2.0",
     "id": 3,
     "method": "resources/read",
-    "params": {"uri": "clauth://overview"}
+    "params": {"uri": "ephyr://overview"}
   }'
 ```
 
@@ -964,9 +964,9 @@ curl -s -X POST http://BROKER:8554/mcp \
   "result": {
     "contents": [
       {
-        "uri": "clauth://overview",
+        "uri": "ephyr://overview",
         "mimeType": "text/markdown",
-        "text": "# Clauth Agent Access Broker\n\nZero-trust infrastructure access for AI agents..."
+        "text": "# Ephyr Agent Access Broker\n\nZero-trust infrastructure access for AI agents..."
       }
     ]
   }
@@ -991,13 +991,13 @@ curl -s -X POST http://BROKER:8554/mcp \
 
 | URI | Name | Content |
 |-----|------|---------|
-| `clauth://overview` | System Overview | Broker summary, target table, service table, tools table, quick start guide |
-| `clauth://targets` | SSH Targets | Per-target details: host, port, VLAN, roles, TTL, approval mode, usage examples |
-| `clauth://services` | HTTP Proxy Services | Per-service details: URL prefix, auth type, allowed methods/paths, usage examples |
-| `clauth://roles` | Roles & Permissions | Role-to-principal mappings, per-role capabilities, role selection guide |
-| `clauth://status` | Agent Status | Agent's active certs (count), active sessions (list), last 10 activity entries |
-| `clauth://tools` | Tools Reference | All 14 tools with parameters, return types, and usage hints |
-| `clauth://remotes` | Federated Servers | Configured MCP federation servers, status, and available tools |
+| `ephyr://overview` | System Overview | Broker summary, target table, service table, tools table, quick start guide |
+| `ephyr://targets` | SSH Targets | Per-target details: host, port, VLAN, roles, TTL, approval mode, usage examples |
+| `ephyr://services` | HTTP Proxy Services | Per-service details: URL prefix, auth type, allowed methods/paths, usage examples |
+| `ephyr://roles` | Roles & Permissions | Role-to-principal mappings, per-role capabilities, role selection guide |
+| `ephyr://status` | Agent Status | Agent's active certs (count), active sessions (list), last 10 activity entries |
+| `ephyr://tools` | Tools Reference | All 14 tools with parameters, return types, and usage hints |
+| `ephyr://remotes` | Federated Servers | Configured MCP federation servers, status, and available tools |
 
 Resources return dynamically generated Markdown content reflecting the current policy
 configuration and live broker state. The `status` resource is personalized to the
@@ -1134,7 +1134,7 @@ remaining TTL. If `task_id` is omitted, lists all active tasks for the agent
     "content": [
       {
         "type": "text",
-        "text": "{"task":{"id":"01JQXYZ...","agent_name":"claude","description":"Deploy updated config to web-server","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","root_id":"01JQXYZ...","parent_id":"","depth":0,"lineage":["01JQXYZ..."],"initiated_by":"clauth:apikey:ak_claude","envelope":{"targets":["web-server"],"roles":["operator"],"services":[],"remotes":[],"methods":[]}},"remaining_ttl":"12m30s","is_revoked":false}"
+        "text": "{"task":{"id":"01JQXYZ...","agent_name":"claude","description":"Deploy updated config to web-server","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","root_id":"01JQXYZ...","parent_id":"","depth":0,"lineage":["01JQXYZ..."],"initiated_by":"ephyr:apikey:ak_claude","envelope":{"targets":["web-server"],"roles":["operator"],"services":[],"remotes":[],"methods":[]}},"remaining_ttl":"12m30s","is_revoked":false}"
       }
     ]
   }
@@ -1294,8 +1294,8 @@ No authentication required (intended for Prometheus scraping).
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `clauth_auth_cache_hits_total` | counter | Number of MCP authentication requests served from cache (bcrypt bypassed) |
-| `clauth_auth_cache_misses_total` | counter | Number of MCP authentication requests requiring full bcrypt comparison |
+| `ephyr_auth_cache_hits_total` | counter | Number of MCP authentication requests served from cache (bcrypt bypassed) |
+| `ephyr_auth_cache_misses_total` | counter | Number of MCP authentication requests requiring full bcrypt comparison |
 
 These counters allow monitoring the cache hit rate. A consistently low hit rate
 may indicate the cache TTL is too short or agents are rotating API keys

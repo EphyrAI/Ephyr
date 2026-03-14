@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sprawl/clauth/internal/audit"
-	"github.com/sprawl/clauth/internal/policy"
-	"github.com/sprawl/clauth/internal/token"
+	"github.com/ben-spanswick/ephyr/internal/audit"
+	"github.com/ben-spanswick/ephyr/internal/policy"
+	"github.com/ben-spanswick/ephyr/internal/token"
 )
 
 // MCPServer wraps the broker and provides MCP protocol handling via
@@ -316,7 +316,7 @@ func (s *MCPServer) handleInitialize(w http.ResponseWriter, req jsonRPCRequest) 
 			},
 		},
 		ServerInfo: MCPServerInfo{
-			Name:    "clauth",
+			Name:    "ephyr",
 			Version: "1.0.0",
 		},
 	}

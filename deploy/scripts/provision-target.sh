@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# provision-target.sh — Configure a Debian/Ubuntu host to accept Clauth SSH certificates.
+# provision-target.sh — Configure a Debian/Ubuntu host to accept Ephyr SSH certificates.
 #
 # Usage:
 #   ./provision-target.sh /path/to/ca.pub
@@ -12,9 +12,9 @@
 set -euo pipefail
 
 readonly SSHD_CONFIG="/etc/ssh/sshd_config"
-readonly CA_PUB_DEST="/etc/ssh/clauth_ca.pub"
+readonly CA_PUB_DEST="/etc/ssh/ephyr_ca.pub"
 readonly PRINCIPALS_DIR="/etc/ssh/auth_principals"
-readonly SUDOERS_FILE="/etc/sudoers.d/clauth"
+readonly SUDOERS_FILE="/etc/sudoers.d/ephyr"
 readonly SCRIPT_NAME="$(basename "$0")"
 
 # Color output helpers.
@@ -67,19 +67,19 @@ ok "CA public key installed."
 info "Configuring sshd..."
 
 # Backup sshd_config if not already backed up by us.
-if [[ ! -f "${SSHD_CONFIG}.clauth-backup" ]]; then
-    cp "$SSHD_CONFIG" "${SSHD_CONFIG}.clauth-backup"
-    info "Backed up sshd_config to ${SSHD_CONFIG}.clauth-backup"
+if [[ ! -f "${SSHD_CONFIG}.ephyr-backup" ]]; then
+    cp "$SSHD_CONFIG" "${SSHD_CONFIG}.ephyr-backup"
+    info "Backed up sshd_config to ${SSHD_CONFIG}.ephyr-backup"
 fi
 
 # Add TrustedUserCAKeys (idempotent).
-if grep -q "^TrustedUserCAKeys.*clauth_ca.pub" "$SSHD_CONFIG" 2>/dev/null; then
+if grep -q "^TrustedUserCAKeys.*ephyr_ca.pub" "$SSHD_CONFIG" 2>/dev/null; then
     info "TrustedUserCAKeys already configured."
 else
     # Remove any commented-out version first.
-    sed -i '/^#.*TrustedUserCAKeys.*clauth_ca.pub/d' "$SSHD_CONFIG"
+    sed -i '/^#.*TrustedUserCAKeys.*ephyr_ca.pub/d' "$SSHD_CONFIG"
     echo "" >> "$SSHD_CONFIG"
-    echo "# Clauth SSH Certificate Authentication" >> "$SSHD_CONFIG"
+    echo "# Ephyr SSH Certificate Authentication" >> "$SSHD_CONFIG"
     echo "TrustedUserCAKeys $CA_PUB_DEST" >> "$SSHD_CONFIG"
     ok "Added TrustedUserCAKeys to sshd_config."
 fi
@@ -98,7 +98,7 @@ if sshd -t 2>/dev/null; then
     ok "sshd configuration is valid."
 else
     warn "sshd -t failed. Restoring backup and aborting."
-    cp "${SSHD_CONFIG}.clauth-backup" "$SSHD_CONFIG"
+    cp "${SSHD_CONFIG}.ephyr-backup" "$SSHD_CONFIG"
     fail "sshd configuration validation failed. Original config restored."
 fi
 
@@ -143,7 +143,7 @@ create_role_account() {
             --create-home \
             --shell "$actual_shell" \
             --system \
-            --comment "Clauth $username role" \
+            --comment "Ephyr $username role" \
             "$username"
         ok "Created user $username."
     fi
@@ -178,73 +178,73 @@ if [[ -f "$SUDOERS_FILE" ]]; then
 fi
 
 cat > "$SUDOERS_FILE" << 'SUDOERSEOF'
-# Clauth role-based sudoers rules
+# Ephyr role-based sudoers rules
 # Managed by provision-target.sh — do not edit manually.
 # This file is made immutable (chattr +i) after provisioning.
 
 # ─── Explicit DENY list (all roles) ──────────────────────────────────────────
 # These commands are NEVER allowed, regardless of role.
 
-Cmnd_Alias CLAUTH_DENY_SHELLS = /bin/bash, /bin/sh, /bin/zsh, /usr/bin/zsh, \
+Cmnd_Alias EPHYR_DENY_SHELLS = /bin/bash, /bin/sh, /bin/zsh, /usr/bin/zsh, \
     /usr/bin/fish, /bin/fish
 
-Cmnd_Alias CLAUTH_DENY_EDITORS = /usr/bin/vi, /usr/bin/vim, /usr/bin/nano, \
+Cmnd_Alias EPHYR_DENY_EDITORS = /usr/bin/vi, /usr/bin/vim, /usr/bin/nano, \
     /usr/bin/emacs, /bin/vi, /bin/nano
 
-Cmnd_Alias CLAUTH_DENY_INTERPRETERS = /usr/bin/python*, /usr/bin/perl, \
+Cmnd_Alias EPHYR_DENY_INTERPRETERS = /usr/bin/python*, /usr/bin/perl, \
     /usr/bin/ruby, /usr/bin/node, /usr/local/bin/python*, /usr/local/bin/node
 
-Cmnd_Alias CLAUTH_DENY_PKGMGR = /usr/bin/apt install *, /usr/bin/apt remove *, \
+Cmnd_Alias EPHYR_DENY_PKGMGR = /usr/bin/apt install *, /usr/bin/apt remove *, \
     /usr/bin/apt purge *, /usr/bin/dpkg -i *, /usr/bin/dpkg --install *, \
     /usr/bin/dpkg -r *, /usr/bin/dpkg --remove *, /usr/bin/dpkg -P *, \
     /usr/bin/dpkg --purge *
 
-Cmnd_Alias CLAUTH_DENY_DANGEROUS = /usr/bin/chattr, /usr/sbin/visudo, \
+Cmnd_Alias EPHYR_DENY_DANGEROUS = /usr/bin/chattr, /usr/sbin/visudo, \
     /bin/su, /usr/bin/su, /usr/bin/passwd, /usr/sbin/usermod, \
     /usr/sbin/userdel, /bin/chmod, /usr/bin/chmod, /bin/chown, /usr/bin/chown
 
 # Apply deny rules to all agent roles.
-agent-read  ALL = !CLAUTH_DENY_SHELLS, !CLAUTH_DENY_EDITORS, !CLAUTH_DENY_INTERPRETERS, !CLAUTH_DENY_PKGMGR, !CLAUTH_DENY_DANGEROUS
-agent-op    ALL = !CLAUTH_DENY_SHELLS, !CLAUTH_DENY_EDITORS, !CLAUTH_DENY_INTERPRETERS, !CLAUTH_DENY_PKGMGR, !CLAUTH_DENY_DANGEROUS
-agent-admin ALL = !CLAUTH_DENY_SHELLS, !CLAUTH_DENY_EDITORS, !CLAUTH_DENY_INTERPRETERS, !CLAUTH_DENY_PKGMGR, !CLAUTH_DENY_DANGEROUS
+agent-read  ALL = !EPHYR_DENY_SHELLS, !EPHYR_DENY_EDITORS, !EPHYR_DENY_INTERPRETERS, !EPHYR_DENY_PKGMGR, !EPHYR_DENY_DANGEROUS
+agent-op    ALL = !EPHYR_DENY_SHELLS, !EPHYR_DENY_EDITORS, !EPHYR_DENY_INTERPRETERS, !EPHYR_DENY_PKGMGR, !EPHYR_DENY_DANGEROUS
+agent-admin ALL = !EPHYR_DENY_SHELLS, !EPHYR_DENY_EDITORS, !EPHYR_DENY_INTERPRETERS, !EPHYR_DENY_PKGMGR, !EPHYR_DENY_DANGEROUS
 
 # ─── agent-read: NO sudo access ──────────────────────────────────────────────
 # (no additional rules — agent-read gets no sudo at all)
 
 # ─── agent-op: read-only operations ──────────────────────────────────────────
 
-Cmnd_Alias CLAUTH_OP_SYSTEMCTL = /usr/bin/systemctl status *, \
+Cmnd_Alias EPHYR_OP_SYSTEMCTL = /usr/bin/systemctl status *, \
     /usr/bin/systemctl restart *, /usr/bin/systemctl stop *
 
-Cmnd_Alias CLAUTH_OP_DOCKER = /usr/bin/docker ps *, /usr/bin/docker ps, \
+Cmnd_Alias EPHYR_OP_DOCKER = /usr/bin/docker ps *, /usr/bin/docker ps, \
     /usr/bin/docker logs *, /usr/bin/docker inspect *, \
     /usr/bin/docker stats *, /usr/bin/docker stats, \
     /usr/bin/docker compose ps *, /usr/bin/docker compose ps, \
     /usr/bin/docker compose logs *, /usr/bin/docker compose top *
 
-Cmnd_Alias CLAUTH_OP_MONITORING = /usr/bin/journalctl *, /usr/bin/journalctl, \
+Cmnd_Alias EPHYR_OP_MONITORING = /usr/bin/journalctl *, /usr/bin/journalctl, \
     /usr/bin/df *, /usr/bin/df, /usr/bin/free *, /usr/bin/free, \
     /usr/sbin/ip *, /usr/bin/ss *, /usr/bin/ss, \
     /usr/bin/cat *, /usr/bin/ls *, /usr/bin/find *
 
-agent-op ALL = NOPASSWD: CLAUTH_OP_SYSTEMCTL, CLAUTH_OP_DOCKER, CLAUTH_OP_MONITORING
+agent-op ALL = NOPASSWD: EPHYR_OP_SYSTEMCTL, EPHYR_OP_DOCKER, EPHYR_OP_MONITORING
 
 # ─── agent-admin: agent-op + management operations ───────────────────────────
 
-Cmnd_Alias CLAUTH_ADMIN_SYSTEMCTL = /usr/bin/systemctl start *, \
+Cmnd_Alias EPHYR_ADMIN_SYSTEMCTL = /usr/bin/systemctl start *, \
     /usr/bin/systemctl enable *, /usr/bin/systemctl disable *
 
-Cmnd_Alias CLAUTH_ADMIN_DOCKER = /usr/bin/docker run *, \
+Cmnd_Alias EPHYR_ADMIN_DOCKER = /usr/bin/docker run *, \
     /usr/bin/docker exec *, /usr/bin/docker pull *, \
     /usr/bin/docker build *
 
-Cmnd_Alias CLAUTH_ADMIN_PKG = /usr/bin/apt list *, /usr/bin/apt list, \
+Cmnd_Alias EPHYR_ADMIN_PKG = /usr/bin/apt list *, /usr/bin/apt list, \
     /usr/bin/apt show *
 
-Cmnd_Alias CLAUTH_ADMIN_STORAGE = /usr/bin/mount *, /usr/bin/umount *
+Cmnd_Alias EPHYR_ADMIN_STORAGE = /usr/bin/mount *, /usr/bin/umount *
 
-agent-admin ALL = NOPASSWD: CLAUTH_OP_SYSTEMCTL, CLAUTH_OP_DOCKER, CLAUTH_OP_MONITORING, \
-    CLAUTH_ADMIN_SYSTEMCTL, CLAUTH_ADMIN_DOCKER, CLAUTH_ADMIN_PKG, CLAUTH_ADMIN_STORAGE
+agent-admin ALL = NOPASSWD: EPHYR_OP_SYSTEMCTL, EPHYR_OP_DOCKER, EPHYR_OP_MONITORING, \
+    EPHYR_ADMIN_SYSTEMCTL, EPHYR_ADMIN_DOCKER, EPHYR_ADMIN_PKG, EPHYR_ADMIN_STORAGE
 SUDOERSEOF
 
 # Validate sudoers syntax.
@@ -274,7 +274,7 @@ fi
 # ─── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
-ok "Clauth target provisioning complete!"
+ok "Ephyr target provisioning complete!"
 echo ""
 info "Role accounts created:"
 echo "  agent-read  — restricted shell, no sudo"
@@ -282,6 +282,6 @@ echo "  agent-op    — bash, read-only sudo (systemctl status, docker ps/logs, 
 echo "  agent-admin — bash, management sudo (start/stop services, docker run/exec, etc.)"
 echo ""
 info "Test with:"
-echo "  ssh -i ~/.clauth/id_ed25519 -o CertificateFile=<cert> agent-read@$(hostname -f || hostname)"
-echo "  ssh -i ~/.clauth/id_ed25519 -o CertificateFile=<cert> agent-op@$(hostname -f || hostname)"
+echo "  ssh -i ~/.ephyr/id_ed25519 -o CertificateFile=<cert> agent-read@$(hostname -f || hostname)"
+echo "  ssh -i ~/.ephyr/id_ed25519 -o CertificateFile=<cert> agent-op@$(hostname -f || hostname)"
 echo ""

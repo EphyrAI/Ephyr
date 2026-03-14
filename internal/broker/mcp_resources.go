@@ -44,43 +44,43 @@ type MCPResourcesCapability struct {
 func (s *MCPServer) handleResourcesList(w http.ResponseWriter, req jsonRPCRequest) {
 	resources := []MCPResource{
 		{
-			URI:         "clauth://overview",
+			URI:         "ephyr://overview",
 			Name:        "System Overview",
-			Description: "High-level summary of Clauth broker capabilities, available targets, services, and your agent permissions",
+			Description: "High-level summary of Ephyr broker capabilities, available targets, services, and your agent permissions",
 			MimeType:    "text/markdown",
 		},
 		{
-			URI:         "clauth://targets",
+			URI:         "ephyr://targets",
 			Name:        "SSH Targets",
 			Description: "Available SSH targets with hosts, ports, allowed roles, TTLs, and auto-approve status",
 			MimeType:    "text/markdown",
 		},
 		{
-			URI:         "clauth://services",
+			URI:         "ephyr://services",
 			Name:        "HTTP Proxy Services",
 			Description: "Configured web services accessible through the authenticated HTTP proxy with credential injection",
 			MimeType:    "text/markdown",
 		},
 		{
-			URI:         "clauth://roles",
+			URI:         "ephyr://roles",
 			Name:        "Roles & Permissions",
 			Description: "Available roles, their SSH principals, and what each role can do on targets",
 			MimeType:    "text/markdown",
 		},
 		{
-			URI:         "clauth://status",
+			URI:         "ephyr://status",
 			Name:        "Agent Status",
 			Description: "Your current active certificates, sessions, and recent activity",
 			MimeType:    "text/markdown",
 		},
 		{
-			URI:         "clauth://tools",
+			URI:         "ephyr://tools",
 			Name:        "Tools Reference",
 			Description: "Quick reference for all available MCP tools with parameters and usage examples",
 			MimeType:    "text/markdown",
 		},
 		{
-			URI:         "clauth://remotes",
+			URI:         "ephyr://remotes",
 			Name:        "Remote MCP Servers",
 			Description: "Federated remote MCP servers with tools, connection status, and last refresh times",
 			MimeType:    "text/markdown",
@@ -150,19 +150,19 @@ func (s *MCPServer) handleResourcesRead(w http.ResponseWriter, req jsonRPCReques
 	var err error
 
 	switch params.URI {
-	case "clauth://overview":
+	case "ephyr://overview":
 		content = s.resourceOverview(agent)
-	case "clauth://targets":
+	case "ephyr://targets":
 		content = s.resourceTargets()
-	case "clauth://services":
+	case "ephyr://services":
 		content = s.resourceServices()
-	case "clauth://roles":
+	case "ephyr://roles":
 		content = s.resourceRoles()
-	case "clauth://status":
+	case "ephyr://status":
 		content = s.resourceStatus(agent)
-	case "clauth://tools":
+	case "ephyr://tools":
 		content = s.resourceTools()
-	case "clauth://remotes":
+	case "ephyr://remotes":
 		content = s.resourceRemotes(agent)
 	default:
 		err = fmt.Errorf("unknown resource: %s", params.URI)
@@ -192,12 +192,12 @@ func (s *MCPServer) resourceOverview(agent *MCPAgent) string {
 	var b strings.Builder
 	cfg := s.broker.policyEngine.Config()
 
-	b.WriteString("# Clauth Agent Access Broker\n\n")
+	b.WriteString("# Ephyr Agent Access Broker\n\n")
 	b.WriteString("Zero-trust infrastructure access for AI agents. Every connection authenticated, authorized, audited.\n\n")
 
 	b.WriteString(fmt.Sprintf("**Agent:** %s\n", agent.Name))
 	b.WriteString("**Protocol:** MCP 2025-03-26 (JSON-RPC 2.0 over Streamable HTTP)\n")
-	b.WriteString("**Broker:** clauth v1.0.0\n\n")
+	b.WriteString("**Broker:** ephyr v1.0.0\n\n")
 
 	// Targets summary
 	targets := cfg.Raw.Targets
@@ -551,7 +551,7 @@ func (s *MCPServer) resourceRemotes(agent *MCPAgent) string {
 		return b.String()
 	}
 
-	b.WriteString("These remote MCP servers are federated through Clauth. Their tools appear in your tools list with a namespace prefix.\n\n")
+	b.WriteString("These remote MCP servers are federated through Ephyr. Their tools appear in your tools list with a namespace prefix.\n\n")
 
 	for _, rs := range states {
 		status := string(rs.Status)

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sprawl/clauth/internal/audit"
+	"github.com/ben-spanswick/ephyr/internal/audit"
 )
 
 // HostConfig stores configurable settings per host for the dashboard.
@@ -36,7 +36,7 @@ type HostConfig struct {
 type ConfigManager struct {
 	mu       sync.RWMutex
 	configs  map[string]*HostConfig // keyed by host name
-	filePath string                 // path to persist configs (e.g., /etc/clauth/hosts.json)
+	filePath string                 // path to persist configs (e.g., /etc/ephyr/hosts.json)
 }
 
 // NewConfigManager creates a ConfigManager and loads existing configuration
