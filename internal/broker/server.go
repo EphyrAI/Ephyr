@@ -110,6 +110,9 @@ type BrokerServer struct {
 	rootKeyStore     *macaroon.RootKeyStore
 	macaroonMinter   *macaroon.Minter
 	macaroonVerifier *macaroon.Verifier
+
+	// v0.3.3: Proof-of-possession nonce cache for holder-bound tokens.
+	nonceCache *NonceCache
 }
 
 // NewBrokerServer initializes all components and returns a ready-to-start server.
@@ -205,11 +208,21 @@ func NewBrokerServer(cfg BrokerConfig) (*BrokerServer, error) {
 	bs.macaroonMinter = macaroon.NewMinter(bs.rootKeyStore)
 	bs.macaroonVerifier = macaroon.NewVerifier(bs.rootKeyStore)
 
+	// v0.3.3: Initialize proof-of-possession nonce cache (5 min TTL matches default task TTL).
+	bs.nonceCache = NewNonceCache(5 * time.Minute)
+	go bs.nonceCacheCleanupLoop()
+
 	// Wire up task expiry callback for WebSocket broadcasts and metrics.
 	bs.taskMgr.OnExpire = func(task *Task) {
+		// Distinguish bind deadline expiry from normal TTL expiry.
+		eventType := "task_expired"
+		if !task.HolderBound && !task.BindDeadline.IsZero() && time.Now().After(task.BindDeadline) {
+			bs.metrics.BindDeadlineExpired.Add(1)
+			eventType = "task_bind_expired"
+		}
 		if bs.eventHub != nil {
 			bs.eventHub.Broadcast(Event{
-				Type: "task_expired",
+				Type: eventType,
 				Data: map[string]interface{}{
 					"task_id":     task.ID,
 					"agent":       task.AgentName,
@@ -391,6 +404,18 @@ func (bs *BrokerServer) GracefulShutdown() {
 	os.Remove(bs.cfg.ListenSocket)
 
 	log.Printf("[broker] shutdown complete")
+}
+
+// nonceCacheCleanupLoop runs NonceCache.Cleanup every 60 seconds.
+// It is started as a goroutine in NewBrokerServer.
+func (bs *BrokerServer) nonceCacheCleanupLoop() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		if bs.nonceCache != nil {
+			bs.nonceCache.Cleanup()
+		}
+	}
 }
 
 // ReloadPolicy loads the policy file from disk and swaps the engine atomically.

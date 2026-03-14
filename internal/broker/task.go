@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 	"sync"
@@ -26,6 +27,11 @@ type Task struct {
 	TokenID     string       `json:"token_id"`     // JTI of the CTT-E
 	CanDelegate       bool         `json:"can_delegate"`                  // whether CTT-D was issued (Phase 2b)
 	MacaroonSigDigest string       `json:"macaroon_sig_digest,omitempty"` // SHA-256(macaroon signature)
+
+	// Ephyr Bind (v0.3.1): holder-bound tokens
+	HolderPubKey   []byte    `json:"holder_pub_key,omitempty"`   // Ed25519 public key (32 bytes)
+	HolderBound    bool      `json:"holder_bound"`               // true after key is registered
+	BindDeadline   time.Time `json:"bind_deadline,omitempty"`    // task_bind must be called before this
 }
 
 // TaskEnvelope defines the maximum capabilities for a task.
@@ -44,7 +50,8 @@ type CreateTaskParams struct {
 	TTL         time.Duration
 	InitiatedBy string
 	Envelope    TaskEnvelope
-	CanDelegate bool
+	CanDelegate  bool
+	HolderPubKey []byte // optional Ed25519 public key for holder binding
 }
 
 // TaskManager tracks active tasks with thread-safe operations.
@@ -99,6 +106,13 @@ func (tm *TaskManager) CreateTask(params CreateTaskParams) *Task {
 		ExpiresAt:   now.Add(params.TTL),
 		Envelope:    params.Envelope,
 		CanDelegate: params.CanDelegate,
+	}
+
+	// Ephyr Bind: if caller provides a valid Ed25519 public key, bind immediately.
+	if len(params.HolderPubKey) == 32 {
+		task.HolderPubKey = make([]byte, 32)
+		copy(task.HolderPubKey, params.HolderPubKey)
+		task.HolderBound = true
 	}
 
 	tm.mu.Lock()
@@ -328,14 +342,25 @@ func (tm *TaskManager) ListAllTasks() []*Task {
 	return result
 }
 
-// cleanup removes expired tasks from the manager.
+// cleanup removes expired tasks and unbound tasks past their bind deadline.
 func (tm *TaskManager) cleanup() {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
 	now := time.Now()
 	for id, task := range tm.tasks {
+		shouldRemove := false
+
 		if now.After(task.ExpiresAt) {
+			shouldRemove = true
+		}
+
+		// Ephyr Bind: auto-revoke unbound tasks past their bind deadline.
+		if !task.HolderBound && !task.BindDeadline.IsZero() && now.After(task.BindDeadline) {
+			shouldRemove = true
+		}
+
+		if shouldRemove {
 			if tm.OnExpire != nil {
 				tm.OnExpire(task)
 			}
@@ -470,6 +495,44 @@ func BuildEnvelopeFromPolicy(agentName string, resolved *policy.ResolvedConfig) 
 // DefaultMaxChildDepth is the maximum delegation chain depth.
 const DefaultMaxChildDepth = 5
 
+// DefaultBindDeadline is the time window for delegated tasks to bind a holder key.
+const DefaultBindDeadline = 30 * time.Second
+
+// BindHolderKey binds an Ed25519 public key to a task for holder-bound tokens.
+// The operation is idempotent: binding the same key again succeeds, but binding
+// a different key after one is already bound returns an error.
+func (tm *TaskManager) BindHolderKey(taskID string, pubKey []byte) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	task, ok := tm.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task not found")
+	}
+
+	if !task.BindDeadline.IsZero() && time.Now().After(task.BindDeadline) {
+		return fmt.Errorf("bind deadline expired")
+	}
+
+	if task.HolderBound && task.HolderPubKey != nil {
+		// Idempotent: same key is OK, different key is rejected.
+		if !bytes.Equal(task.HolderPubKey, pubKey) {
+			return fmt.Errorf("key already bound")
+		}
+		return nil // already bound with same key
+	}
+
+	if len(pubKey) != 32 {
+		return fmt.Errorf("invalid public key: expected 32 bytes, got %d", len(pubKey))
+	}
+
+	task.HolderPubKey = make([]byte, 32)
+	copy(task.HolderPubKey, pubKey)
+	task.HolderBound = true
+	task.BindDeadline = time.Time{} // clear deadline
+	return nil
+}
+
 // CreateChildTaskParams holds parameters for creating a child task.
 type CreateChildTaskParams struct {
 	ParentID    string
@@ -566,6 +629,11 @@ func (tm *TaskManager) CreateChildTask(params CreateChildTaskParams) (*Task, err
 		ExpiresAt:   childExpiry,
 		Envelope:    envelope,
 		CanDelegate: params.CanDelegate,
+
+		// Ephyr Bind: delegated children use two-phase binding.
+		// They must call BindHolderKey within the deadline.
+		HolderBound:  false,
+		BindDeadline: now.Add(DefaultBindDeadline),
 	}
 
 	// Store.

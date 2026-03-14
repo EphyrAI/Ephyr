@@ -80,7 +80,7 @@ func jsonResult(v interface{}) (*MCPToolsCallResult, error) {
 
 // --- Tool definitions ---
 
-// toolDefinitions returns the MCP tool schemas for all six tools.
+// toolDefinitions returns the MCP tool schemas for all 16 tools.
 func (s *MCPServer) toolDefinitions() []MCPToolDefinition {
 	return []MCPToolDefinition{
 		{
@@ -247,6 +247,10 @@ func (s *MCPServer) toolDefinitions() []MCPToolDefinition {
 						"description": "Whether this task can delegate to child tasks (default false)",
 						"default":     false,
 					},
+					"holder_pub_key": map[string]interface{}{
+						"type":        "string",
+						"description": "Base64url-encoded Ed25519 public key (32 bytes) for holder binding",
+					},
 				},
 				"required": []string{"description"},
 			},
@@ -325,6 +329,25 @@ func (s *MCPServer) toolDefinitions() []MCPToolDefinition {
 				"properties": map[string]interface{}{},
 			},
 		},
+		// v0.3.2: Ephyr Bind tool.
+		{
+			Name:        "task_bind",
+			Description: "Bind a holder public key to a delegated task (Ephyr Bind). Must be called within the bind deadline.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"task_id": map[string]interface{}{
+						"type":        "string",
+						"description": "The task ID to bind a key to",
+					},
+					"holder_pub_key": map[string]interface{}{
+						"type":        "string",
+						"description": "Base64url-encoded Ed25519 public key (32 bytes)",
+					},
+				},
+				"required": []string{"task_id", "holder_pub_key"},
+			},
+		},
 	}
 }
 
@@ -364,6 +387,9 @@ func (s *MCPServer) handleToolCall(ctx context.Context, agent *MCPAgent, toolNam
 		return s.toolTaskRevoke(ctx, agent, args)
 	case "task_list":
 		return s.toolTaskList(ctx, agent, args)
+	// v0.3.2: Ephyr Bind tool dispatch.
+	case "task_bind":
+		return s.toolTaskBind(ctx, agent, args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}

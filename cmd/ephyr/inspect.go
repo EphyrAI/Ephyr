@@ -23,6 +23,11 @@ type inspectJSON struct {
 	Metadata          *inspectMetadataJSON      `json:"metadata,omitempty"`
 	ReducerError      string                    `json:"reducer_error,omitempty"`
 	TokenSizeBytes    int                       `json:"token_size_bytes"`
+	HolderBinding     *inspectHolderBindingJSON `json:"holder_binding"`
+}
+
+type inspectHolderBindingJSON struct {
+	Note string `json:"note"`
 }
 
 type inspectEnvelopeJSON struct {
@@ -159,6 +164,11 @@ func printInspectText(mac *macaroon.Macaroon, data []byte, caveatStrs []string, 
 		fmt.Printf(" (WARNING: exceeds %d byte threshold)", macaroon.TokenSizeWarn)
 	}
 	fmt.Println()
+
+	// Holder binding info.
+	fmt.Println("\n--- Holder Binding ---")
+	fmt.Println("  Note: Binding status is broker-side state, not encoded in the macaroon.")
+	fmt.Println("        Use task_info to check holder_bound status.")
 }
 
 // printInspectJSON writes the machine-readable JSON inspection output.
@@ -169,6 +179,9 @@ func printInspectJSON(mac *macaroon.Macaroon, data []byte, caveatStrs []string, 
 		CaveatCount:    len(mac.Caveats()),
 		Caveats:        caveatStrs,
 		TokenSizeBytes: len(data),
+		HolderBinding: &inspectHolderBindingJSON{
+			Note: "Binding status is broker-side state. Use task_info to check.",
+		},
 	}
 
 	if reduceErr != nil {

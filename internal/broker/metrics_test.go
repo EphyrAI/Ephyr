@@ -497,6 +497,9 @@ func TestPrometheusAllCountersPresent(t *testing.T) {
 		"ephyr_macaroons_rejected_total",
 		"ephyr_reducer_invocations_total",
 		"ephyr_token_size_warnings_total",
+		"ephyr_pop_verified_total",
+		"ephyr_pop_rejected_total",
+		"ephyr_bind_deadline_expired_total",
 	}
 
 	for _, name := range expectedCounters {
@@ -574,6 +577,61 @@ func TestMacaroonMetricsCounterIncrement(t *testing.T) {
 	}
 	if m.TokenSizeWarnings.Load() != 1 {
 		t.Errorf("expected TokenSizeWarnings=1, got %d", m.TokenSizeWarnings.Load())
+	}
+}
+
+func TestPopAndBindMetrics(t *testing.T) {
+	m := NewMetrics()
+
+	// Verify initial zero state.
+	if m.PopVerified.Load() != 0 {
+		t.Fatal("expected PopVerified to start at 0")
+	}
+	if m.PopRejected.Load() != 0 {
+		t.Fatal("expected PopRejected to start at 0")
+	}
+	if m.BindDeadlineExpired.Load() != 0 {
+		t.Fatal("expected BindDeadlineExpired to start at 0")
+	}
+
+	// Increment counters.
+	m.PopVerified.Add(10)
+	m.PopRejected.Add(3)
+	m.BindDeadlineExpired.Add(2)
+
+	if m.PopVerified.Load() != 10 {
+		t.Errorf("expected PopVerified=10, got %d", m.PopVerified.Load())
+	}
+	if m.PopRejected.Load() != 3 {
+		t.Errorf("expected PopRejected=3, got %d", m.PopRejected.Load())
+	}
+	if m.BindDeadlineExpired.Load() != 2 {
+		t.Errorf("expected BindDeadlineExpired=2, got %d", m.BindDeadlineExpired.Load())
+	}
+
+	// Verify they appear in Prometheus output with correct values.
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	m.ServePrometheus(rec, req)
+
+	body := rec.Body.String()
+
+	expected := []string{
+		"ephyr_pop_verified_total 10",
+		"ephyr_pop_rejected_total 3",
+		"ephyr_bind_deadline_expired_total 2",
+		"# HELP ephyr_pop_verified_total Successful PoP verifications",
+		"# TYPE ephyr_pop_verified_total counter",
+		"# HELP ephyr_pop_rejected_total Failed PoP verifications",
+		"# TYPE ephyr_pop_rejected_total counter",
+		"# HELP ephyr_bind_deadline_expired_total Unbound tasks auto-revoked past bind deadline",
+		"# TYPE ephyr_bind_deadline_expired_total counter",
+	}
+
+	for _, exp := range expected {
+		if !strings.Contains(body, exp) {
+			t.Errorf("Prometheus output missing: %q\n\nFull output:\n%s", exp, body)
+		}
 	}
 }
 

@@ -53,7 +53,7 @@ Delegation with attenuation: parent tasks can spawn scoped child tasks with mono
 ### Changed
 
 - `authenticateWithCTTE()` now calls `Validate()` instead of `ValidateCTTE()`, accepting both CTT-E and CTT-D tokens for MCP authentication
-- MCP tool count increased from 14 to 15 (9 core + 5 task + federated)
+- MCP tool count increased from 14 to 16 (9 core + 6 task + federated)
 
 ## [0.2.0] -- 2026-03-13
 

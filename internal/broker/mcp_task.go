@@ -11,6 +11,23 @@ import (
 	"github.com/ben-spanswick/ephyr/internal/token"
 )
 
+// decodeHolderPubKey extracts and base64url-decodes the holder_pub_key argument.
+// Returns nil if the argument is absent or empty.
+func decodeHolderPubKey(args map[string]interface{}) ([]byte, error) {
+	keyStr, ok := getStringArg(args, "holder_pub_key")
+	if !ok || keyStr == "" {
+		return nil, nil
+	}
+	keyBytes, err := base64.RawURLEncoding.DecodeString(keyStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid holder_pub_key: %v", err)
+	}
+	if len(keyBytes) != 32 {
+		return nil, fmt.Errorf("invalid holder_pub_key: expected 32 bytes, got %d", len(keyBytes))
+	}
+	return keyBytes, nil
+}
+
 // toolTaskCreate creates a new task with scoped identity and returns a macaroon token.
 // Falls back to JWT (CTT-E) if macaroon minting is not available.
 func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args map[string]interface{}) (*MCPToolsCallResult, error) {
@@ -46,6 +63,12 @@ func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args ma
 	// Extract optional can_delegate flag.
 	canDelegate := getBoolArg(args, "can_delegate", false)
 
+	// Extract optional holder_pub_key for Ephyr Bind.
+	holderPubKey, err := decodeHolderPubKey(args)
+	if err != nil {
+		return errorResult(err.Error()), nil
+	}
+
 	// Determine initiated_by based on auth method.
 	namePrefix := agent.Name
 	if len(namePrefix) > 6 {
@@ -55,12 +78,13 @@ func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args ma
 
 	// Create task in manager.
 	task := s.broker.taskMgr.CreateTask(CreateTaskParams{
-		AgentName:   agent.Name,
-		Description: description,
-		TTL:         ttl,
-		InitiatedBy: initiatedBy,
-		Envelope:    envelope,
-		CanDelegate: canDelegate,
+		AgentName:    agent.Name,
+		Description:  description,
+		TTL:          ttl,
+		InitiatedBy:  initiatedBy,
+		Envelope:     envelope,
+		CanDelegate:  canDelegate,
+		HolderPubKey: holderPubKey,
 	})
 
 	// Determine default delegation depth.
@@ -189,6 +213,7 @@ func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args ma
 		"expires_at":   task.ExpiresAt.Format(time.RFC3339),
 		"ttl_seconds":  int(ttl.Seconds()),
 		"can_delegate": canDelegate,
+		"holder_bound": task.HolderBound,
 		"envelope": map[string]interface{}{
 			"targets":  envelope.Targets,
 			"roles":    envelope.Roles,
@@ -222,6 +247,10 @@ func (s *MCPServer) toolTaskInfo(ctx context.Context, agent *MCPAgent, args map[
 			"task":          task,
 			"remaining_ttl": remaining.Round(time.Second).String(),
 			"is_revoked":    s.broker.revocation.IsRevoked(task.ID),
+			"holder_bound":  task.HolderBound,
+		}
+		if !task.BindDeadline.IsZero() {
+			result["bind_deadline"] = task.BindDeadline.Format(time.RFC3339)
 		}
 		return jsonResult(result)
 	}
@@ -621,6 +650,70 @@ func (s *MCPServer) toolTaskDelegate(ctx context.Context, agent *MCPAgent, args 
 		},
 	}
 	return jsonResult(result)
+}
+
+// toolTaskBind binds a holder public key to a delegated task for Ephyr Bind.
+// The key must be provided within the task's bind deadline. This is the second
+// phase of two-phase delegation key binding introduced in v0.3.2.
+func (s *MCPServer) toolTaskBind(ctx context.Context, agent *MCPAgent, args map[string]interface{}) (*MCPToolsCallResult, error) {
+	if s.broker.taskMgr == nil {
+		return errorResult("task identity not available"), nil
+	}
+
+	taskID, ok := getStringArg(args, "task_id")
+	if !ok || taskID == "" {
+		return errorResult("task_id is required"), nil
+	}
+
+	// Decode the public key.
+	pubKey, err := decodeHolderPubKey(args)
+	if err != nil {
+		return errorResult(err.Error()), nil
+	}
+	if pubKey == nil {
+		return errorResult("holder_pub_key is required"), nil
+	}
+
+	// Verify the task belongs to this agent.
+	task := s.broker.taskMgr.GetTask(taskID)
+	if task == nil {
+		return errorResult("task not found or expired"), nil
+	}
+	if task.AgentName != agent.Name {
+		return errorResult("access denied: task belongs to another agent"), nil
+	}
+
+	// Bind the key.
+	if err := s.broker.taskMgr.BindHolderKey(taskID, pubKey); err != nil {
+		return errorResult(fmt.Sprintf("bind failed: %v", err)), nil
+	}
+
+	// Audit log.
+	s.broker.auditLog.LogEvent(audit.AuditEvent{
+		Severity:  audit.SeverityInfo,
+		EventType: "task_bind",
+		Agent:     agent.Name,
+		Details: map[string]string{
+			"task_id": taskID,
+		},
+	})
+
+	// WebSocket broadcast.
+	if s.broker.eventHub != nil {
+		s.broker.eventHub.Broadcast(Event{
+			Type: "task_bound",
+			Data: map[string]interface{}{
+				"task_id": taskID,
+				"agent":   agent.Name,
+			},
+		})
+	}
+
+	return jsonResult(map[string]interface{}{
+		"task_id":  taskID,
+		"bound":   true,
+		"bound_at": time.Now().Format(time.RFC3339),
+	})
 }
 
 // toolTaskList lists all active tasks for the requesting agent.

@@ -39,6 +39,9 @@ type Metrics struct {
 	MacaroonsRejected    atomic.Int64 // total failed macaroon verifications
 	ReducerInvocations   atomic.Int64 // total reducer calls
 	TokenSizeWarnings    atomic.Int64 // tokens exceeding 4KB warning threshold
+	PopVerified          atomic.Int64 // successful PoP verifications
+	PopRejected          atomic.Int64 // failed PoP verifications
+	BindDeadlineExpired  atomic.Int64 // unbound tasks auto-revoked past deadline
 
 	// Gauges
 	ActiveWatermarks    atomic.Int64
@@ -259,6 +262,9 @@ func (m *Metrics) ServePrometheus(w http.ResponseWriter, r *http.Request) {
 		{"ephyr_macaroons_rejected_total", "Total failed macaroon verifications", &m.MacaroonsRejected},
 		{"ephyr_reducer_invocations_total", "Total reducer invocations", &m.ReducerInvocations},
 		{"ephyr_token_size_warnings_total", "Tokens exceeding size warning threshold", &m.TokenSizeWarnings},
+		{"ephyr_pop_verified_total", "Successful PoP verifications", &m.PopVerified},
+		{"ephyr_pop_rejected_total", "Failed PoP verifications", &m.PopRejected},
+		{"ephyr_bind_deadline_expired_total", "Unbound tasks auto-revoked past bind deadline", &m.BindDeadlineExpired},
 	}
 
 	for _, c := range counters {

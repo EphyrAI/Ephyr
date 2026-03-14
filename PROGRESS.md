@@ -36,3 +36,14 @@
 | 3.2 | README.md rewrite (Ephyr product framing) | DONE | doc-agent | Three tiers, macaroon deps, 15 tools |
 | 3.3 | Architecture + security docs alignment | DONE | doc-agent | Tool counts, task_delegate, "does NOT" sections |
 | 3.4 | CHANGELOG update for rename + v0.2b | DONE | doc-agent | Keep a Changelog format, historical annotations |
+
+## Phase 4: Ephyr Bind v0.3 (Holder-Bound Tokens)
+
+| Milestone | Description | Status | Agent | Notes |
+|-----------|-------------|--------|-------|-------|
+| 0.3.1 | TaskTree fields: HolderPubKey, HolderBound, BindDeadline | DONE | bind-agent | 13 new tests, auto-revoke on deadline |
+| 0.3.2 | `task_bind` MCP tool + two-phase delegation + auto-revocation | DONE | bind-tool-agent | 16 MCP tools, audit + WebSocket |
+| 0.3.3 | PoP proof format + body_hash + `_pop` field + broker verification | DONE | pop-agent | 13 tests + benchmark (~363μs/verify) |
+| 0.3.4 | NonceCache + configurable EPHYR_POP_CLOCK_SKEW | DONE | pop-agent | Included in v0.3.3 (NonceCache + 5min TTL) |
+| 0.3.5 | `ephyr inspect` binding status + Prometheus metrics | DONE | metrics-agent | 3 counters, inspect section, OnExpire wiring |
+| 0.3.6 | Integration tests + demo | | | Full pipeline: bind, PoP, delegation, replay rejection |

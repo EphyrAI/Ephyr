@@ -1417,3 +1417,406 @@ func TestSignatureIndex_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// --- Ephyr Bind (v0.3.1): holder-bound token tests ---
+
+// testPubKey returns a deterministic 32-byte Ed25519 public key for testing.
+func testPubKey(seed byte) []byte {
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = seed
+	}
+	return key
+}
+
+func TestBindHolderKey_Basic(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "child for binding",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Child should start unbound with a deadline set.
+	if child.HolderBound {
+		t.Error("expected child to start unbound")
+	}
+	if child.BindDeadline.IsZero() {
+		t.Error("expected bind deadline to be set")
+	}
+
+	// Bind a key.
+	pubKey := testPubKey(0xAA)
+	if err := tm.BindHolderKey(child.ID, pubKey); err != nil {
+		t.Fatalf("unexpected error binding key: %v", err)
+	}
+
+	// Verify fields.
+	got := tm.GetTask(child.ID)
+	if got == nil {
+		t.Fatal("task not found after binding")
+	}
+	if !got.HolderBound {
+		t.Error("expected HolderBound to be true after binding")
+	}
+	if len(got.HolderPubKey) != 32 {
+		t.Errorf("expected 32-byte key, got %d bytes", len(got.HolderPubKey))
+	}
+	for i, b := range got.HolderPubKey {
+		if b != 0xAA {
+			t.Errorf("key byte[%d] = %x, want 0xAA", i, b)
+			break
+		}
+	}
+	if !got.BindDeadline.IsZero() {
+		t.Error("expected bind deadline to be cleared after binding")
+	}
+}
+
+func TestBindHolderKey_Idempotent(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "idempotent test",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	pubKey := testPubKey(0xBB)
+
+	// Bind first time.
+	if err := tm.BindHolderKey(child.ID, pubKey); err != nil {
+		t.Fatalf("first bind failed: %v", err)
+	}
+
+	// Bind same key again -- should succeed (idempotent).
+	if err := tm.BindHolderKey(child.ID, pubKey); err != nil {
+		t.Fatalf("idempotent bind failed: %v", err)
+	}
+}
+
+func TestBindHolderKey_DifferentKeyRejected(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "different key test",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Bind first key.
+	if err := tm.BindHolderKey(child.ID, testPubKey(0xCC)); err != nil {
+		t.Fatalf("first bind failed: %v", err)
+	}
+
+	// Try binding a different key -- should fail.
+	err = tm.BindHolderKey(child.ID, testPubKey(0xDD))
+	if err == nil {
+		t.Fatal("expected error when binding a different key")
+	}
+	if !strings.Contains(err.Error(), "key already bound") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestBindHolderKey_DeadlineExpired(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "deadline test",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Manually set deadline to the past to simulate expiry.
+	tm.mu.Lock()
+	tm.tasks[child.ID].BindDeadline = time.Now().Add(-1 * time.Second)
+	tm.mu.Unlock()
+
+	err = tm.BindHolderKey(child.ID, testPubKey(0xEE))
+	if err == nil {
+		t.Fatal("expected error when bind deadline has expired")
+	}
+	if !strings.Contains(err.Error(), "bind deadline expired") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestBindHolderKey_InvalidKeySize(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "invalid key test",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Try binding a key that is not 32 bytes.
+	shortKey := make([]byte, 16)
+	err = tm.BindHolderKey(child.ID, shortKey)
+	if err == nil {
+		t.Fatal("expected error for non-32-byte key")
+	}
+	if !strings.Contains(err.Error(), "invalid public key") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+
+	longKey := make([]byte, 64)
+	err = tm.BindHolderKey(child.ID, longKey)
+	if err == nil {
+		t.Fatal("expected error for 64-byte key")
+	}
+}
+
+func TestBindHolderKey_TaskNotFound(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	err := tm.BindHolderKey("nonexistent", testPubKey(0xFF))
+	if err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+	if !strings.Contains(err.Error(), "task not found") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestCreateTask_WithHolderPubKey(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	pubKey := testPubKey(0x42)
+	task := tm.CreateTask(CreateTaskParams{
+		AgentName:    "agent-1",
+		Description:  "bound root task",
+		TTL:          5 * time.Minute,
+		InitiatedBy:  "ephyr:local:uid:1000",
+		Envelope:     TaskEnvelope{Targets: []string{"dockerhost"}},
+		HolderPubKey: pubKey,
+	})
+
+	// Task created with key should be immediately bound.
+	if !task.HolderBound {
+		t.Error("expected task to be holder-bound when created with pub key")
+	}
+	if len(task.HolderPubKey) != 32 {
+		t.Errorf("expected 32-byte key, got %d bytes", len(task.HolderPubKey))
+	}
+	if task.HolderPubKey[0] != 0x42 {
+		t.Errorf("expected key byte 0x42, got 0x%02x", task.HolderPubKey[0])
+	}
+	// BindDeadline should not be set for immediately-bound root tasks.
+	if !task.BindDeadline.IsZero() {
+		t.Error("expected no bind deadline for immediately-bound task")
+	}
+
+	// Verify key is a copy (mutation safety).
+	pubKey[0] = 0xFF
+	if task.HolderPubKey[0] == 0xFF {
+		t.Error("task holds reference to original key slice -- should be a copy")
+	}
+}
+
+func TestCreateTask_WithoutHolderPubKey(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	task := tm.CreateTask(CreateTaskParams{
+		AgentName:   "agent-1",
+		Description: "unbound root task",
+		TTL:         5 * time.Minute,
+		Envelope:    TaskEnvelope{Targets: []string{"dockerhost"}},
+	})
+
+	// Root task without holder key should not be bound.
+	if task.HolderBound {
+		t.Error("expected task to not be holder-bound when created without pub key")
+	}
+	if task.HolderPubKey != nil {
+		t.Error("expected nil HolderPubKey")
+	}
+}
+
+func TestCreateChildTask_UnboundWithDeadline(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "delegated child",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Child task should start unbound with a bind deadline.
+	if child.HolderBound {
+		t.Error("expected delegated child to be unbound (HolderBound=false)")
+	}
+	if child.HolderPubKey != nil {
+		t.Error("expected nil HolderPubKey for unbound child")
+	}
+	if child.BindDeadline.IsZero() {
+		t.Error("expected bind deadline to be set for delegated child")
+	}
+
+	// The bind deadline should be approximately DefaultBindDeadline from now.
+	expectedDeadline := time.Now().Add(DefaultBindDeadline)
+	deadlineDiff := child.BindDeadline.Sub(expectedDeadline)
+	if deadlineDiff < -2*time.Second || deadlineDiff > 2*time.Second {
+		t.Errorf("bind deadline off by too much: expected ~%v, got %v (diff %v)",
+			expectedDeadline, child.BindDeadline, deadlineDiff)
+	}
+}
+
+func TestCleanup_AutoRevokesUnboundPastDeadline(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "unbound child",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Manually set bind deadline to the past.
+	tm.mu.Lock()
+	tm.tasks[child.ID].BindDeadline = time.Now().Add(-1 * time.Second)
+	tm.mu.Unlock()
+
+	// Run cleanup.
+	var expiredIDs []string
+	tm.OnExpire = func(task *Task) {
+		expiredIDs = append(expiredIDs, task.ID)
+	}
+	tm.cleanup()
+
+	// The unbound child should have been cleaned up.
+	got := tm.GetTask(child.ID)
+	if got != nil {
+		t.Error("expected unbound child past deadline to be removed by cleanup")
+	}
+
+	// Verify OnExpire was called for the child.
+	found := false
+	for _, id := range expiredIDs {
+		if id == child.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected OnExpire to be called for unbound child past deadline")
+	}
+
+	// Parent should still be alive (not unbound, no deadline issue).
+	parentGot := tm.GetTask(parent.ID)
+	if parentGot == nil {
+		t.Error("expected parent to still be active after cleanup")
+	}
+}
+
+func TestCleanup_DoesNotRevokeUnboundBeforeDeadline(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "unbound child within deadline",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Deadline is ~30s from now -- should NOT be cleaned up.
+	tm.cleanup()
+
+	got := tm.GetTask(child.ID)
+	if got == nil {
+		t.Error("expected unbound child within deadline to survive cleanup")
+	}
+}
+
+func TestCleanup_DoesNotRevokeBoundTask(t *testing.T) {
+	tm := NewTaskManager()
+	defer tm.Stop()
+
+	parent := createDelegatingParent(tm)
+
+	child, err := tm.CreateChildTask(CreateChildTaskParams{
+		ParentID:    parent.ID,
+		AgentName:   "agent-1",
+		Description: "bound child",
+		TTL:         5 * time.Minute,
+		CanDelegate: false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Bind a key (clears deadline).
+	if err := tm.BindHolderKey(child.ID, testPubKey(0x55)); err != nil {
+		t.Fatalf("bind failed: %v", err)
+	}
+
+	tm.cleanup()
+
+	got := tm.GetTask(child.ID)
+	if got == nil {
+		t.Error("expected bound child to survive cleanup")
+	}
+}
