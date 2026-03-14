@@ -110,33 +110,28 @@ histograms.
 Ephyr runs as three separate OS processes, each with distinct responsibilities
 and privilege levels:
 
-```
-+------------------------------------------------------------------+
-|                         HOST (LXC / VM)                          |
-|                                                                  |
-|  +---------------------+      Unix Socket       +--------------+|
-|  |   ephyr-signer     |<======================>|              ||
-|  |                     |   /run/ephyr/          |              ||
-|  |  - Ed25519 CA key   |    signer.sock          |              ||
-|  |  - Sign SSH certs   |                         |   ephyr-    ||
-|  |  - Sign delegation  |   SO_PEERCRED           |    broker    ||
-|  |    certs             |   UID check             |              ||
-|  |  - Root public key   |                         |              ||
-|  |                     |                         |              ||
-|  | UID: 999            |                         | UID: 999     ||
-|  | NET: AF_UNIX only   |                         | NET: TCP+UNIX||
-|  +---------------------+                         |              ||
-|                                                  |  :8553 dash  ||
-|  +---------------------+      Unix Socket       |  :8554 MCP   ||
-|  |   ephyr (CLI)      |<======================>|              ||
-|  |                     |   /run/ephyr/          |              ||
-|  |  - Agent tool       |    broker.sock          |              ||
-|  |  - Cert requests    |                         |              ||
-|  |  - SSH operations   |   SO_PEERCRED           |              ||
-|  |                     |   UID check             |              ||
-|  | UID: 1000 (agent)   |                         +--------------+|
-|  +---------------------+                                        |
-+------------------------------------------------------------------+
+```mermaid
+graph TD
+    subgraph HOST["HOST (LXC / VM)"]
+        subgraph Signer["ephyr-signer<br/>UID: 999 | NET: AF_UNIX only"]
+            S1["Ed25519 CA key"]
+            S2["Sign SSH certs"]
+            S3["Sign delegation certs"]
+            S4["Root public key"]
+        end
+
+        subgraph Broker["ephyr-broker<br/>UID: 999 | NET: TCP+UNIX<br/>:8553 dash | :8554 MCP"]
+        end
+
+        subgraph CLI["ephyr (CLI)<br/>UID: 1000 (agent)"]
+            C1["Agent tool"]
+            C2["Cert requests"]
+            C3["SSH operations"]
+        end
+
+        Signer <-->|"Unix Socket /run/ephyr/signer.sock<br/>SO_PEERCRED UID check"| Broker
+        CLI <-->|"Unix Socket /run/ephyr/broker.sock<br/>SO_PEERCRED UID check"| Broker
+    end
 ```
 
 **ephyr-signer** -- The key custodian. Holds the Ed25519 CA private key in
@@ -163,38 +158,23 @@ HTTP (port 8554) instead of the CLI.
 
 ### 2.2 Trust Boundaries
 
-```
-                        TRUST BOUNDARY 1
-                     (Unix socket + SO_PEERCRED)
-                              |
-  +----------+     IPC        |        +-------------------+
-  |  Signer  |<===============|=======>|      Broker       |
-  |  CA Key  |                |        |  Policy Engine    |
-  +----------+                |        |  Session Mgr      |
-                              |        |  Proxy Engine     |
-                        TRUST BOUNDARY 2                   |
-                     (Unix socket + SO_PEERCRED)           |
-                              |        |                   |
-  +----------+     IPC        |        |                   |
-  |   CLI    |<===============|=======>|                   |
-  |  Agent   |                |        +-------------------+
-  +----------+                              |         |
-                                           |         |
-                        TRUST BOUNDARY 3   |    TRUST BOUNDARY 4
-                     (Bearer token + bcrypt)|  (Credential injection)
-                              |            |         |
-  +----------+    TCP :8554   |            |    +----+-----+
-  | MCP      |<==============|============|    | Backend  |
-  | Client   |                |            |    | Services |
-  +----------+                             |    +----------+
-                                           |
-                        TRUST BOUNDARY 5   |
-                     (Dashboard token)     |
-                              |            |
-  +----------+    TCP :8553   |            |
-  | Browser  |<==============|============+
-  | Dashboard|                |
-  +----------+
+```mermaid
+graph LR
+    Signer["Signer<br/>CA Key"]
+    CLI["CLI<br/>Agent"]
+    MCP["MCP Client"]
+    Browser["Browser<br/>Dashboard"]
+    Backend["Backend<br/>Services"]
+
+    subgraph Broker["Broker"]
+        BE["Policy Engine<br/>Session Mgr<br/>Proxy Engine"]
+    end
+
+    Signer <-->|"TB1: Unix socket + SO_PEERCRED<br/>IPC"| Broker
+    CLI <-->|"TB2: Unix socket + SO_PEERCRED<br/>IPC"| Broker
+    MCP <-->|"TB3: Bearer token + bcrypt<br/>TCP :8554"| Broker
+    Broker -->|"TB4: Credential injection"| Backend
+    Browser <-->|"TB5: Dashboard token<br/>TCP :8553"| Broker
 ```
 
 **Boundary 1 (Signer IPC):** The signer validates caller UID via
@@ -222,16 +202,12 @@ REST API calls.
 
 ### 2.3 Network Exposure
 
-```
-+-------------------+-------------------------------------------+
-|      Port         |              Exposure                     |
-+-------------------+-------------------------------------------+
-| signer.sock       | Unix socket only, AF_UNIX restricted      |
-| broker.sock       | Unix socket only, group ephyr-agents     |
+| Port | Exposure |
+|------|----------|
+| signer.sock | Unix socket only, AF_UNIX restricted |
+| broker.sock | Unix socket only, group ephyr-agents |
 | :8553 (dashboard) | TCP, restricted to 192.168.0.0/16 by nft |
-| :8554 (MCP)       | TCP, restricted to 192.168.0.0/16 by nft |
-+-------------------+-------------------------------------------+
-```
+| :8554 (MCP) | TCP, restricted to 192.168.0.0/16 by nft |
 
 The nftables firewall on the LXC enforces input filtering (default drop)
 and output filtering for the agent UID (1000), blocking direct access to
@@ -240,43 +216,26 @@ backend access must go through the broker's proxy.
 
 ### 2.4 Data Flow: Agent Executes a Command
 
-```
-   Agent                 Broker                Signer              Target
-     |                     |                     |                    |
-     |  POST /mcp          |                     |                    |
-     |  tools/call: exec   |                     |                    |
-     |  Bearer: <api_key>  |                     |                    |
-     |-------------------->|                     |                    |
-     |                     |                     |                    |
-     |              1. Authenticate              |                    |
-     |              (bcrypt / cache)              |                    |
-     |                     |                     |                    |
-     |              2. Policy eval               |                    |
-     |              (target, role, RBAC)          |                    |
-     |                     |                     |                    |
-     |              3. Generate ephemeral         |                    |
-     |                 Ed25519 keypair            |                    |
-     |                     |                     |                    |
-     |                     | sign(pub, principal) |                    |
-     |                     |-------------------->|                    |
-     |                     |                     |                    |
-     |                     |    SSH certificate   |                    |
-     |                     |<--------------------|                    |
-     |                     |                     |                    |
-     |              4. SSH dial with cert         |                    |
-     |                     |------------------------------------------->
-     |                     |                     |                    |
-     |              5. Run command               |                    |
-     |                     |------------------------------------------->
-     |                     |                     |                    |
-     |                     |                 stdout, stderr, exit_code |
-     |                     |<------------------------------------------|
-     |                     |                     |                    |
-     |              6. Audit log + event hub     |                    |
-     |                     |                     |                    |
-     |   JSON-RPC result   |                     |                    |
-     |<--------------------|                     |                    |
-     |                     |                     |                    |
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant Broker
+    participant Signer
+    participant Target
+
+    Agent->>Broker: POST /mcp tools/call: exec<br/>Bearer: api_key
+    Note right of Broker: 1. Authenticate (bcrypt / cache)
+    Note right of Broker: 2. Policy eval (target, role, RBAC)
+    Note right of Broker: 3. Generate ephemeral Ed25519 keypair
+    Broker->>Signer: sign(pub, principal)
+    Signer-->>Broker: SSH certificate
+    Note right of Broker: 4. SSH dial with cert
+    Broker->>Target: SSH connection (cert)
+    Note right of Broker: 5. Run command
+    Broker->>Target: Execute command
+    Target-->>Broker: stdout, stderr, exit_code
+    Note right of Broker: 6. Audit log + event hub
+    Broker-->>Agent: JSON-RPC result
 ```
 
 ---
@@ -289,60 +248,46 @@ The broker composes 13 internal subsystems. Each subsystem is a Go struct
 with a well-defined responsibility and thread-safe API. There are no
 circular dependencies between subsystems.
 
-```
-+------------------------------------------------------------------------+
-|                          BrokerServer                                   |
-|                                                                        |
-|  +----------------+  +----------------+  +------------------+          |
-|  | PolicyEngine   |  | SignerClient   |  | SessionManager   |          |
-|  | (policy eval,  |  | (IPC to signer,|  | (SSH session     |          |
-|  |  cert tracking,|  |  sign, ping,   |  |  lifecycle,      |          |
-|  |  hot-reload)   |  |  delegation)   |  |  peer cred)      |          |
-|  +----------------+  +----------------+  +------------------+          |
-|                                                                        |
-|  +----------------+  +----------------+  +------------------+          |
-|  | CertState      |  | RateLimiter    |  | AuditLogger      |          |
-|  | (active cert   |  | (per-agent     |  | (structured JSON |          |
-|  |  registry,     |  |  sliding window|  |  log, multi-     |          |
-|  |  expiry sweep) |  |  throttle)     |  |  writer)         |          |
-|  +----------------+  +----------------+  +------------------+          |
-|                                                                        |
-|  +----------------+  +----------------+  +------------------+          |
-|  | EventHub       |  | HostController |  | ConfigManager    |          |
-|  | (WebSocket     |  | (per-host      |  | (persistent host |          |
-|  |  broadcast,    |  |  enable/disable|  |  config, policy  |          |
-|  |  backpressure) |  |  toggles)      |  |  reconciliation) |          |
-|  +----------------+  +----------------+  +------------------+          |
-|                                                                        |
-|  +----------------+  +----------------+  +------------------+          |
-|  | MCPServer      |  | ActivityStore  |  | ProxyEngine      |          |
-|  | (JSON-RPC 2.0, |  | (ring buffer,  |  | (credential      |          |
-|  |  tool dispatch,|  |  per-agent     |  |  injection, CIDR |          |
-|  |  auth, SSE)    |  |  stats, query) |  |  policy, service |          |
-|  +----------------+  +----------------+  |  matching)        |          |
-|                                          +------------------+          |
-|  +----------------+                                                    |
-|  | MCPFederator   |      v0.2 Task Identity                           |
-|  | (remote MCP    |  +------------------+  +------------------+       |
-|  |  discovery,    |  | TaskManager      |  | DelegationManager|       |
-|  |  namespacing,  |  | (ULID IDs,       |  | (ephemeral keys, |       |
-|  |  proxy calls)  |  |  lineage, expiry)|  |  rotation loop)  |       |
-|  +----------------+  +------------------+  +------------------+       |
-|                                                                        |
-|                       +------------------+  +------------------+       |
-|                       | RevocationMap    |  | Metrics          |       |
-|                       | (epoch watermark |  | (lock-free       |       |
-|                       |  revocation, GC) |  |  histograms,     |       |
-|                       +------------------+  |  Prometheus)     |       |
-|                                             +------------------+       |
-|                                                                        |
-|                       +------------------+  +------------------+       |
-|                       | GrantStore       |  | TokenIssuer/     |       |
-|                       | (service/MCP     |  |  Validator       |       |
-|                       |  access grants,  |  | (JWT EdDSA,      |       |
-|                       |  TTL, passthru)  |  |  claim parsing)  |       |
-|                       +------------------+  +------------------+       |
-+------------------------------------------------------------------------+
+```mermaid
+graph TD
+    subgraph BrokerServer["BrokerServer"]
+        subgraph Core["Core Subsystems"]
+            PE["PolicyEngine<br/>(policy eval, cert tracking, hot-reload)"]
+            SC["SignerClient<br/>(IPC to signer, sign, ping, delegation)"]
+            SM["SessionManager<br/>(SSH session lifecycle, peer cred)"]
+        end
+
+        subgraph State["State & Control"]
+            CS["CertState<br/>(active cert registry, expiry sweep)"]
+            RL["RateLimiter<br/>(per-agent sliding window throttle)"]
+            AL["AuditLogger<br/>(structured JSON log, multi-writer)"]
+        end
+
+        subgraph Infra["Infrastructure"]
+            EH["EventHub<br/>(WebSocket broadcast, backpressure)"]
+            HC["HostController<br/>(per-host enable/disable toggles)"]
+            CM["ConfigManager<br/>(persistent host config, policy reconciliation)"]
+        end
+
+        subgraph Services["Service Layer"]
+            MCP["MCPServer<br/>(JSON-RPC 2.0, tool dispatch, auth, SSE)"]
+            AS["ActivityStore<br/>(ring buffer, per-agent stats, query)"]
+            PX["ProxyEngine<br/>(credential injection, CIDR policy, service matching)"]
+        end
+
+        subgraph Federation["Federation"]
+            MF["MCPFederator<br/>(remote MCP discovery, namespacing, proxy calls)"]
+        end
+
+        subgraph TaskIdentity["v0.2 Task Identity"]
+            TM["TaskManager<br/>(ULID IDs, lineage, expiry)"]
+            DM["DelegationManager<br/>(ephemeral keys, rotation loop)"]
+            RM["RevocationMap<br/>(epoch watermark revocation, GC)"]
+            MT["Metrics<br/>(lock-free histograms, Prometheus)"]
+            GS["GrantStore<br/>(service/MCP access grants, TTL, passthru)"]
+            TV["TokenIssuer/Validator<br/>(JWT EdDSA, claim parsing)"]
+        end
+    end
 ```
 
 ### 3.2 Initialization Sequence

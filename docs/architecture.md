@@ -10,31 +10,37 @@ policy-governed credentials.
 The system is split into three processes -- Signer, Broker, and CLI -- each
 running with the minimum privileges required for its function.
 
-```
-                  +------------------+
-                  |   ephyr (CLI)   |
-                  +--------+---------+
-                           |
-                   Unix socket IPC (/run/ephyr/broker.sock)
-                           |
-         +-----------------+------------------+
-         |           Broker (orchestrator)     |
-         |  Policy Engine | Session Manager   |
-         |  Rate Limiter  | Host Controller   |
-         |  Audit Logger  | Event Hub         |
-         |  Cert State    | Config Manager    |
-         |  Exec Pool     | Proxy Engine      |
-         |  MCP Server    | Activity Store    |
-         +--------+-------+---------+---------+
-                   |                 |
-          Unix socket IPC     TCP :8553 (dashboard)
-      /run/ephyr/signer.sock TCP :8554 (MCP)
-                   |
-         +---------+---------+
-         |   Signer (CA)     |
-         |   Ed25519 key     |
-         |   No network      |
-         +-------------------+
+```mermaid
+graph TD
+    subgraph CLI["ephyr (CLI)"]
+        C1["Agent tool"]
+    end
+
+    subgraph Broker["Broker (orchestrator)"]
+        B1["Policy Engine"]
+        B2["Session Manager"]
+        B3["Rate Limiter"]
+        B4["Host Controller"]
+        B5["Audit Logger"]
+        B6["Event Hub"]
+        B7["Cert State"]
+        B8["Config Manager"]
+        B9["Exec Pool"]
+        B10["Proxy Engine"]
+        B11["MCP Server"]
+        B12["Activity Store"]
+    end
+
+    subgraph Signer["Signer (CA)"]
+        S1["Ed25519 key"]
+        S2["No network"]
+    end
+
+    CLI -->|"Unix socket IPC (/run/ephyr/broker.sock)"| Broker
+    Broker -->|"Unix socket IPC (/run/ephyr/signer.sock)"| Signer
+
+    Broker --- Dashboard[":8553 dashboard"]
+    Broker --- MCP[":8554 MCP"]
 ```
 
 ---
@@ -123,39 +129,48 @@ Central orchestrator running multiple listeners and thirteen subsystems.
 
 ### Certificate Request Flow
 
-```
-  CLI                          Broker                           Signer
-   |-- POST /v1/session ------->|                                 |
-   |<--- {token} ---------------|                                 |
-   |-- POST /v1/request ------->| 1. extract peer UID (PEERCRED) |
-   |   {target,role,pubkey}     | 2. validate session token       |
-   |   + X-Session-Token        | 3. check UID matches session    |
-   |                            | 4. check host enabled           |
-   |                            | 5. evaluate 8-step policy       |
-   |                            |-- sign request ---------------->|
-   |                            |<-- {certificate, serial} -------|
-   |                            | 6. track in CertState + engine  |
-   |                            | 7. audit log + WS broadcast     |
-   |<--- {granted, cert, host} -|                                 |
+```mermaid
+sequenceDiagram
+    participant CLI
+    participant Broker
+    participant Signer
+
+    CLI->>Broker: POST /v1/session
+    Broker-->>CLI: {token}
+    CLI->>Broker: POST /v1/request {target, role, pubkey} + X-Session-Token
+    Note right of Broker: 1. Extract peer UID (PEERCRED)
+    Note right of Broker: 2. Validate session token
+    Note right of Broker: 3. Check UID matches session
+    Note right of Broker: 4. Check host enabled
+    Note right of Broker: 5. Evaluate 8-step policy
+    Broker->>Signer: sign request
+    Signer-->>Broker: {certificate, serial}
+    Note right of Broker: 6. Track in CertState + engine
+    Note right of Broker: 7. Audit log + WS broadcast
+    Broker-->>CLI: {granted, cert, host}
 ```
 
 ### MCP Command Execution Flow
 
 Ephemeral keypairs generated in-memory (never touch disk):
 
-```
-  LLM Agent              Exec Pool                  Signer       Target
-   |-- POST /mcp -------->|                            |            |
-   |  {exec, target, cmd} | authenticate (bcrypt key)  |            |
-   |                      | ed25519.GenerateKey()       |            |
-   |                      |-- RequestSign {pubkey} ---->|            |
-   |                      |<-- {certificate} ----------|            |
-   |                      |-- ssh.Dial(cert) ----------|----------->|
-   |                      |-- session.Run(cmd) --------|----------->|
-   |                      |<-- stdout/stderr/exit -----|------------|
-   |                      | record activity + audit     |            |
-   |<-- {stdout,stderr,   |                            |            |
-   |     exit_code} ------|                            |            |
+```mermaid
+sequenceDiagram
+    participant Agent as LLM Agent
+    participant ExecPool as Exec Pool
+    participant Signer
+    participant Target
+
+    Agent->>ExecPool: POST /mcp {exec, target, cmd}
+    Note right of ExecPool: Authenticate (bcrypt key)
+    Note right of ExecPool: ed25519.GenerateKey()
+    ExecPool->>Signer: RequestSign {pubkey}
+    Signer-->>ExecPool: {certificate}
+    ExecPool->>Target: ssh.Dial(cert)
+    ExecPool->>Target: session.Run(cmd)
+    Target-->>ExecPool: stdout/stderr/exit
+    Note right of ExecPool: Record activity + audit
+    ExecPool-->>Agent: {stdout, stderr, exit_code}
 ```
 
 Persistent sessions (`session_create`) keep the SSH connection open for
@@ -163,18 +178,20 @@ multi-command workflows. Idle sessions are cleaned up after 5 minutes.
 
 ### HTTP Proxy Flow
 
-```
-  LLM Agent              Proxy Engine                     Target Service
-   |-- POST /mcp -------->|                                    |
-   |  {http_request, url} | resolve DNS (2s timeout)           |
-   |                      | evaluate CIDR allow/deny policy    |
-   |                      | match service (longest prefix)     |
-   |                      | inject credentials (bearer/basic/  |
-   |                      |   header/query) -- agent never     |
-   |                      |   sees the token ----------------->|
-   |                      |<-- response (size-capped) ---------|
-   |                      | audit + activity + WS broadcast    |
-   |<-- {status, body} ---|                                    |
+```mermaid
+sequenceDiagram
+    participant Agent as LLM Agent
+    participant Proxy as Proxy Engine
+    participant Service as Target Service
+
+    Agent->>Proxy: POST /mcp {http_request, url}
+    Note right of Proxy: Resolve DNS (2s timeout)
+    Note right of Proxy: Evaluate CIDR allow/deny policy
+    Note right of Proxy: Match service (longest prefix)
+    Proxy->>Service: Inject credentials (bearer/basic/header/query) — agent never sees the token
+    Service-->>Proxy: Response (size-capped)
+    Note right of Proxy: Audit + activity + WS broadcast
+    Proxy-->>Agent: {status, body}
 ```
 
 ### API Routes Summary
@@ -270,14 +287,14 @@ A JSON report is written to `/tmp/ephyr-smoke-report.json` after each run.
 
 ### Tiered Trust Model
 
-```
-Signer (root CA)
-  │ signs delegation cert (infrequent IPC)
-  ▼
-Broker (delegated issuer)
-  │ signs CTT-E tokens locally (no IPC per request)
-  ▼
-Task tokens (leaf credentials)
+```mermaid
+graph TD
+    Signer["Signer (root CA)"]
+    Broker["Broker (delegated issuer)"]
+    Tokens["Task tokens (leaf credentials)"]
+
+    Signer -->|"Signs delegation cert (infrequent IPC)"| Broker
+    Broker -->|"Signs CTT-E tokens locally (no IPC per request)"| Tokens
 ```
 
 The signer holds the long-lived Ed25519 root key. The broker generates an ephemeral Ed25519 keypair and requests a delegation certificate from the signer. This cert authorizes the broker to sign task tokens (CTT-E) locally without IPC on every request.

@@ -256,35 +256,24 @@ present with subsequent requests.
 The delegation cycle ensures the broker always has a valid signing key
 without requiring continuous access to the signer:
 
-```
-    Broker                              Signer
-      |                                   |
-      |  1. Generate Ed25519 keypair      |
-      |     (pub, priv) = GenerateKey()   |
-      |                                   |
-      |  2. sign_delegation(pub, id, ttl) |
-      |---------------------------------->|
-      |                                   |  3. Generate cert ID
-      |                                   |  4. Build canonical payload:
-      |                                   |     {broker_id, cert_id,
-      |                                   |      expires_at, issued_at,
-      |                                   |      public_key}
-      |                                   |  5. Sign with root private key
-      |  6. (cert_id, sig, timestamps,    |
-      |      root_pub_key)                |
-      |<----------------------------------|
-      |                                   |
-      |  7. Store: priv + DelegationCert  |
-      |  8. Register cert in Validator    |
-      |  9. Sign CTT-E tokens locally     |
-      |                                   |
-      |  ... 50 minutes pass ...          |
-      |                                   |
-      |  10. Rotation: repeat steps 1-8   |
-      |      Move old key to prev slot    |
-      |---------------------------------->|
-      |<----------------------------------|
-      |                                   |
+```mermaid
+sequenceDiagram
+    participant Broker
+    participant Signer
+
+    Note left of Broker: 1. Generate Ed25519 keypair<br/>(pub, priv) = GenerateKey()
+    Broker->>Signer: 2. sign_delegation(pub, id, ttl)
+    Note right of Signer: 3. Generate cert ID
+    Note right of Signer: 4. Build canonical payload:<br/>{broker_id, cert_id,<br/>expires_at, issued_at,<br/>public_key}
+    Note right of Signer: 5. Sign with root private key
+    Signer-->>Broker: 6. (cert_id, sig, timestamps, root_pub_key)
+    Note left of Broker: 7. Store: priv + DelegationCert
+    Note left of Broker: 8. Register cert in Validator
+    Note left of Broker: 9. Sign CTT-E tokens locally
+    Note over Broker,Signer: ... 50 minutes pass ...
+    Note left of Broker: 10. Rotation: repeat steps 1-8<br/>Move old key to prev slot
+    Broker->>Signer: sign_delegation (rotation)
+    Signer-->>Broker: New delegation cert
 ```
 
 **Timing defaults:**
