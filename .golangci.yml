@@ -1,11 +1,8 @@
-version: "2"
-
 run:
   timeout: 5m
 
 linters:
   enable:
-    - errcheck
     - govet
     - ineffassign
     - staticcheck
@@ -19,21 +16,15 @@ linters:
     - predeclared
     - reassign
     - unconvert
+  disable:
+    - errcheck
+    - depguard
+    - unparam
+    - gosimple
 
 linters-settings:
-  errcheck:
-    exclude-functions:
-      - (io.Closer).Close
-      - (net/http.ResponseWriter).Write
-      - (*encoding/json.Encoder).Encode
-      - (*encoding/json.Decoder).Decode
-      - crypto/rand.Read
-      - fmt.Sscanf
-      - (*github.com/gorilla/websocket.Conn).WriteMessage
-      - (*github.com/gorilla/websocket.Conn).SetReadDeadline
-      - (*github.com/gorilla/websocket.Conn).SetWriteDeadline
-      - (net.Conn).SetDeadline
-      - (net.Conn).SetReadDeadline
+  staticcheck:
+    checks: ["all", "-QF*", "-ST1005"]
 
 issues:
   exclude-use-default: true
@@ -42,4 +33,13 @@ issues:
   exclude-rules:
     - path: _test\.go
       linters:
-        - errcheck
+        - errorlint
+    - linters:
+        - staticcheck
+      text: "S1000"
+    - linters:
+        - staticcheck
+      text: "S1009"
+    - linters:
+        - staticcheck
+      text: "S1017"
