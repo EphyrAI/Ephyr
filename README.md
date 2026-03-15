@@ -387,7 +387,16 @@ sudo make setup DASHBOARD_TOKEN=mysecret MCP_PORT=9000 DASHBOARD_PORT=9001
 
 Output shows the dashboard URL, MCP endpoint, and demo API key. Edit `/etc/ephyr/policy.yaml` to add your targets.
 
-You should see `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26",...,"serverInfo":{"name":"ephyr","version":"1.0.0"}}}`.
+### 3. Configure target hosts
+
+Each SSH target needs role accounts and the broker's CA public key. Run the provisioning script on each target:
+
+```bash
+scp /etc/ephyr/ca_key.pub deploy/scripts/provision-target.sh root@TARGET:/tmp/
+ssh root@TARGET "bash /tmp/provision-target.sh /tmp/ca_key.pub"
+```
+
+This creates `agent-read` (restricted shell), `agent-op` (bash + limited sudo), and `agent-admin` (bash + broader sudo), configures sshd to trust Ephyr certificates, and installs sudoers rules. See [docs/target-setup.md](docs/target-setup.md) for custom roles and manual setup.
 
 ### 4. Do one thing
 
@@ -528,6 +537,7 @@ go test ./test/integration/  # Integration tests (requires running instance)
 
 | Document | Description |
 |----------|-------------|
+| [Target Setup](docs/target-setup.md) | Configure SSH targets: roles, principals, sudoers |
 | [Architecture](docs/architecture.md) | Trust model, delegation chain, validation flow |
 | [Security](docs/security.md) | Security boundaries, hardening guide |
 | [Configuration](docs/configuration.md) | Full policy reference and RBAC setup |
