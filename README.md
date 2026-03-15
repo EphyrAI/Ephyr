@@ -333,7 +333,7 @@ Benchmarked on a Debian 12 LXC (1 vCPU, 512MB RAM):
 
 ### What Ephyr does NOT enforce
 
-- **Command-level permissions** -- Ephyr controls *who* gets access and *for how long*. The target host controls *what they can do*. SSH principals map to Linux users whose capabilities are defined by shell choice, sudoers rules, and filesystem permissions. **A misconfigured target host silently negates the security model.** See [Target Setup](docs/target-setup.md) and [T18 in the Threat Model](docs/THREAT_MODEL.md).
+- **Command-level permissions** -- Ephyr controls *who* gets access, *for how long*, and optionally *which command* (via `force_command` in policy, embedded in the SSH certificate). Beyond that, the target host controls what agents can do via shell choice, sudoers rules, and filesystem permissions. **A misconfigured target host can widen the blast radius.** See [Target Setup](docs/target-setup.md) and [T18 in the Threat Model](docs/THREAT_MODEL.md).
 - **OS-level isolation** -- SELinux/AppArmor, filesystem permissions, and host network policy are outside Ephyr's scope
 - **Holder binding (until Bind ships)** -- Task tokens are bearer tokens. TTL and epoch watermark mitigate replay; proof-of-possession is planned for Ephyr Bind.
 

@@ -150,6 +150,24 @@ ansible-playbook -i inventory.yml site.yml --limit ephyr_targets
 
 See [deploy/ansible/README.md](../deploy/ansible/README.md) for details.
 
+## Command restriction via force_command
+
+For maximum lockdown, you can restrict a target to a single command at the certificate level. Set `force_command` in `policy.yaml`:
+
+```yaml
+targets:
+  monitoring-host:
+    host: "10.0.1.30"
+    port: 22
+    allowed_roles: [read]
+    force_command: "/usr/local/bin/health-check.sh"
+    auto_approve: true
+```
+
+When `force_command` is set, the SSH certificate includes it as a critical option. The target's sshd enforces it — the agent can only run that exact command, regardless of what it requests. This is enforced by OpenSSH at the protocol level, not by shell or sudoers.
+
+This is useful for single-purpose targets (monitoring probes, backup triggers, deploy hooks) where you want to eliminate all ambiguity about what the agent can do.
+
 ## Custom roles
 
 You can define any roles you need. Examples:
