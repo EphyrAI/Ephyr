@@ -129,7 +129,7 @@ Delegated task authority for multi-agent workflows. Implements the Delegation Ca
 #### What Ephyr Delegation does NOT provide
 
 - Cryptographic proof of semantic attenuation. The correct claim: cryptographic proof of caveat accumulation (HMAC chain) combined with deterministic semantic narrowing (reducer). Caveats accumulate; the reducer interprets them.
-- Holder binding. Task tokens are bearer tokens. A leaked macaroon can be used by anyone until it expires or is revoked. TTL and epoch watermark mitigate this; Ephyr Bind addresses it.
+- Holder binding is optional per task. Tasks created without a `holder_pub_key` (or unbound delegated tasks past the bind deadline) remain bearer tokens. TTL and epoch watermark mitigate this. Tasks created with holder binding enforce proof-of-possession on every request (Ephyr Bind).
 
 ### Ephyr Bind (v0.3)
 
@@ -209,7 +209,7 @@ Agents create tasks via `task_create` and receive a macaroon-based task token. T
 
 **Epoch watermark revocation:** `task_revoke` invalidates all tokens for a task by setting an epoch timestamp. Validation checks the watermark in O(depth) with no per-token blocklists. Cascading revocation propagates to all child tasks in the lineage.
 
-**Bearer-token limitation:** Task tokens (both JWT and macaroon) are bearer tokens. A leaked token can be used by anyone until TTL expiry or epoch watermark revocation. Ephyr Bind (v0.3) will add holder binding via proof-of-possession.
+**Holder binding (Ephyr Bind):** Task tokens are bearer by default. Ephyr Bind (v0.3) adds opt-in holder binding: tasks created with `holder_pub_key` or bound via `task_bind` require proof-of-possession (Ed25519 signature over nonce, timestamp, body hash, and macaroon digest) on every request. Unbound tokens with a bind deadline return 423 Locked for all tools except `task_bind`. PoP verification is enforced in the broker auth hot path; API key and legacy JWT authentication bypass PoP.
 
 ### HTTP Proxy with Credential Injection
 
@@ -345,7 +345,7 @@ Benchmarked on a single-core Linux host with 512 MB RAM:
 
 - **Command-level permissions** -- Ephyr controls *who* gets access, *for how long*, and optionally *which command* (via `force_command` in policy, embedded in the SSH certificate). Beyond that, the target host controls what agents can do via shell choice, sudoers rules, and filesystem permissions. **A misconfigured target host can widen the blast radius.** See [Target Setup](docs/target-setup.md) and [T18 in the Threat Model](docs/THREAT_MODEL.md).
 - **OS-level isolation** -- SELinux/AppArmor, filesystem permissions, and host network policy are outside Ephyr's scope
-- **Holder binding (until Bind ships)** -- Task tokens are bearer tokens. TTL and epoch watermark mitigate replay; proof-of-possession is planned for Ephyr Bind.
+- **Holder binding is opt-in** -- Task tokens without a bound holder key are bearer tokens. TTL and epoch watermark mitigate replay. Tasks created with `holder_pub_key` or bound via `task_bind` enforce proof-of-possession on every request (Ephyr Bind, enforced in the auth hot path).
 
 ### Threat model
 

@@ -110,18 +110,26 @@ rather than JWTs. Macaroons provide several security advantages:
   task ULID, and verification requires the root key held only by the broker.
 - **Monotonic attenuation** -- the effective envelope reducer uses set intersection
   and minimum operations, guaranteeing each delegation can only narrow capabilities.
-- **Bearer semantics** -- tokens are bearer by default with TTL + watermark
-  revocation (v0.2). Ephyr Bind (v0.3) upgrades to holder-bound tokens.
+- **Bearer semantics with opt-in holder binding** -- tokens are bearer by default with TTL + watermark
+  revocation (v0.2). Ephyr Bind (v0.3) adds holder-bound tokens with proof-of-possession enforcement in the broker auth hot path.
 
-### Proof-of-Possession (Ephyr Bind)
+### Proof-of-Possession (Ephyr Bind) -- Enforced
 
-Ephyr Bind (v0.3) adds holder-bound tokens with DPoP-style proof-of-possession:
+Ephyr Bind (v0.3) adds holder-bound tokens with DPoP-style proof-of-possession,
+enforced in the broker's MCP auth hot path (`handleToolsCall`):
 
 - **Ephemeral keypair per task** -- the holder generates an Ed25519 keypair and
   binds the public key to the macaroon via `task_bind` or the `holder_pub_key`
   parameter on `task_create`.
+- **Enforced in the auth hot path** -- bound tokens (`HolderBound=true`) require
+  a valid `_pop` field on every `tools/call` request. The `_pop` field contains
+  an Ed25519 signature, body hash, macaroon digest, nonce, and timestamp. The
+  broker verifies the signature and strips `_pop` before tool handlers see it.
+- **Unbound token lockout** -- tokens with `HolderBound=false` and a
+  `BindDeadline` return HTTP 423 Locked for all tools except `task_bind`.
 - **Replay resistance** -- each request must include a PoP signature over a
-  nonce, preventing token replay even if the macaroon is intercepted.
+  unique nonce, preventing token replay even if the macaroon is intercepted.
+  The broker maintains a nonce cache to reject duplicates.
 - **Two-phase binding** -- for delegated tasks, the parent creates the token
   without knowing the child's key. The child has a 30-second bind deadline to
   call `task_bind` and bind its public key. After the deadline, the unbound
@@ -129,6 +137,10 @@ Ephyr Bind (v0.3) adds holder-bound tokens with DPoP-style proof-of-possession:
 - **Bind deadline window** -- the 30-second unbound period is a deliberate
   tradeoff between security and operational flexibility. During this window,
   the token is bearer-mode. TLS protects against network interception.
+- **Clock skew tolerance** -- configurable via `EPHYR_POP_CLOCK_SKEW` env var
+  (default 30s). Timestamps outside the skew window are rejected.
+- **API key and JWT bypass** -- PoP only applies to macaroon-authenticated
+  requests with task identity. API key and legacy JWT auth are bearer-only.
 
 ### Epoch Watermark Revocation
 

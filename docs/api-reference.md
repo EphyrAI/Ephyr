@@ -1014,6 +1014,117 @@ requesting agent.
 
 ---
 
+### Proof-of-Possession (`_pop` field) -- Ephyr Bind
+
+Holder-bound task tokens (Ephyr Bind, v0.3) require a `_pop` field in every
+`tools/call` request's `arguments` map. The broker verifies the proof and
+strips `_pop` before tool handlers see it.
+
+**When PoP is required:**
+- The task was created with `holder_pub_key` on `task_create`, or
+- The task was bound via `task_bind`
+
+**When PoP is NOT required:**
+- API key authentication (bearer mode)
+- Legacy JWT authentication
+- Macaroon tokens that are not holder-bound
+
+#### `_pop` Field Format
+
+The `_pop` field is an object within the `arguments` map:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "exec",
+    "arguments": {
+      "target": "webserver",
+      "role": "read",
+      "command": "hostname",
+      "_pop": {
+        "sig": "<base64url Ed25519 signature over JSON-serialized payload>",
+        "payload": {
+          "task_id": "01JQABC...",
+          "req_type": "ssh_exec",
+          "resource": "webserver",
+          "method": "read",
+          "body_hash": "<SHA-256 hex of canonical request body (arguments without _pop)>",
+          "mac_digest": "<SHA-256 hex of serialized macaroon>",
+          "nonce": "<16 bytes hex, unique per request>",
+          "ts": "2026-03-15T10:30:00Z"
+        }
+      }
+    }
+  }
+}
+```
+
+**Payload fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `task_id` | string | ULID of the task this proof is for |
+| `req_type` | string | Request type: `ssh_exec`, `http_proxy`, `mcp_federation`, `delegate`, `bind` |
+| `resource` | string | Target name, service name, or remote name |
+| `method` | string | Role, HTTP method, or tool name |
+| `body_hash` | string | SHA-256 hex digest of the canonical request body (arguments map without `_pop`, JSON-serialized with sorted keys) |
+| `mac_digest` | string | SHA-256 hex digest of the serialized macaroon token |
+| `nonce` | string | 16 bytes of `crypto/rand` randomness, hex-encoded. Each nonce may only be used once per task (enforced by broker nonce cache). |
+| `ts` | string | RFC 3339 timestamp. Must be within the configured clock skew window (default +/-30s, configurable via `EPHYR_POP_CLOCK_SKEW`). |
+
+**Signature:** The `sig` field is a base64url-encoded Ed25519 signature over the
+JSON-serialized `payload` object.
+
+#### Unbound Token Response (423 Locked)
+
+Tokens with a bind deadline that have not yet been bound via `task_bind` return
+423 Locked for all tools except `task_bind`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "423 Locked: token not yet bound. Call task_bind to register your holder key."
+      }
+    ],
+    "isError": true
+  }
+}
+```
+
+#### PoP Verification Failure
+
+If the `_pop` field is missing, malformed, or the signature is invalid, the
+broker returns an error result:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "proof-of-possession failed: <reason>"
+      }
+    ],
+    "isError": true
+  }
+}
+```
+
+Possible reasons: `missing _pop field`, `invalid _pop structure`, `nonce already used`,
+`timestamp outside clock skew window`, `signature verification failed`.
+
+---
+
 ### Request Filtering
 
 Request filtering applies to the `exec`, `http_request`, and federated tool calls.

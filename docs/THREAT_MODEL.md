@@ -362,7 +362,7 @@ The following table provides a consolidated view of the most significant residua
 | 12 | Delegation key in broker memory could be extracted | **Low** | B1 | Accepted -- bounded by delegation cert validity + policy enforcement |
 | 13 | Bearer token replay within TTL window | **Medium** | B0r | Mitigated -- short TTLs + watermark revocation; addressed by Ephyr Bind PoP |
 | 14 | Bind deadline window (30s unbound period) | **Low** | B0r | Accepted -- TLS protects transit; deadline is configurable; unbound tokens expire |
-| 15 | Body tampering without Bind | **Low** | B3 | Mitigated -- TLS provides integrity; PoP body binding planned |
+| 15 | Body tampering without Bind | **Low** | B3 | Mitigated -- TLS provides integrity; PoP body binding enforced for holder-bound tokens via `body_hash` in `_pop` |
 | 16 | Target host misconfiguration widens blast radius | **High** | B2 | Operational -- deployer responsibility; provisioning script and docs provided |
 
 ### T18: Target Host Misconfiguration

@@ -39,7 +39,7 @@ Version 0.3 | March 2026
    - 7.3 [Validation Chain](#73-validation-chain)
    - 7.4 [Identity URN Scheme](#74-identity-urn-scheme)
    - 7.5 [ULID Task Identifiers](#75-ulid-task-identifiers)
-   - 7.6 [Ephyr Bind (Planned)](#76-ephyr-bind-planned)
+   - 7.6 [Ephyr Bind](#76-ephyr-bind)
 8. [Revocation](#8-revocation)
    - 8.1 [Epoch Watermark Model](#81-epoch-watermark-model)
    - 8.2 [Lineage-Walk Validation](#82-lineage-walk-validation)
@@ -1090,7 +1090,7 @@ this by adding proof-of-possession binding.
 - Protection against a compromised agent runtime replaying the token
 - Body integrity (the token does not bind to a specific request body)
 - TLS channel binding
-- Holder binding (addressed by Ephyr Bind, Section 7.6)
+- Holder binding for non-bound tokens (opt-in via Ephyr Bind, Section 7.6)
 
 **Design decisions:**
 
@@ -1218,10 +1218,11 @@ characters:
 (no external dependency) using `crypto/rand` for the random component,
 ensuring cryptographic-quality randomness.
 
-### 7.6 Ephyr Bind (v0.3)
+### 7.6 Ephyr Bind (v0.3) -- Enforced
 
 Ephyr Bind (v0.3 tier) extends bearer macaroon tokens with holder
-binding via DPoP-style proof-of-possession.
+binding via DPoP-style proof-of-possession. PoP verification is
+enforced in the broker's MCP auth hot path (`handleToolsCall`).
 
 **Holder binding mechanism:**
 - Each task generates an ephemeral Ed25519 keypair

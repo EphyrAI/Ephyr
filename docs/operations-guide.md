@@ -82,6 +82,7 @@ curl -s -X POST http://localhost:8554/mcp \
 | `EPHYR_MCP_LISTEN` | (none) | MCP server TCP listen address (e.g. `:8554`) |
 | `EPHYR_ADMIN_UIDS` | `0` | Comma-separated UIDs for admin access |
 | `EPHYR_AUTH_CACHE_TTL` | `60s` | Auth cache TTL (0 to disable) |
+| `EPHYR_POP_CLOCK_SKEW` | `30s` | PoP timestamp skew tolerance (Ephyr Bind) |
 | `EPHYR_SOCKET_GROUP` | (none) | Group for broker socket permissions |
 | `EPHYR_BROKER_UID` | (none) | Broker UID (set in signer unit) |
 

@@ -408,6 +408,7 @@ precedence if both are set.
 | EPHYR_MCP_LISTEN | :8554 | TCP bind address for the MCP JSON-RPC endpoint. Set to empty to disable. |
 | EPHYR_SOCKET_GROUP | ephyr-agents | Unix group name for the broker socket. The socket is chown'd to this group with 0660 permissions so group members can connect. |
 | EPHYR_AUTH_CACHE_TTL | 60s | TTL for the MCP API key authentication cache. Accepts Go duration strings (e.g., `"30s"`, `"2m"`, `"0"`). Set to `"0"` to disable caching entirely -- every MCP request will perform a full bcrypt comparison. The cache avoids repeated bcrypt work for the same API key within the TTL window. |
+| EPHYR_POP_CLOCK_SKEW | 30s | Maximum allowed clock skew for proof-of-possession timestamp validation (Ephyr Bind). Accepts Go duration strings. PoP proofs with timestamps outside `now +/- skew` are rejected. Increase if agents and broker clocks are loosely synchronized. |
 
 ### Signer (ephyr-signer)
 
@@ -448,6 +449,7 @@ agents are added or removed from the policy.
   -mcp-listen ADDR         MCP TCP address (env: EPHYR_MCP_LISTEN)
   -socket-group GROUP      Socket group name (env: EPHYR_SOCKET_GROUP)
   -auth-cache-ttl DUR      Auth cache TTL (env: EPHYR_AUTH_CACHE_TTL, default 60s, 0 disables)
+  -pop-clock-skew DUR      PoP timestamp skew tolerance (env: EPHYR_POP_CLOCK_SKEW, default 30s)
   -version                 Print version and exit
 ```
 

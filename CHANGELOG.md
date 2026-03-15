@@ -27,7 +27,7 @@ Macaroon-based task tokens (**Ephyr Delegation**). Replaces JWT-based CTT-E/CTT-
 
 ### Security
 
-- Task tokens are bearer tokens. A leaked macaroon can be used by anyone until TTL expiry or epoch watermark revocation. This is mitigated by short TTLs (default 30 minutes, max 1 hour) and watermark revocation. Holder binding is planned for Ephyr Bind (v0.3).
+- Task tokens are bearer tokens by default. A leaked macaroon can be used by anyone until TTL expiry or epoch watermark revocation. This is mitigated by short TTLs (default 30 minutes, max 1 hour) and watermark revocation. Holder binding is available via Ephyr Bind (v0.3) for tasks that opt in.
 - The HMAC chain proves caveat accumulation (caveats cannot be removed). The reducer derives semantic narrowing (set intersection, minimum, boolean AND). These are distinct guarantees -- do not conflate them.
 
 ## [0.3.0] -- 2026-03-13
@@ -41,6 +41,7 @@ Delegation with attenuation: parent tasks can spawn scoped child tasks with mono
 - **Delegation with attenuation**: Parent tasks can delegate child tasks via `task_delegate` with capability envelopes that are equal to or a strict subset of the parent's
 - **`task_delegate` MCP tool**: Creates a child task under an existing parent, returns a CTT-D (delegation) token
 - **`task_bind` MCP tool**: Binds a task token to a holder key for proof-of-possession, with two-phase delegation and auto-revocation on bind deadline -- bringing the total to 16 local tools
+- **Proof-of-possession enforcement in auth hot path**: Bound tokens (`HolderBound=true`) require a valid `_pop` field (Ed25519 signature, body_hash, mac_digest, nonce, timestamp) on every `tools/call`. Unbound tokens with a bind deadline return 423 Locked for all tools except `task_bind`. API key and JWT auth bypass PoP. Clock skew configurable via `EPHYR_POP_CLOCK_SKEW` (default 30s). `_pop` field is stripped before tool handlers see it.
 - **CTT-D token type**: New delegation token signed by the broker, validated alongside CTT-E tokens via the shared trust chain
 - **`SignCTTD()` issuer method**: Signs CTT-D tokens with `"ctd_"` JTI prefix and `"CTT-D"` type header
 - **`Validate()` validator method**: Accepts both CTT-E and CTT-D token types; `ValidateCTTE()` remains backward compatible (rejects CTT-D)
