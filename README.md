@@ -369,64 +369,23 @@ curl -s http://localhost:8554/mcp \
 
 Dashboard at `http://localhost:8553` (default port, token: `changeme`). Edit `examples/policy.yaml` to add your targets.
 
-### Option B: Build from source
+### Option B: Native install (Linux)
 
 ```bash
 git clone https://github.com/EphyrAI/Ephyr.git
 cd Ephyr
-make build
+
+# One command: build, install, create user, generate CA key, write
+# example policy, install systemd units, start services.
+sudo make setup
 ```
 
-Three binaries: `bin/ephyr-broker`, `bin/ephyr-signer`, `bin/ephyr`. Requires Go 1.24+.
-
-### 2. Configure
-
+Requires Go 1.24+ and systemd. Customize with:
 ```bash
-# Generate the CA key (one time)
-sudo mkdir -p /etc/ephyr
-sudo ssh-keygen -t ed25519 -f /etc/ephyr/ca_key -N ""
-
-# Create a minimal policy
-sudo tee /etc/ephyr/policy.yaml << 'EOF'
-global:
-  default_ttl: "5m"
-  max_ttl: "30m"
-
-agents:
-  my-agent:
-    api_key_hash: "$2a$10$YOUR_BCRYPT_HASH"  # generate with: htpasswd -nbBC 10 "" yourkey | cut -d: -f2
-    can_delegate: true
-
-roles:
-  read:
-    principal: "agent-read"
-  operator:
-    principal: "agent-op"
-
-targets:
-  webserver:
-    host: "10.0.1.10"
-    port: 22
-    allowed_roles: [read, operator]
-    auto_approve: true
-EOF
+sudo make setup DASHBOARD_TOKEN=mysecret MCP_PORT=9000 DASHBOARD_PORT=9001
 ```
 
-### 3. Run
-
-```bash
-# Start the signer (holds the CA key, never on network)
-./bin/ephyr-signer --ca-key /etc/ephyr/ca_key --socket /run/ephyr/signer.sock &
-
-# Start the broker (policy, MCP, proxy, audit)
-./bin/ephyr-broker --config /etc/ephyr/policy.yaml &
-
-# Verify
-curl -s http://localhost:8554/mcp \
-  -H "Authorization: Bearer yourkey" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
-```
+Output shows the dashboard URL, MCP endpoint, and demo API key. Edit `/etc/ephyr/policy.yaml` to add your targets.
 
 You should see `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26",...,"serverInfo":{"name":"ephyr","version":"1.0.0"}}}`.
 

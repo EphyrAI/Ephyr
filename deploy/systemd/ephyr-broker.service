@@ -7,26 +7,22 @@ Wants=ephyr-signer.service
 [Service]
 Type=simple
 User=ephyr-broker
-Group=ephyr-broker
+Group=ephyr-agents
 
 ExecStart=/usr/local/bin/ephyr-broker --policy /etc/ephyr/policy.yaml
+ExecReload=/bin/kill -HUP $MAINPID
 
-# Port configuration (defaults: MCP=8554, Dashboard=8553).
-# Uncomment and change to use different ports:
+# Port and token configuration (defaults shown).
+# Override via systemd drop-in or environment file.
+Environment=EPHYR_SIGNER_SOCKET=/run/ephyr/signer.sock
 # Environment=EPHYR_MCP_LISTEN=:8554
 # Environment=EPHYR_DASHBOARD_LISTEN=:8553
 # Environment=EPHYR_DASHBOARD_TOKEN=changeme
 
-# Runtime directory: creates /run/ephyr owned by ephyr-broker.
-RuntimeDirectory=ephyr
-RuntimeDirectoryMode=0755
-
-# Logging.
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=ephyr-broker
 
-# Restart policy.
 Restart=on-failure
 RestartSec=5s
 
@@ -42,17 +38,13 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 RestrictNamespaces=yes
 
-# Allow writes only to specific paths.
 ReadWritePaths=/run/ephyr /var/log/ephyr /var/lib/ephyr
 
-# Capabilities: only what's needed for Unix socket binding.
 CapabilityBoundingSet=
 AmbientCapabilities=
-
-# System call filter.
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target
