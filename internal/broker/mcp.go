@@ -382,6 +382,43 @@ func (s *MCPServer) handleToolsCall(ctx context.Context, w http.ResponseWriter, 
 	}
 	s.broker.auditLog.LogEvent(toolCallEvent)
 
+	// --- Ephyr Bind: PoP enforcement for holder-bound task tokens ---
+	// Only applies to task-scoped auth (macaroon or JWT with TaskClaims).
+	// API key auth bypasses PoP entirely.
+	if agent.HasTaskIdentity() {
+		task := s.broker.taskMgr.GetTask(agent.TaskClaims.Task.ID)
+		if task != nil {
+			// Check for unbound tokens with a bind deadline.
+			// The ONLY allowed operation for unbound tokens is task_bind.
+			if !task.HolderBound && !task.BindDeadline.IsZero() && params.Name != "task_bind" {
+				s.writeJSONRPC(w, req.ID, &MCPToolsCallResult{
+					Content: []MCPToolContent{{Type: "text", Text: "423 Locked: token not yet bound. Call task_bind to register your holder key."}},
+					IsError: true,
+				}, nil)
+				return
+			}
+
+			// If the task is holder-bound, verify proof-of-possession.
+			if task.HolderBound && task.HolderPubKey != nil {
+				popErr := s.verifyPopFromArgs(agent, task, params.Name, params.Arguments)
+				if popErr != nil {
+					s.broker.metrics.PopRejected.Add(1)
+					s.writeJSONRPC(w, req.ID, &MCPToolsCallResult{
+						Content: []MCPToolContent{{Type: "text", Text: fmt.Sprintf("proof-of-possession failed: %s", popErr.Error())}},
+						IsError: true,
+					}, nil)
+					return
+				}
+				s.broker.metrics.PopVerified.Add(1)
+			}
+		}
+	}
+
+	// Strip _pop from arguments before passing to tool handlers.
+	if params.Arguments != nil {
+		delete(params.Arguments, "_pop")
+	}
+
 	// Check for federated tool call (remote.toolname pattern).
 	if s.federator != nil && s.federator.IsFederatedTool(params.Name) {
 		s.handleFederatedToolCall(ctx, w, req, agent, params)
@@ -405,6 +442,56 @@ func (s *MCPServer) handleToolsCall(ctx context.Context, w http.ResponseWriter, 
 	}
 
 	s.writeJSONRPC(w, req.ID, result, nil)
+}
+
+// verifyPopFromArgs extracts the _pop field from request arguments, builds
+// the canonical request body (arguments without _pop), and calls VerifyPoP.
+// Returns nil on success, an error on failure.
+func (s *MCPServer) verifyPopFromArgs(agent *MCPAgent, task *Task, toolName string, args map[string]interface{}) error {
+	// Extract _pop from arguments.
+	popRaw, hasPop := args["_pop"]
+	if !hasPop {
+		return fmt.Errorf("missing _pop field: holder-bound tokens require proof-of-possession")
+	}
+
+	// Parse the _pop object into a PopProof.
+	popJSON, err := json.Marshal(popRaw)
+	if err != nil {
+		return fmt.Errorf("invalid _pop: %w", err)
+	}
+	var proof PopProof
+	if err := json.Unmarshal(popJSON, &proof); err != nil {
+		return fmt.Errorf("invalid _pop structure: %w", err)
+	}
+
+	// Build canonical request body: arguments map WITHOUT _pop.
+	canonicalArgs := make(map[string]interface{}, len(args)-1)
+	for k, v := range args {
+		if k != "_pop" {
+			canonicalArgs[k] = v
+		}
+	}
+	requestBody, err := json.Marshal(canonicalArgs)
+	if err != nil {
+		return fmt.Errorf("failed to canonicalize request body: %w", err)
+	}
+
+	// Get the raw macaroon binary for mac_digest verification.
+	var macBinary []byte
+	if agent.RawMacaroon != nil {
+		macBinary, err = agent.RawMacaroon.MarshalBinary()
+		if err != nil {
+			return fmt.Errorf("failed to serialize macaroon for PoP: %w", err)
+		}
+	} else {
+		// JWT auth path: no macaroon binary available.
+		// The mac_digest check in VerifyPoP will fail if the proof contains one,
+		// but we still need to pass something. Use an empty slice -- the caller
+		// must have set mac_digest to SHA-256("") for JWT-based PoP.
+		macBinary = []byte{}
+	}
+
+	return VerifyPoP(&proof, task.HolderPubKey, macBinary, requestBody, s.broker.popClockSkew, s.broker.nonceCache)
 }
 
 // handleStreamingToolCall sends the tool call result as SSE events.

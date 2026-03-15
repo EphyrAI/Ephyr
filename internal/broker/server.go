@@ -112,7 +112,8 @@ type BrokerServer struct {
 	macaroonVerifier *macaroon.Verifier
 
 	// v0.3.3: Proof-of-possession nonce cache for holder-bound tokens.
-	nonceCache *NonceCache
+	nonceCache   *NonceCache
+	popClockSkew time.Duration // max clock skew for PoP timestamp verification
 }
 
 // NewBrokerServer initializes all components and returns a ready-to-start server.
@@ -211,6 +212,17 @@ func NewBrokerServer(cfg BrokerConfig) (*BrokerServer, error) {
 	// v0.3.3: Initialize proof-of-possession nonce cache (5 min TTL matches default task TTL).
 	bs.nonceCache = NewNonceCache(5 * time.Minute)
 	go bs.nonceCacheCleanupLoop()
+
+	// v0.3.3: PoP clock skew (default 30s, configurable via EPHYR_POP_CLOCK_SKEW).
+	bs.popClockSkew = 30 * time.Second
+	if skewStr := os.Getenv("EPHYR_POP_CLOCK_SKEW"); skewStr != "" {
+		if d, err := time.ParseDuration(skewStr); err == nil && d > 0 {
+			bs.popClockSkew = d
+			log.Printf("[broker] PoP clock skew set to %s", d)
+		} else {
+			log.Printf("[broker] warning: invalid EPHYR_POP_CLOCK_SKEW %q, using default 30s", skewStr)
+		}
+	}
 
 	// Wire up task expiry callback for WebSocket broadcasts and metrics.
 	bs.taskMgr.OnExpire = func(task *Task) {
