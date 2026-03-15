@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/audit"
-	"github.com/ben-spanswick/ephyr/internal/signer"
+	"github.com/EphyrAI/Ephyr/internal/audit"
+	"github.com/EphyrAI/Ephyr/internal/signer"
 	"golang.org/x/crypto/ssh"
 )
 

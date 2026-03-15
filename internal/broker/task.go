@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/policy"
-	"github.com/ben-spanswick/ephyr/internal/token"
+	"github.com/EphyrAI/Ephyr/internal/policy"
+	"github.com/EphyrAI/Ephyr/internal/token"
 )
 
 // Task represents an active agent task run with scoped identity.

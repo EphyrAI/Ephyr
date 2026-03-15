@@ -21,12 +21,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/audit"
-	"github.com/ben-spanswick/ephyr/internal/auth"
-	"github.com/ben-spanswick/ephyr/internal/macaroon"
-	"github.com/ben-spanswick/ephyr/internal/policy"
-	"github.com/ben-spanswick/ephyr/internal/signer"
-	"github.com/ben-spanswick/ephyr/internal/token"
+	"github.com/EphyrAI/Ephyr/internal/audit"
+	"github.com/EphyrAI/Ephyr/internal/auth"
+	"github.com/EphyrAI/Ephyr/internal/macaroon"
+	"github.com/EphyrAI/Ephyr/internal/policy"
+	"github.com/EphyrAI/Ephyr/internal/signer"
+	"github.com/EphyrAI/Ephyr/internal/token"
 )
 
 // BrokerConfig holds all configuration for the broker server.

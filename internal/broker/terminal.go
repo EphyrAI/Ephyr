@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/ben-spanswick/ephyr/internal/audit"
+	"github.com/EphyrAI/Ephyr/internal/audit"
 	"golang.org/x/crypto/ssh"
 )
 

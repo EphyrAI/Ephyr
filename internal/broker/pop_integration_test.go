@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/macaroon"
+	"github.com/EphyrAI/Ephyr/internal/macaroon"
 )
 
 func TestBindE2E_RootTaskWithBinding(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	macaroonpkg "github.com/ben-spanswick/ephyr/internal/macaroon"
-	"github.com/ben-spanswick/ephyr/internal/token"
+	macaroonpkg "github.com/EphyrAI/Ephyr/internal/macaroon"
+	"github.com/EphyrAI/Ephyr/internal/token"
 )
 
 // authenticateWithCTTE attempts to validate a Bearer token as a CTT-E or CTT-D task token.

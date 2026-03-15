@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/audit"
-	"github.com/ben-spanswick/ephyr/internal/macaroon"
-	"github.com/ben-spanswick/ephyr/internal/token"
+	"github.com/EphyrAI/Ephyr/internal/audit"
+	"github.com/EphyrAI/Ephyr/internal/macaroon"
+	"github.com/EphyrAI/Ephyr/internal/token"
 )
 
 // decodeHolderPubKey extracts and base64url-decodes the holder_pub_key argument.

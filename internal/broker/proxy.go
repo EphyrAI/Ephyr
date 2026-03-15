@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/audit"
+	"github.com/EphyrAI/Ephyr/internal/audit"
 )
 
 // ProxyEngine handles HTTP proxying with credential injection and policy enforcement.

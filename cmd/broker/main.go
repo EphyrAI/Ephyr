@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ben-spanswick/ephyr/internal/broker"
+	"github.com/EphyrAI/Ephyr/internal/broker"
 )
 
 // version is set at build time via -ldflags.

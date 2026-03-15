@@ -31,7 +31,7 @@ MCP configuration, and operational verification.
 Clone the repository and build all three binaries:
 
 ```bash
-git clone https://github.com/ben-spanswick/ephyr.git
+git clone https://github.com/EphyrAI/Ephyr.git
 cd ephyr
 
 # Build all binaries
@@ -204,7 +204,7 @@ Create /etc/systemd/system/ephyr-signer.service:
 ```ini
 [Unit]
 Description=Ephyr SSH Certificate Signer
-Documentation=https://github.com/ben-spanswick/ephyr
+Documentation=https://github.com/EphyrAI/Ephyr
 After=network.target
 Before=ephyr-broker.service
 StartLimitBurst=3
@@ -256,7 +256,7 @@ Create /etc/systemd/system/ephyr-broker.service:
 ```ini
 [Unit]
 Description=Ephyr SSH Certificate Broker
-Documentation=https://github.com/ben-spanswick/ephyr
+Documentation=https://github.com/EphyrAI/Ephyr
 After=network.target ephyr-signer.service
 Requires=ephyr-signer.service
 StartLimitBurst=5

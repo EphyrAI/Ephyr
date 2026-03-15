@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/policy"
+	"github.com/EphyrAI/Ephyr/internal/policy"
 	"golang.org/x/crypto/bcrypt"
 )
 

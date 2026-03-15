@@ -1,4 +1,4 @@
-module github.com/ben-spanswick/ephyr
+module github.com/EphyrAI/Ephyr
 
 go 1.24.1
 

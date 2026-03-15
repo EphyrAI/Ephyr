@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/macaroon"
+	"github.com/EphyrAI/Ephyr/internal/macaroon"
 )
 
 // inspectJSON mirrors the output structure for --json mode.

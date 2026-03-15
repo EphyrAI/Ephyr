@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"crypto/subtle"
-	"github.com/ben-spanswick/ephyr/internal/audit"
+	"github.com/EphyrAI/Ephyr/internal/audit"
 )
 
 // dashboardAuth returns middleware that validates a dashboard API token.

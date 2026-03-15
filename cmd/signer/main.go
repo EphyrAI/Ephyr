@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/signer"
+	"github.com/EphyrAI/Ephyr/internal/signer"
 )
 
 func main() {

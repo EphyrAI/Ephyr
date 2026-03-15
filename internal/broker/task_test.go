@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/policy"
-	"github.com/ben-spanswick/ephyr/internal/token"
+	"github.com/EphyrAI/Ephyr/internal/policy"
+	"github.com/EphyrAI/Ephyr/internal/token"
 )
 
 func TestCreateRootTask(t *testing.T) {

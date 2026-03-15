@@ -1923,4 +1923,4 @@ Random: 80-bit cryptographic random
 ---
 
 *This document describes Ephyr v0.3.0 as implemented on 2026-03-14.
-Source code: available at [github.com/ben-spanswick/ephyr](https://github.com/ben-spanswick/ephyr).*
+Source code: available at [github.com/EphyrAI/Ephyr](https://github.com/EphyrAI/Ephyr).*

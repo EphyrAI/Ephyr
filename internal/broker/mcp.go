@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/audit"
-	macaroonpkg "github.com/ben-spanswick/ephyr/internal/macaroon"
-	"github.com/ben-spanswick/ephyr/internal/policy"
-	"github.com/ben-spanswick/ephyr/internal/token"
+	"github.com/EphyrAI/Ephyr/internal/audit"
+	macaroonpkg "github.com/EphyrAI/Ephyr/internal/macaroon"
+	"github.com/EphyrAI/Ephyr/internal/policy"
+	"github.com/EphyrAI/Ephyr/internal/token"
 )
 
 // MCPServer wraps the broker and provides MCP protocol handling via

@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ben-spanswick/ephyr/internal/audit"
-	"github.com/ben-spanswick/ephyr/internal/auth"
-	"github.com/ben-spanswick/ephyr/internal/policy"
-	"github.com/ben-spanswick/ephyr/internal/signer"
+	"github.com/EphyrAI/Ephyr/internal/audit"
+	"github.com/EphyrAI/Ephyr/internal/auth"
+	"github.com/EphyrAI/Ephyr/internal/policy"
+	"github.com/EphyrAI/Ephyr/internal/signer"
 )
 
 // --- JSON request/response types ---

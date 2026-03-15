@@ -2157,7 +2157,7 @@ Ephyr maintains a minimal dependency footprint. The entire project
 only three external libraries:
 
 ```
-module github.com/ben-spanswick/ephyr
+module github.com/EphyrAI/Ephyr
 
 go 1.24.1
 
@@ -2199,7 +2199,7 @@ plus the four dependencies listed above.
 | Version | 0.3 |
 | Codebase | ~33,000 lines of Go (377 tests, 2 fuzz tests) |
 | License | Apache 2.0 |
-| Repository | https://github.com/ben-spanswick/ephyr |
+| Repository | https://github.com/EphyrAI/Ephyr |
 | Last Updated | March 2026 |
 | Classification | Public |
 
