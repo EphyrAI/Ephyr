@@ -26,8 +26,9 @@ type demoStep struct {
 
 // demoContext holds shared state across demo steps.
 type demoContext struct {
-	brokerURL string
-	apiKey    string
+	brokerURL    string
+	dashboardURL string
+	apiKey       string
 	client    *http.Client
 	steps     []demoStep
 	nextID    int
@@ -121,6 +122,7 @@ func cmdDemo(args []string) {
 	fs := flag.NewFlagSet("demo", flag.ExitOnError)
 	broker := fs.String("broker", "", "Broker HTTP URL (default: env EPHYR_BROKER or http://localhost:8554)")
 	key := fs.String("key", "", "API key (default: env EPHYR_API_KEY)")
+	dashboard := fs.String("dashboard", "", "Dashboard HTTP URL for metrics (default: broker URL with port 8553)")
 	_ = fs.Parse(args)
 
 	brokerURL := *broker
@@ -132,6 +134,13 @@ func cmdDemo(args []string) {
 	}
 	brokerURL = strings.TrimRight(brokerURL, "/")
 
+	dashboardURL := *dashboard
+	if dashboardURL == "" {
+		// Default: replace port in broker URL with 8553
+		dashboardURL = strings.Replace(brokerURL, ":8554", ":8553", 1)
+	}
+	dashboardURL = strings.TrimRight(dashboardURL, "/")
+
 	apiKey := *key
 	if apiKey == "" {
 		apiKey = os.Getenv("EPHYR_API_KEY")
@@ -142,8 +151,9 @@ func cmdDemo(args []string) {
 	}
 
 	ctx := &demoContext{
-		brokerURL: brokerURL,
-		apiKey:    apiKey,
+		brokerURL:    brokerURL,
+		dashboardURL: dashboardURL,
+		apiKey:       apiKey,
 		client:    &http.Client{Timeout: 30 * time.Second},
 		nextID:    1,
 	}
@@ -779,16 +789,28 @@ func (d *demoContext) step9PopRequest(total int) {
 	}
 	nonceHex := hex.EncodeToString(nonceBytes)
 
-	// Build proof payload.
-	payload := map[string]string{
-		"task_id":    d.boundTaskID,
-		"req_type":   "ssh_exec",
-		"resource":   "",
-		"method":     "list_targets",
-		"body_hash":  bodyHashHex,
-		"mac_digest": macDigestHex,
-		"nonce":      nonceHex,
-		"ts":         time.Now().UTC().Format(time.RFC3339),
+	// Build proof payload using a struct with fixed field order.
+	// The broker's ProofPayload struct serializes in declaration order:
+	// task_id, req_type, resource, method, body_hash, mac_digest, nonce, ts
+	type proofPayload struct {
+		TaskID    string `json:"task_id"`
+		ReqType   string `json:"req_type"`
+		Resource  string `json:"resource"`
+		Method    string `json:"method"`
+		BodyHash  string `json:"body_hash"`
+		MacDigest string `json:"mac_digest"`
+		Nonce     string `json:"nonce"`
+		Ts        string `json:"ts"`
+	}
+	payload := proofPayload{
+		TaskID:    d.boundTaskID,
+		ReqType:   "ssh_exec",
+		Resource:  "",
+		Method:    "list_targets",
+		BodyHash:  bodyHashHex,
+		MacDigest: macDigestHex,
+		Nonce:     nonceHex,
+		Ts:        time.Now().UTC().Format(time.RFC3339),
 	}
 
 	// Canonicalize payload to JSON and sign.
@@ -874,15 +896,25 @@ func (d *demoContext) step10PopFailure(total int) {
 	_, _ = rand.Read(nonceBytes)
 	nonceHex := hex.EncodeToString(nonceBytes)
 
-	payload := map[string]string{
-		"task_id":    d.boundTaskID,
-		"req_type":   "ssh_exec",
-		"resource":   "",
-		"method":     "list_targets",
-		"body_hash":  bodyHashHex,
-		"mac_digest": macDigestHex,
-		"nonce":      nonceHex,
-		"ts":         time.Now().UTC().Format(time.RFC3339),
+	type proofPayload2 struct {
+		TaskID    string `json:"task_id"`
+		ReqType   string `json:"req_type"`
+		Resource  string `json:"resource"`
+		Method    string `json:"method"`
+		BodyHash  string `json:"body_hash"`
+		MacDigest string `json:"mac_digest"`
+		Nonce     string `json:"nonce"`
+		Ts        string `json:"ts"`
+	}
+	payload := proofPayload2{
+		TaskID:    d.boundTaskID,
+		ReqType:   "ssh_exec",
+		Resource:  "",
+		Method:    "list_targets",
+		BodyHash:  bodyHashHex,
+		MacDigest: macDigestHex,
+		Nonce:     nonceHex,
+		Ts:        time.Now().UTC().Format(time.RFC3339),
 	}
 
 	payloadBytes, _ := json.Marshal(payload)
@@ -993,7 +1025,7 @@ func (d *demoContext) step12Metrics(total int) {
 	stepName := "Check metrics"
 	demoHeader(12, total, stepName)
 
-	req, err := http.NewRequest("GET", d.brokerURL+"/v1/metrics", nil)
+	req, err := http.NewRequest("GET", d.dashboardURL+"/v1/metrics", nil)
 	if err != nil {
 		demoFail("create request: " + err.Error())
 		d.recordStep(stepName, false, err.Error())
@@ -1015,6 +1047,12 @@ func (d *demoContext) step12Metrics(total int) {
 		return
 	}
 
+	if resp.StatusCode == 401 {
+		demoInfo("Note", "Metrics endpoint requires dashboard token (separate from API key)")
+		demoInfo("Manual check", fmt.Sprintf("curl -H 'Authorization: Bearer <dashboard-token>' %s/v1/metrics | grep ephyr_macaroon", d.dashboardURL))
+		d.recordStep(stepName, true, "skipped (dashboard auth required)")
+		return
+	}
 	if resp.StatusCode != 200 {
 		demoFail(fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)))
 		d.recordStep(stepName, false, fmt.Sprintf("HTTP %d", resp.StatusCode))
