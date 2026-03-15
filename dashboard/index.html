@@ -120,6 +120,58 @@
     --modal-shadow: 0 0 40px rgba(0,255,157,0.1);
   }
 
+  /* ── Slate theme (professional dark grey) ── */
+  [data-theme="slate"] {
+    --bg: #1a1d23;
+    --bg-card: #22262e;
+    --bg-card-hover: #282d36;
+    --border: rgba(255,255,255,0.08);
+    --border-bright: rgba(255,255,255,0.14);
+    --text: #c8cdd3;
+    --text-dim: #7c838d;
+    --text-bright: #e2e6ea;
+    --green: #4ade80;
+    --cyan: #60a5fa;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --purple: #a78bfa;
+    --green-dim: rgba(74,222,128,0.08);
+    --cyan-dim: rgba(96,165,250,0.08);
+    --amber-dim: rgba(251,191,36,0.08);
+    --red-dim: rgba(248,113,113,0.08);
+    --purple-dim: rgba(167,139,250,0.08);
+    --heading-font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    --input-bg: #2a2f38;
+    --modal-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+
+  /* ── Corporate theme (light grey, minimal) ── */
+  [data-theme="corporate"] {
+    --bg: #f0f2f5;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f7f8fa;
+    --border: rgba(0,0,0,0.12);
+    --border-bright: rgba(0,0,0,0.18);
+    --text: #2d3748;
+    --text-dim: #718096;
+    --text-bright: #1a202c;
+    --green: #38a169;
+    --cyan: #3182ce;
+    --amber: #d69e2e;
+    --red: #e53e3e;
+    --purple: #805ad5;
+    --green-dim: rgba(56,161,105,0.08);
+    --cyan-dim: rgba(49,130,206,0.08);
+    --amber-dim: rgba(214,158,46,0.08);
+    --red-dim: rgba(229,62,62,0.08);
+    --purple-dim: rgba(128,90,213,0.08);
+    --heading-font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    --input-bg: #e8eaed;
+    --modal-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  }
+
   body {
     background: var(--bg);
     color: var(--text);
@@ -1052,6 +1104,65 @@
   [data-theme="light"] .overview-compact-entry { border-bottom-color: var(--border); }
   [data-theme="light"] .settings-row { border-bottom-color: var(--border); }
 
+  /* ── Slate theme overrides ── */
+  [data-theme="slate"] .panel { box-shadow: var(--card-shadow); }
+  [data-theme="slate"] .host-card { box-shadow: var(--card-shadow); }
+  [data-theme="slate"] .agent-card { box-shadow: var(--card-shadow); }
+  [data-theme="slate"] .service-card { box-shadow: var(--card-shadow); }
+  [data-theme="slate"] .settings-section { box-shadow: var(--card-shadow); }
+  [data-theme="slate"] .event-terminal { box-shadow: var(--card-shadow); }
+  [data-theme="slate"] .overview-activity-section { box-shadow: var(--card-shadow); }
+
+  /* ── Corporate theme overrides ── */
+  [data-theme="corporate"] .panel { box-shadow: var(--card-shadow); }
+  [data-theme="corporate"] .host-card { box-shadow: var(--card-shadow); }
+  [data-theme="corporate"] .agent-card { box-shadow: var(--card-shadow); }
+  [data-theme="corporate"] .service-card { box-shadow: var(--card-shadow); }
+  [data-theme="corporate"] .settings-section { box-shadow: var(--card-shadow); }
+  [data-theme="corporate"] .event-terminal { box-shadow: var(--card-shadow); }
+  [data-theme="corporate"] .overview-activity-section { box-shadow: var(--card-shadow); }
+  [data-theme="corporate"] ::-webkit-scrollbar-track { background: var(--bg); }
+  [data-theme="corporate"] ::-webkit-scrollbar-thumb { background: #c1c4ca; }
+  [data-theme="corporate"] ::-webkit-scrollbar-thumb:hover { background: #a0a4ab; }
+  [data-theme="corporate"] .modal-overlay { background: rgba(0,0,0,0.4); }
+  [data-theme="corporate"] input, [data-theme="corporate"] select, [data-theme="corporate"] textarea {
+    background: var(--input-bg) !important; color: var(--text-bright) !important;
+  }
+  [data-theme="corporate"] .nav-item:hover { background: rgba(0,0,0,0.04); }
+  [data-theme="corporate"] .sessions-table tr:hover,
+  [data-theme="corporate"] .audit-table tr:hover,
+  [data-theme="corporate"] .rbac-matrix tr:hover,
+  [data-theme="corporate"] .activity-entry:hover { background: rgba(0,0,0,0.03); }
+  [data-theme="corporate"] .sessions-table td,
+  [data-theme="corporate"] .audit-table td,
+  [data-theme="corporate"] .rbac-matrix td,
+  [data-theme="corporate"] .agent-session-item,
+  [data-theme="corporate"] .overview-compact-entry { border-bottom-color: var(--border); }
+  [data-theme="corporate"] .settings-row { border-bottom-color: var(--border); }
+  [data-theme="corporate"] .tasks-table tr:hover { background: rgba(0,0,0,0.03); }
+  /* Corporate: suppress all glow effects */
+  [data-theme="corporate"] .task-status-dot.active { box-shadow: none; }
+  [data-theme="corporate"] .status-dot.online { box-shadow: none; }
+  [data-theme="corporate"] .status-dot.offline { box-shadow: none; }
+  [data-theme="corporate"] .status-dot.idle { box-shadow: none; }
+  [data-theme="corporate"] .status-dot.active-anim { box-shadow: none; animation: activePulse 1.5s ease-in-out infinite; }
+  [data-theme="corporate"] .conn-dot.green { box-shadow: none; }
+  [data-theme="corporate"] .conn-dot.amber { box-shadow: none; }
+  [data-theme="corporate"] .conn-dot.red { box-shadow: none; }
+  [data-theme="corporate"] .ttl-bar-fill.high { box-shadow: none; }
+  [data-theme="corporate"] .ttl-bar-fill.mid { box-shadow: none; }
+  [data-theme="corporate"] .ttl-bar-fill.low { box-shadow: none; }
+  [data-theme="corporate"] .timeline-dot { box-shadow: none; }
+  [data-theme="corporate"] .btn-revoke:hover { box-shadow: none; }
+  [data-theme="corporate"] .btn-green:hover { box-shadow: none; }
+  [data-theme="corporate"] .btn-cyan:hover { box-shadow: none; }
+  [data-theme="corporate"] .btn-amber:hover { box-shadow: none; }
+  [data-theme="corporate"] .btn-purple:hover { box-shadow: none; }
+  [data-theme="corporate"] .toggle-thumb { box-shadow: none; }
+  [data-theme="corporate"] .toggle-switch input:checked ~ .toggle-thumb { box-shadow: none; }
+  [data-theme="corporate"] .slideout-panel { box-shadow: -2px 0 8px rgba(0,0,0,0.1); }
+  [data-theme="corporate"] .modal-box .connect-btn:hover { box-shadow: none; }
+
   /* ── Theme picker in sidebar ── */
   .theme-picker {
     display: flex; gap: 4px; margin-top: 8px;
@@ -1589,6 +1700,16 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
           <div className="stat-label">Active Tasks</div>
           <div className="stat-value purple">{summary.tasks_active || 0}</div>
           <div className="stat-sub">{summary.tasks_delegated || 0} delegated</div>
+        </div>
+        <div className="stat-card red">
+          <div className="stat-label">Commands Denied</div>
+          <div className="stat-value red">{summary.commands_denied || 0}</div>
+          <div className="stat-sub">by command filter</div>
+        </div>
+        <div className="stat-card" style={{borderColor:'var(--cyan)'}}>
+          <div className="stat-label">Macaroons Minted</div>
+          <div className="stat-value" style={{color:'var(--cyan)'}}>{summary.macaroons_minted || 0}</div>
+          <div className="stat-sub">total tokens</div>
         </div>
       </div>
 
@@ -2600,7 +2721,7 @@ function ActivityView({ token, initialAgent }) {
     if (initialAgent) setFilterAgent(initialAgent);
   }, [initialAgent]);
 
-  const actionTypes = ['exec', 'http_proxy', 'session_open', 'session_close', 'cert_issued', 'cert_denied', 'mcp_call'];
+  const actionTypes = ['exec', 'http_proxy', 'session_open', 'session_close', 'cert_issued', 'cert_denied', 'mcp_call', 'command_denied', 'auto_revoke', 'task_bind', 'request_denied'];
 
   return (
     <div>
@@ -3489,6 +3610,9 @@ function TasksView({ token, now }) {
           <span className={`task-status-dot ${task.status}`} />
           <span className={`badge ${task.depth === 0 ? 'badge-root' : 'badge-delegated'}`}>{task.depth === 0 ? 'ROOT' : `D${task.depth}`}</span>
           {task.can_delegate && <span className="badge badge-can-delegate">CAN DELEGATE</span>}
+          {task.holder_bound === true && <span className="badge" style={{border:'1px solid var(--green)',color:'var(--green)',background:'rgba(34,197,94,0.10)'}}>HOLDER-BOUND</span>}
+          {task.holder_bound === false && task.bind_deadline && <span className="badge" style={{border:'1px solid var(--amber)',color:'var(--amber)',background:'rgba(245,158,11,0.10)',animation:'pulse 2s infinite'}}>UNBOUND</span>}
+          {task.token_type === 'macaroon' ? <span className="badge" style={{border:'1px solid var(--cyan)',color:'var(--cyan)',background:'rgba(6,182,212,0.10)'}}>MAC</span> : <span className="badge" style={{border:'1px solid #666',color:'#999',background:'rgba(128,128,128,0.10)'}}>JWT</span>}
           <span className="task-node-desc">{task.description || task.id.slice(0, 12)}</span>
           <div className="task-node-actions">
             {task.status === 'active' && <button className="btn btn-revoke" style={{fontSize:'11px',padding:'2px 8px'}} onClick={(e) => { e.stopPropagation(); handleRevoke(task); }}>Revoke</button>}
@@ -3583,6 +3707,9 @@ function TasksView({ token, now }) {
                 <td>
                   {t.child_count > 0 ? <span className="badge badge-delegated">{t.child_count}</span> : '-'}
                   {t.can_delegate && <span className="badge badge-can-delegate" style={{marginLeft:'4px',fontSize:'10px'}}>{'\u2B2C'}</span>}
+                  {t.holder_bound === true && <span className="badge" style={{marginLeft:'4px',fontSize:'10px',border:'1px solid var(--green)',color:'var(--green)',background:'rgba(34,197,94,0.10)'}}>HOLDER-BOUND</span>}
+                  {t.holder_bound === false && t.bind_deadline && <span className="badge" style={{marginLeft:'4px',fontSize:'10px',border:'1px solid var(--amber)',color:'var(--amber)',background:'rgba(245,158,11,0.10)',animation:'pulse 2s infinite'}}>UNBOUND</span>}
+                  {t.token_type === 'macaroon' ? <span className="badge" style={{marginLeft:'4px',fontSize:'10px',border:'1px solid var(--cyan)',color:'var(--cyan)',background:'rgba(6,182,212,0.10)'}}>MAC</span> : <span className="badge" style={{marginLeft:'4px',fontSize:'10px',border:'1px solid #666',color:'#999',background:'rgba(128,128,128,0.10)'}}>JWT</span>}
                 </td>
                 <td>
                   <div style={{display:'flex',gap:'4px'}}>
@@ -3680,6 +3807,21 @@ function EnvelopeInspectorPanel({ task, detail, onClose, token }) {
             <span>{task.can_delegate ? 'Yes' : 'No'}</span>
             <span style={{color:'var(--text-dim)'}}>Children:</span>
             <span>{String(task.child_count)}</span>
+          </div>
+        </div>
+
+        {/* Holder Binding */}
+        <div className="envelope-section">
+          <div className="envelope-section-title">Holder Binding</div>
+          <div style={{fontSize:'13px',display:'grid',gridTemplateColumns:'auto 1fr',gap:'4px 12px'}}>
+            <span style={{color:'var(--text-dim)'}}>Bound:</span>
+            <span style={{color: task.holder_bound ? 'var(--green)' : 'var(--amber)'}}>{task.holder_bound ? 'true' : 'false'}</span>
+            <span style={{color:'var(--text-dim)'}}>Bind Deadline:</span>
+            <span>{task.bind_deadline ? new Date(task.bind_deadline).toLocaleString() : 'N/A'}</span>
+            <span style={{color:'var(--text-dim)'}}>Token Type:</span>
+            <span style={{color: task.token_type === 'macaroon' ? 'var(--cyan)' : 'var(--text-dim)'}}>{task.token_type || 'jwt'}</span>
+            <span style={{color:'var(--text-dim)'}}>Initiated By:</span>
+            <span style={{fontFamily:'monospace',fontSize:'12px'}}>{task.initiated_by || 'N/A'}</span>
           </div>
         </div>
 
@@ -4148,9 +4290,11 @@ function ThemePicker() {
   };
 
   const themes = [
-    { id: 'light', label: 'Light' },
     { id: 'dark', label: 'Dark' },
+    { id: 'light', label: 'Light' },
     { id: 'cyberpunk', label: 'Cyber' },
+    { id: 'slate', label: 'Slate' },
+    { id: 'corporate', label: 'Corp' },
   ];
 
   return (
@@ -4308,7 +4452,7 @@ function App() {
         const msg = JSON.parse(evt.data);
         setEvents(prev => [msg, ...prev].slice(0, 200));
         const t = (msg.type || '').toLowerCase();
-        if (t.includes('grant') || t.includes('deny') || t.includes('revoke') || t.includes('expire') || t.includes('issued') || t.includes('toggle') || t.includes('task')) {
+        if (t.includes('grant') || t.includes('deny') || t.includes('revoke') || t.includes('expire') || t.includes('issued') || t.includes('toggle') || t.includes('task') || t.includes('command') || t.includes('bind')) {
           fetchLive();
         }
       } catch {}

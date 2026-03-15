@@ -88,6 +88,9 @@ type DashboardSummary struct {
 	TasksDelegated  int    `json:"tasks_delegated"`
 	TasksCreated    int64  `json:"tasks_created_total"`
 	Revocations     int64  `json:"revocations_total"`
+	CommandsDenied  int64  `json:"commands_denied"`
+	AutoRevocations int64  `json:"auto_revocations"`
+	MacaroonsMinted int64  `json:"macaroons_minted"`
 }
 
 // DashboardHost is a single host entry for GET /v1/dashboard/hosts.
@@ -346,6 +349,9 @@ func (bs *BrokerServer) handleDashboardSummary(w http.ResponseWriter, r *http.Re
 	if bs.metrics != nil {
 		resp.TasksCreated = bs.metrics.TasksCreated.Load()
 		resp.Revocations = bs.metrics.WatermarkRevocations.Load()
+		resp.CommandsDenied = bs.metrics.CommandsDenied.Load()
+		resp.AutoRevocations = bs.metrics.AutoRevocations.Load()
+		resp.MacaroonsMinted = bs.metrics.MacaroonsMinted.Load()
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1139,6 +1145,10 @@ type DashboardTask struct {
 	CanDelegate  bool          `json:"can_delegate"`
 	ChildCount   int           `json:"child_count"`
 	Envelope     *TaskEnvelope `json:"envelope"`
+	HolderBound  bool          `json:"holder_bound"`
+	BindDeadline *time.Time    `json:"bind_deadline,omitempty"`
+	InitiatedBy  string        `json:"initiated_by,omitempty"`
+	TokenType    string        `json:"token_type"`
 }
 
 // DashboardTaskDetail is the detailed response for GET /v1/dashboard/tasks/{id}.
@@ -1173,7 +1183,7 @@ func (bs *BrokerServer) taskToDashboard(task *Task) DashboardTask {
 	if bs.taskMgr != nil {
 		childCount = len(bs.taskMgr.GetChildren(task.ID))
 	}
-	return DashboardTask{
+	dt := DashboardTask{
 		ID:           task.ID,
 		RootID:       task.RootID,
 		ParentID:     task.ParentID,
@@ -1189,7 +1199,19 @@ func (bs *BrokerServer) taskToDashboard(task *Task) DashboardTask {
 		CanDelegate:  task.CanDelegate,
 		ChildCount:   childCount,
 		Envelope:     &task.Envelope,
+		HolderBound:  task.HolderBound,
+		InitiatedBy:  task.InitiatedBy,
 	}
+	if !task.BindDeadline.IsZero() {
+		bd := task.BindDeadline
+		dt.BindDeadline = &bd
+	}
+	if task.MacaroonSigDigest != "" {
+		dt.TokenType = "macaroon"
+	} else {
+		dt.TokenType = "jwt"
+	}
+	return dt
 }
 
 // handleDashboardTasks serves GET /v1/dashboard/tasks.
