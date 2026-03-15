@@ -298,7 +298,7 @@ The following areas are acknowledged but not addressed by Ephyr's threat model:
 | **Multi-tenant isolation** | Ephyr is single-tenant by design. All agents are governed by one policy file and one CA. Deployers needing tenant isolation should run separate Ephyr instances. |
 | **End-to-end encryption** | Ephyr brokers access, not data. Payload confidentiality between the agent and the target is the responsibility of the transport (SSH provides this; HTTP depends on TLS configuration). |
 | **Application-layer security** | What agents do with the access Ephyr grants is beyond Ephyr's control. A `read` role agent that exfiltrates data via allowed commands is an application-layer concern. |
-| **Target host OS hardening** | Ephyr delivers the agent to the host with an appropriate SSH principal. The host's sudoers rules, shell restrictions, filesystem permissions, and security frameworks (SELinux, AppArmor) are the deployer's responsibility. |
+| **Target host OS hardening** | Ephyr delivers the agent to the host with an appropriate SSH principal. The host's sudoers rules, shell restrictions, filesystem permissions, and security frameworks (SELinux, AppArmor) are the deployer's responsibility. **This is the most security-critical deployment decision.** See T18 below and [Target Setup](target-setup.md). |
 | **Supply chain security** | Dependency integrity is managed via Go modules with checksums (`go.sum`). Ephyr has minimal dependencies. Build reproducibility and SBOM generation are not currently implemented. |
 | **Physical security** | Physical access to the broker host or target hosts is outside Ephyr's threat model. Disk encryption is recommended but not enforced by Ephyr. |
 
@@ -363,6 +363,31 @@ The following table provides a consolidated view of the most significant residua
 | 13 | Bearer token replay within TTL window | **Medium** | B0r | Mitigated -- short TTLs + watermark revocation; addressed by Ephyr Bind PoP |
 | 14 | Bind deadline window (30s unbound period) | **Low** | B0r | Accepted -- TLS protects transit; deadline is configurable; unbound tokens expire |
 | 15 | Body tampering without Bind | **Low** | B3 | Mitigated -- TLS provides integrity; PoP body binding planned |
+| 16 | Target host misconfiguration widens blast radius | **High** | B2 | Operational -- deployer responsibility; provisioning script and docs provided |
+
+### T18: Target Host Misconfiguration
+
+**Threat:** Ephyr controls *who* gets SSH access, *for how long*, and *with which principal*. But the principal maps to a Linux user account on the target host, and that user's capabilities are defined by the target's shell, sudoers rules, filesystem permissions, and security frameworks. A misconfigured target host can silently negate Ephyr's security model.
+
+**Examples of misconfiguration:**
+- `agent-read` has `/bin/bash` instead of `/bin/rbash` -- the "read-only" role has full shell access
+- `agent-op` has `ALL=(ALL) NOPASSWD: ALL` in sudoers -- the "operator" role is effectively root
+- All three role accounts map to the same Linux user -- role separation is meaningless
+- Sudoers uses a deny-list instead of an allow-list -- new binaries bypass restrictions
+- No `AuthorizedPrincipalsFile` configured -- any valid certificate can authenticate as any user
+
+**Why this matters:** This is the most likely way a deployment weakens the security model without visible indicators. The broker logs will show "role=read, target=webserver" and the policy evaluation will pass, but the agent has full root access because the target's sudoers is misconfigured. Ephyr's audit trail accurately records what Ephyr authorized, but cannot report what the agent actually did on the target beyond the SSH session's stdout/stderr.
+
+**Mitigations:**
+- Use the provisioning script (`deploy/scripts/provision-target.sh`) which installs restrictive defaults, validates sudoers with `visudo`, and locks the sudoers file with `chattr +i`
+- Use the Ansible playbook (`deploy/ansible/roles/ephyr-target/`) for consistent multi-host provisioning
+- Use sudoers allow-lists (explicit command lists), not deny-lists (blocked commands)
+- Never map agent principals to `root` or existing admin accounts
+- Audit target host configuration periodically -- Ephyr cannot do this for you
+- Use `/bin/rbash` for read-only roles (defense-in-depth, not a security boundary)
+- Test role capabilities: `ephyr exec target --role read -- sudo -l` shows what the role can actually do
+
+**Residual risk:** **High.** This is outside Ephyr's enforcement boundary by design. The broker issues certificates with the correct principal, but the target host is the final arbiter of what that principal can do. See [Target Setup](target-setup.md) for configuration guidance.
 
 ---
 
