@@ -1,0 +1,31 @@
+---
+# Roles to provision on this target. Set per-host in inventory.
+# Valid values: read, operator, admin
+ephyr_roles: []
+
+# CA public key. Provide via inventory or fetch from broker.
+# If empty, the playbook will fail with a clear error.
+ephyr_ca_public_key: ""
+
+# SSH configuration paths.
+ephyr_ca_pub_dest: "/etc/ssh/ephyr_ca.pub"
+ephyr_principals_dir: "/etc/ssh/auth_principals"
+ephyr_sudoers_file: "/etc/sudoers.d/ephyr"
+
+# Role account definitions. Maps role names to account details.
+ephyr_role_accounts:
+  read:
+    username: "agent-read"
+    shell: "/usr/bin/rbash"
+    principal: "agent-read"
+  operator:
+    username: "agent-op"
+    shell: "/bin/bash"
+    principal: "agent-op"
+  admin:
+    username: "agent-admin"
+    shell: "/bin/bash"
+    principal: "agent-admin"
+
+# Make sudoers file immutable with chattr +i.
+ephyr_sudoers_immutable: true

@@ -1,0 +1,200 @@
+---
+# ── 1. Install Go ──────────────────────────────────────────────────────────────
+
+- name: Check if Go is installed
+  ansible.builtin.command: /usr/local/go/bin/go version
+  register: go_check
+  changed_when: false
+  failed_when: false
+
+- name: Check installed Go version
+  ansible.builtin.set_fact:
+    go_installed: "{{ go_check.rc == 0 }}"
+    go_needs_update: >-
+      {{ go_check.rc == 0 and
+         ('go' + ephyr_go_version) not in go_check.stdout }}
+
+- name: Download Go {{ ephyr_go_version }}
+  ansible.builtin.get_url:
+    url: "https://go.dev/dl/go{{ ephyr_go_version }}.linux-{{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}.tar.gz"
+    dest: "/tmp/go{{ ephyr_go_version }}.tar.gz"
+    mode: "0644"
+  when: not go_installed or go_needs_update
+
+- name: Remove old Go installation
+  ansible.builtin.file:
+    path: /usr/local/go
+    state: absent
+  when: not go_installed or go_needs_update
+
+- name: Extract Go {{ ephyr_go_version }}
+  ansible.builtin.unarchive:
+    src: "/tmp/go{{ ephyr_go_version }}.tar.gz"
+    dest: /usr/local
+    remote_src: true
+  when: not go_installed or go_needs_update
+
+- name: Clean up Go tarball
+  ansible.builtin.file:
+    path: "/tmp/go{{ ephyr_go_version }}.tar.gz"
+    state: absent
+  when: not go_installed or go_needs_update
+
+# ── 2. Create ephyr user and group ────────────────────────────────────────────
+
+- name: Create ephyr-agents group
+  ansible.builtin.group:
+    name: "{{ ephyr_group }}"
+    system: true
+    state: present
+
+- name: Create ephyr-broker user
+  ansible.builtin.user:
+    name: "{{ ephyr_user }}"
+    group: "{{ ephyr_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+
+# ── 3. Create directories ────────────────────────────────────────────────────
+
+- name: Create Ephyr directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default(ephyr_group) }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ ephyr_config_dir }}", mode: "0700", owner: "root", group: "root" }
+    - { path: "{{ ephyr_data_dir }}", mode: "0750", owner: "{{ ephyr_user }}" }
+    - { path: "{{ ephyr_log_dir }}", mode: "0750", owner: "{{ ephyr_user }}" }
+    - { path: "{{ ephyr_run_dir }}", mode: "0750", owner: "{{ ephyr_user }}" }
+
+# ── 4. Clone or update Ephyr repo ────────────────────────────────────────────
+
+- name: Clone Ephyr repository
+  ansible.builtin.git:
+    repo: "{{ ephyr_git_repo }}"
+    dest: "{{ ephyr_install_dir }}"
+    version: "{{ 'main' if ephyr_version == 'latest' else ephyr_version }}"
+    force: true
+  register: git_result
+
+# ── 5. Build binaries ────────────────────────────────────────────────────────
+
+- name: Build Ephyr binaries
+  ansible.builtin.command:
+    cmd: /usr/local/go/bin/go build -trimpath -o {{ item.output }} {{ item.package }}
+    chdir: "{{ ephyr_install_dir }}"
+  environment:
+    GOPATH: "/tmp/go-build"
+    GOCACHE: "/tmp/go-cache"
+    PATH: "/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  loop:
+    - { output: "/usr/local/bin/ephyr-broker", package: "./cmd/broker" }
+    - { output: "/usr/local/bin/ephyr-signer", package: "./cmd/signer" }
+    - { output: "/usr/local/bin/ephyr", package: "./cmd/ephyr" }
+  when: git_result.changed
+  notify:
+    - Restart ephyr-signer
+    - Restart ephyr-broker
+
+# ── 6. Generate CA key ───────────────────────────────────────────────────────
+
+- name: Check if CA key exists
+  ansible.builtin.stat:
+    path: "{{ ephyr_config_dir }}/ca_key"
+  register: ca_key_stat
+
+- name: Generate Ed25519 CA key pair
+  ansible.builtin.command:
+    cmd: ssh-keygen -t ed25519 -f {{ ephyr_config_dir }}/ca_key -N "" -C "ephyr-ca"
+  when: ephyr_generate_ca_key and not ca_key_stat.stat.exists
+
+- name: Set CA key permissions
+  ansible.builtin.file:
+    path: "{{ ephyr_config_dir }}/ca_key"
+    owner: "{{ ephyr_user }}"
+    group: "{{ ephyr_group }}"
+    mode: "0600"
+  when: ca_key_stat.stat.exists or ephyr_generate_ca_key
+
+- name: Set CA public key permissions
+  ansible.builtin.file:
+    path: "{{ ephyr_config_dir }}/ca_key.pub"
+    owner: root
+    group: root
+    mode: "0644"
+  when: ca_key_stat.stat.exists or ephyr_generate_ca_key
+
+- name: Read CA public key for target provisioning
+  ansible.builtin.slurp:
+    src: "{{ ephyr_config_dir }}/ca_key.pub"
+  register: ca_pub_key_content
+
+- name: Store CA public key as fact for targets
+  ansible.builtin.set_fact:
+    ephyr_ca_public_key_value: "{{ ca_pub_key_content.content | b64decode | trim }}"
+  run_once: true
+
+# ── 7. Template policy.yaml ──────────────────────────────────────────────────
+
+- name: Template policy.yaml
+  ansible.builtin.template:
+    src: policy.yaml.j2
+    dest: "{{ ephyr_config_dir }}/policy.yaml"
+    owner: root
+    group: "{{ ephyr_group }}"
+    mode: "0640"
+    validate: "/bin/true %s"
+  notify:
+    - Reload ephyr-broker
+
+# ── 8. Template systemd units ────────────────────────────────────────────────
+
+- name: Template ephyr-signer.service
+  ansible.builtin.template:
+    src: ephyr-signer.service.j2
+    dest: /etc/systemd/system/ephyr-signer.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart ephyr-signer
+
+- name: Template ephyr-broker.service
+  ansible.builtin.template:
+    src: ephyr-broker.service.j2
+    dest: /etc/systemd/system/ephyr-broker.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart ephyr-broker
+
+# ── 9. Enable and start services ────────────────────────────────────────────
+
+- name: Flush handlers to ensure systemd reload happens first
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start ephyr-signer
+  ansible.builtin.systemd:
+    name: ephyr-signer
+    enabled: true
+    state: started
+
+- name: Enable and start ephyr-broker
+  ansible.builtin.systemd:
+    name: ephyr-broker
+    enabled: true
+    state: started
+
+- name: Display dashboard access info
+  ansible.builtin.debug:
+    msg: >-
+      Ephyr deployed. Dashboard: http://{{ ansible_host | default(inventory_hostname) }}:{{ ephyr_dashboard_port }}
+      | MCP: http://{{ ansible_host | default(inventory_hostname) }}:{{ ephyr_mcp_port }}/mcp

@@ -1,0 +1,56 @@
+[Unit]
+Description=Ephyr SSH Certificate Signer
+Documentation=https://github.com/EphyrAI/Ephyr
+After=network.target
+
+[Service]
+Type=simple
+User={{ ephyr_user }}
+Group={{ ephyr_group }}
+
+ExecStart=/usr/local/bin/ephyr-signer --ca-key {{ ephyr_config_dir }}/ca_key --socket {{ ephyr_run_dir }}/signer.sock
+
+# Runtime directory: creates {{ ephyr_run_dir }} owned by {{ ephyr_user }}.
+RuntimeDirectory=ephyr
+RuntimeDirectoryMode=0755
+
+# Logging.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ephyr-signer
+
+# Restart policy.
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening.
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+# Only allow read access to the CA key and write access to the socket.
+ReadOnlyPaths={{ ephyr_config_dir }}
+ReadWritePaths={{ ephyr_run_dir }}
+
+# Capabilities: none needed.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# System call filter.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,148 @@
+---
+# ── Validate inputs ──────────────────────────────────────────────────────────
+
+- name: Fail if no CA public key provided
+  ansible.builtin.fail:
+    msg: >-
+      ephyr_ca_public_key is not set. Either set it in inventory,
+      or run the ephyr-broker role first (it exports the key automatically).
+  when: >
+    (ephyr_ca_public_key | default('') | length == 0) and
+    (hostvars[groups['ephyr_broker'][0]]['ephyr_ca_public_key_value'] | default('') | length == 0)
+
+- name: Resolve CA public key from broker or variable
+  ansible.builtin.set_fact:
+    _ephyr_ca_pub: >-
+      {{ ephyr_ca_public_key if (ephyr_ca_public_key | default('') | length > 0)
+         else hostvars[groups['ephyr_broker'][0]]['ephyr_ca_public_key_value'] }}
+
+# ── 1. Ensure rbash exists ──────────────────────────────────────────────────
+
+- name: Check if rbash exists
+  ansible.builtin.stat:
+    path: /usr/bin/rbash
+  register: rbash_check
+
+- name: Check if rbash exists at /bin/rbash
+  ansible.builtin.stat:
+    path: /bin/rbash
+  register: rbash_bin_check
+  when: not rbash_check.stat.exists
+
+- name: Create rbash symlink
+  ansible.builtin.file:
+    src: /bin/bash
+    dest: /usr/bin/rbash
+    state: link
+  when: not rbash_check.stat.exists and not (rbash_bin_check.stat.exists | default(false))
+
+# ── 2. Create role accounts ─────────────────────────────────────────────────
+
+- name: Create role accounts
+  ansible.builtin.user:
+    name: "{{ ephyr_role_accounts[item].username }}"
+    shell: "{{ ephyr_role_accounts[item].shell }}"
+    system: true
+    create_home: true
+    comment: "Ephyr {{ ephyr_role_accounts[item].username }} role"
+    state: present
+  loop: "{{ ephyr_roles }}"
+  when: item in ephyr_role_accounts
+
+- name: Ensure .ssh directories exist for role accounts
+  ansible.builtin.file:
+    path: "/home/{{ ephyr_role_accounts[item].username }}/.ssh"
+    state: directory
+    owner: "{{ ephyr_role_accounts[item].username }}"
+    group: "{{ ephyr_role_accounts[item].username }}"
+    mode: "0700"
+  loop: "{{ ephyr_roles }}"
+  when: item in ephyr_role_accounts
+
+# ── 3. Deploy CA public key ─────────────────────────────────────────────────
+
+- name: Install CA public key
+  ansible.builtin.copy:
+    content: "{{ _ephyr_ca_pub }}\n"
+    dest: "{{ ephyr_ca_pub_dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# ── 4. Configure sshd ───────────────────────────────────────────────────────
+
+- name: Backup sshd_config (once)
+  ansible.builtin.copy:
+    src: /etc/ssh/sshd_config
+    dest: /etc/ssh/sshd_config.ephyr-backup
+    remote_src: true
+    force: false
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure TrustedUserCAKeys is configured
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^TrustedUserCAKeys'
+    line: "TrustedUserCAKeys {{ ephyr_ca_pub_dest }}"
+    state: present
+  notify: Reload sshd
+
+- name: Ensure AuthorizedPrincipalsFile is configured
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^AuthorizedPrincipalsFile'
+    line: "AuthorizedPrincipalsFile {{ ephyr_principals_dir }}/%u"
+    state: present
+  notify: Reload sshd
+
+- name: Validate sshd config
+  ansible.builtin.command: sshd -t
+  changed_when: false
+
+# ── 5. Create principals directory and files ─────────────────────────────────
+
+- name: Create principals directory
+  ansible.builtin.file:
+    path: "{{ ephyr_principals_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create principal files for role accounts
+  ansible.builtin.copy:
+    content: "{{ ephyr_role_accounts[item].principal }}\n"
+    dest: "{{ ephyr_principals_dir }}/{{ ephyr_role_accounts[item].username }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ ephyr_roles }}"
+  when: item in ephyr_role_accounts
+
+# ── 6. Deploy sudoers rules ─────────────────────────────────────────────────
+
+- name: Remove immutable flag from sudoers if present
+  ansible.builtin.command: chattr -i {{ ephyr_sudoers_file }}
+  changed_when: false
+  failed_when: false
+
+- name: Template sudoers rules
+  ansible.builtin.template:
+    src: sudoers.j2
+    dest: "{{ ephyr_sudoers_file }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Make sudoers file immutable
+  ansible.builtin.command: chattr +i {{ ephyr_sudoers_file }}
+  changed_when: true
+  when: ephyr_sudoers_immutable
+
+# ── 7. Reload sshd ──────────────────────────────────────────────────────────
+
+- name: Flush handlers to reload sshd
+  ansible.builtin.meta: flush_handlers

@@ -1,0 +1,68 @@
+---
+# Ephyr version: git tag or branch to checkout. "latest" tracks main.
+ephyr_version: "latest"
+
+# Go version to install if not already present.
+ephyr_go_version: "1.24.1"
+
+# Git repository URL.
+ephyr_git_repo: "https://github.com/EphyrAI/Ephyr.git"
+
+# Installation paths.
+ephyr_install_dir: "/opt/ephyr"
+ephyr_config_dir: "/etc/ephyr"
+ephyr_data_dir: "/var/lib/ephyr"
+ephyr_log_dir: "/var/log/ephyr"
+ephyr_run_dir: "/run/ephyr"
+
+# Service user and group.
+ephyr_user: "ephyr-broker"
+ephyr_group: "ephyr-agents"
+
+# Network ports.
+ephyr_mcp_port: 8554
+ephyr_dashboard_port: 8553
+
+# Dashboard token. Auto-generated at first deploy if left as "changeme".
+ephyr_dashboard_token: "changeme"
+
+# Global policy settings.
+ephyr_max_active_certs: 10
+ephyr_default_ttl: "5m"
+ephyr_max_ttl: "30m"
+ephyr_rate_limit_requests: 10
+ephyr_rate_limit_window: 60
+
+# Agent definitions. Example:
+#   ephyr_agents:
+#     claude:
+#       uid: 1000
+#       max_concurrent_certs: 3
+#       description: "Claude Code agent"
+ephyr_agents: {}
+
+# Role definitions. Defaults match the standard three-role model.
+ephyr_roles:
+  read:
+    principal: "agent-read"
+    description: "Read-only access -- inspect configs, logs, status"
+  operator:
+    principal: "agent-op"
+    description: "Operator access -- restart services, deploy updates"
+  admin:
+    principal: "agent-admin"
+    description: "Full administrative access -- use sparingly"
+
+# Target definitions. Example:
+#   ephyr_targets:
+#     webserver:
+#       host: "10.0.1.10"
+#       port: 22
+#       allowed_roles: [read, operator]
+#       max_ttl: "10m"
+#       auto_approve: true
+#       description: "Production web server"
+ephyr_targets: {}
+
+# Whether to generate a new CA key if one does not exist.
+ephyr_generate_ca_key: true

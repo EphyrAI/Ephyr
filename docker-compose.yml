@@ -1,0 +1,28 @@
+services:
+  signer:
+    build: .
+    command: ephyr-signer --ca-key /etc/ephyr/ca_key --socket /run/ephyr/signer.sock
+    volumes:
+      - socket:/run/ephyr
+      - ./examples/ca_key:/etc/ephyr/ca_key:ro
+    restart: unless-stopped
+
+  broker:
+    build: .
+    command: ephyr-broker
+    depends_on:
+      - signer
+    ports:
+      - "8553:8553"  # Dashboard
+      - "8554:8554"  # MCP
+    volumes:
+      - socket:/run/ephyr
+      - ./examples/policy.yaml:/etc/ephyr/policy.yaml:ro
+      - ./dashboard:/opt/ephyr/dashboard:ro
+    environment:
+      - EPHYR_SIGNER_SOCKET=/run/ephyr/signer.sock
+      - EPHYR_DASHBOARD_TOKEN=changeme
+    restart: unless-stopped
+
+volumes:
+  socket:

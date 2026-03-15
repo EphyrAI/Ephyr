@@ -1,0 +1,19 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart ephyr-signer
+  ansible.builtin.systemd:
+    name: ephyr-signer
+    state: restarted
+
+- name: Restart ephyr-broker
+  ansible.builtin.systemd:
+    name: ephyr-broker
+    state: restarted
+
+- name: Reload ephyr-broker
+  ansible.builtin.systemd:
+    name: ephyr-broker
+    state: reloaded

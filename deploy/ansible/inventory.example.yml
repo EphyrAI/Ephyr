@@ -1,0 +1,33 @@
+---
+all:
+  children:
+    ephyr_broker:
+      hosts:
+        broker.example.com:
+          ansible_user: root
+          # ephyr_dashboard_token: "changeme"
+          # ephyr_git_repo: "https://github.com/EphyrAI/Ephyr.git"
+          # ephyr_agents:
+          #   claude:
+          #     uid: 1000
+          #     max_concurrent_certs: 3
+          #     description: "Claude Code agent"
+          # ephyr_targets:
+          #   webserver:
+          #     host: "10.0.1.10"
+          #     port: 22
+          #     allowed_roles: [read, operator]
+          #     max_ttl: "10m"
+          #     auto_approve: true
+          #     description: "Production web server"
+
+    ephyr_targets:
+      hosts:
+        webserver:
+          ansible_host: 10.0.1.10
+          ansible_user: root
+          ephyr_roles: [read, operator]
+        database:
+          ansible_host: 10.0.1.20
+          ansible_user: root
+          ephyr_roles: [read]

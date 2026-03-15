@@ -1,0 +1,10 @@
+---
+- name: Deploy Ephyr broker
+  hosts: ephyr_broker
+  roles:
+    - ephyr-broker
+
+- name: Provision Ephyr targets
+  hosts: ephyr_targets
+  roles:
+    - ephyr-target

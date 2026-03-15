@@ -1,0 +1,57 @@
+[Unit]
+Description=Ephyr SSH Certificate Broker
+Documentation=https://github.com/EphyrAI/Ephyr
+After=network.target ephyr-signer.service
+Wants=ephyr-signer.service
+
+[Service]
+Type=simple
+User={{ ephyr_user }}
+Group={{ ephyr_group }}
+
+ExecStart=/usr/local/bin/ephyr-broker --policy {{ ephyr_config_dir }}/policy.yaml
+Environment=EPHYR_DASHBOARD_LISTEN=:{{ ephyr_dashboard_port }}
+Environment=EPHYR_DASHBOARD_TOKEN={{ ephyr_dashboard_token }}
+Environment=EPHYR_DASHBOARD_DIR={{ ephyr_install_dir }}/dashboard
+Environment=EPHYR_MCP_LISTEN=:{{ ephyr_mcp_port }}
+Environment=EPHYR_AUDIT_LOG={{ ephyr_log_dir }}/audit.json
+
+# Runtime directory: creates {{ ephyr_run_dir }} owned by {{ ephyr_user }}.
+RuntimeDirectory=ephyr
+RuntimeDirectoryMode=0755
+
+# Logging.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ephyr-broker
+
+# Restart policy.
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening.
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+
+# Allow writes only to specific paths.
+ReadWritePaths={{ ephyr_run_dir }} {{ ephyr_log_dir }} {{ ephyr_data_dir }}
+
+# Capabilities: only what's needed for Unix socket binding.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# System call filter.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target

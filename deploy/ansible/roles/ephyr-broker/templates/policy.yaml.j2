@@ -1,0 +1,85 @@
+# Ephyr policy configuration
+# Managed by Ansible -- do not edit manually.
+# Loaded by the policy engine at startup; supports hot-reload (SIGHUP).
+
+global:
+  max_active_certs: {{ ephyr_max_active_certs }}
+  default_ttl: "{{ ephyr_default_ttl }}"
+  max_ttl: "{{ ephyr_max_ttl }}"
+  rate_limit:
+    requests_per_window: {{ ephyr_rate_limit_requests }}
+    window_seconds: {{ ephyr_rate_limit_window }}
+
+agents:
+{% for name, agent in ephyr_agents.items() %}
+  {{ name }}:
+    uid: {{ agent.uid }}
+    max_concurrent_certs: {{ agent.max_concurrent_certs | default(3) }}
+    description: "{{ agent.description | default('') }}"
+{% if agent.api_key_hash is defined %}
+    api_key_hash: "{{ agent.api_key_hash }}"
+{% endif %}
+{% if agent.inherits is defined %}
+    inherits:
+{% for template in agent.inherits %}
+      - {{ template }}
+{% endfor %}
+{% endif %}
+{% if agent.ssh is defined %}
+    ssh:
+{% for target, access in agent.ssh.items() %}
+      {{ target }}:
+        roles:
+{% for role in access.roles %}
+          - {{ role }}
+{% endfor %}
+{% if access.auto_approve is defined %}
+        auto_approve: {{ access.auto_approve | lower }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if agent.services is defined %}
+    services:
+{% for svc, access in agent.services.items() %}
+      {{ svc }}:
+{% if access.methods is defined %}
+        methods:
+{% for method in access.methods %}
+          - {{ method }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if agent.dashboard is defined %}
+    dashboard: "{{ agent.dashboard }}"
+{% endif %}
+{% endfor %}
+
+roles:
+{% for name, role in ephyr_roles.items() %}
+  {{ name }}:
+    principal: "{{ role.principal }}"
+    description: "{{ role.description | default('') }}"
+{% endfor %}
+
+targets:
+{% for name, target in ephyr_targets.items() %}
+  {{ name }}:
+    host: "{{ target.host }}"
+    port: {{ target.port | default(22) }}
+{% if target.vlan is defined %}
+    vlan: {{ target.vlan }}
+{% endif %}
+    allowed_roles:
+{% for role in target.allowed_roles %}
+      - {{ role }}
+{% endfor %}
+    max_ttl: "{{ target.max_ttl | default(ephyr_max_ttl) }}"
+    auto_approve: {{ target.auto_approve | default(true) | lower }}
+{% if target.force_command is defined %}
+    force_command: "{{ target.force_command }}"
+{% endif %}
+{% if target.description is defined %}
+    description: "{{ target.description }}"
+{% endif %}
+{% endfor %}

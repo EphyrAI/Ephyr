@@ -316,9 +316,30 @@ Benchmarked on a Debian 12 LXC (1 vCPU, 512MB RAM):
 
 ## Quick Start
 
-Get Ephyr running and execute your first brokered command in under 5 minutes.
+Get Ephyr running in under 5 minutes.
 
-### 1. Build
+### Option A: Docker (fastest)
+
+```bash
+git clone https://github.com/EphyrAI/Ephyr.git
+cd Ephyr
+
+# Generate a CA key
+./examples/generate-ca-key.sh
+
+# Start signer + broker
+docker compose up --build -d
+
+# Verify — should return {"jsonrpc":"2.0",...,"serverInfo":{"name":"ephyr"}}
+curl -s http://localhost:8554/mcp \
+  -H "Authorization: Bearer ephyr-demo-key" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+Dashboard at `http://localhost:8553` (token: `changeme`). Edit `examples/policy.yaml` to add your targets.
+
+### Option B: Build from source
 
 ```bash
 git clone https://github.com/EphyrAI/Ephyr.git
@@ -497,12 +518,21 @@ make lint                    # golangci-lint
 go test ./test/integration/  # Integration tests (requires running instance)
 ```
 
+## Deployment
+
+| Method | Best for | Guide |
+|--------|----------|-------|
+| **Docker Compose** | Trying Ephyr, dev/test | [Quick Start](#option-a-docker-fastest) above |
+| **Ansible** | Production, multi-host | [deploy/ansible/README.md](deploy/ansible/README.md) |
+| **Manual** | Full control, custom setups | [docs/deployment.md](docs/deployment.md) |
+
 ## Requirements
 
-- **Go 1.24+** -- uses enhanced routing patterns and recent stdlib features
+- **Go 1.24+** -- uses enhanced routing patterns and recent stdlib features (build from source only)
 - **Linux** -- `SO_PEERCRED` for Unix socket peer authentication is Linux-specific
-- **systemd** -- optional but recommended for production
+- **Docker 24+** -- for containerized deployment (alternative to building from source)
 - **OpenSSH** -- target hosts need `TrustedUserCAKeys` configured
+- **systemd** -- recommended for production (manual/Ansible deployment)
 - **nftables** -- recommended for network isolation
 
 ## Documentation
