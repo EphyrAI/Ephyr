@@ -127,14 +127,14 @@ func getSeverityColor(sev string) string {
 }
 
 // truncate shortens a string with an ellipsis if it exceeds max length.
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	if max <= 3 {
-		return s[:max]
+	if maxLen <= 3 {
+		return s[:maxLen]
 	}
-	return s[:max-3] + "..."
+	return s[:maxLen-3] + "..."
 }
 
 // fmtDuration formats a millisecond string into a compact duration.
