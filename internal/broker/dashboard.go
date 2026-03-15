@@ -420,6 +420,11 @@ func (bs *BrokerServer) handleDashboardSessions(w http.ResponseWriter, r *http.R
 			status = "expired"
 		}
 
+		// If the host is disabled, mark active sessions as suspended.
+		if status == "active" && bs.hostCtl != nil && !bs.hostCtl.IsEnabled(c.Target) {
+			status = "suspended"
+		}
+
 		sessions = append(sessions, DashboardSession{
 			Serial:    c.Serial,
 			Agent:     c.AgentName,
@@ -458,6 +463,27 @@ func (bs *BrokerServer) handleDashboardSessions(w http.ResponseWriter, r *http.R
 				maxTTL = int64(bs.grantStore.DefaultMCPTTL.Seconds())
 			default:
 				maxTTL = 300 // 5 minute fallback
+			}
+
+			// If the backing service or remote is disabled, mark active grants as suspended.
+			if status == "active" {
+				if g.Type == GrantTypeService && bs.proxyEngine != nil {
+					if svc, ok := bs.proxyEngine.GetService(g.Target); ok {
+						if svc.Enabled != nil && !*svc.Enabled {
+							status = "suspended"
+						}
+					}
+				}
+				if g.Type == GrantTypeMCP && bs.federator != nil {
+					if state := bs.federator.getState(g.Target); state != nil {
+						state.mu.RLock()
+						remoteEnabled := state.Config.Enabled
+						state.mu.RUnlock()
+						if !remoteEnabled {
+							status = "suspended"
+						}
+					}
+				}
 			}
 
 			ds := DashboardSession{

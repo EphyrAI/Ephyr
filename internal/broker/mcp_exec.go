@@ -27,14 +27,24 @@ type ExecRequest struct {
 	SessionID string `json:"session_id,omitempty"` // if set, reuse existing SSH connection
 }
 
+// ExecTimings holds latency breakdown for each phase of an exec operation.
+type ExecTimings struct {
+	PolicyMs int64 `json:"policy_ms,omitempty"` // policy evaluation
+	CertMs   int64 `json:"cert_ms,omitempty"`   // certificate signing (signer IPC)
+	SSHMs    int64 `json:"ssh_ms,omitempty"`     // SSH connection + command execution
+	TotalMs  int64 `json:"total_ms,omitempty"`   // end-to-end
+	Session  bool  `json:"session,omitempty"`    // true if exec used an existing session
+}
+
 // ExecResult is the output of a command execution.
 type ExecResult struct {
-	Stdout     string `json:"stdout"`
-	Stderr     string `json:"stderr"`
-	ExitCode   int    `json:"exit_code"`
-	Target     string `json:"target"`
-	Role       string `json:"role"`
-	DurationMs int64  `json:"duration_ms"`
+	Stdout     string      `json:"stdout"`
+	Stderr     string      `json:"stderr"`
+	ExitCode   int         `json:"exit_code"`
+	Target     string      `json:"target"`
+	Role       string      `json:"role"`
+	DurationMs int64       `json:"duration_ms"`
+	Timings    *ExecTimings `json:"timings,omitempty"`
 }
 
 // ExecSession is a persistent SSH connection for multi-command workflows.
@@ -414,7 +424,8 @@ func (p *ExecSessionPool) execCommand(client *ssh.Client, target, role, command 
 // ExecInSession runs a command on an existing persistent SSH session.
 // The session is looked up by ID and must not be closed. A new ssh.Session
 // is opened on the existing SSH client (SSH multiplexing).
-func (p *ExecSessionPool) ExecInSession(agentName, sessionID, command string, timeout int) (*ExecResult, error) {
+// policyMs is the time spent on policy evaluation in the caller (toolExec).
+func (p *ExecSessionPool) ExecInSession(agentName, sessionID, command string, timeout int, policyMs int64) (*ExecResult, error) {
 	p.mu.RLock()
 	session, exists := p.sessions[sessionID]
 	p.mu.RUnlock()
@@ -438,7 +449,10 @@ func (p *ExecSessionPool) ExecInSession(agentName, sessionID, command string, ti
 	role := session.Role
 	session.mu.Unlock()
 
+	// Time the SSH command execution phase.
+	sshStart := time.Now()
 	result, err := p.execCommand(client, target, role, command, timeout)
+	sshMs := time.Since(sshStart).Milliseconds()
 
 	// Update last-used timestamp regardless of outcome.
 	session.mu.Lock()
@@ -462,6 +476,19 @@ func (p *ExecSessionPool) ExecInSession(agentName, sessionID, command string, ti
 		return nil, err
 	}
 
+	// Populate latency breakdown for session-based exec (no cert phase).
+	totalMs := result.DurationMs
+	if policyMs > 0 {
+		totalMs = policyMs + sshMs
+	}
+	result.Timings = &ExecTimings{
+		PolicyMs: policyMs,
+		CertMs:   0,
+		SSHMs:    sshMs,
+		TotalMs:  totalMs,
+		Session:  true,
+	}
+
 	p.broker.auditLog.LogEvent(audit.AuditEvent{
 		Severity:  audit.SeverityInfo,
 		EventType: "mcp_exec",
@@ -473,6 +500,10 @@ func (p *ExecSessionPool) ExecInSession(agentName, sessionID, command string, ti
 			"command":     truncate(command, 200),
 			"exit_code":   fmt.Sprintf("%d", result.ExitCode),
 			"duration_ms": fmt.Sprintf("%d", result.DurationMs),
+			"policy_ms":   fmt.Sprintf("%d", policyMs),
+			"ssh_ms":      fmt.Sprintf("%d", sshMs),
+			"total_ms":    fmt.Sprintf("%d", totalMs),
+			"session":     "true",
 		},
 	})
 
@@ -505,9 +536,12 @@ func (p *ExecSessionPool) ExecInSession(agentName, sessionID, command string, ti
 
 // ExecOneShot establishes a temporary SSH connection, runs a single command,
 // and tears down the connection. Use this for isolated one-off commands.
-func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, timeout int) (*ExecResult, error) {
-	// Sign and connect.
+// policyMs is the time spent on policy evaluation in the caller (toolExec).
+func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, timeout int, policyMs int64) (*ExecResult, error) {
+	// Sign and connect (time the cert signing + SSH dial phase).
+	certStart := time.Now()
 	sr, err := p.signAndConnect(agentName, target, role)
+	certMs := time.Since(certStart).Milliseconds()
 	if err != nil {
 		p.broker.auditLog.LogEvent(audit.AuditEvent{
 			Severity:  audit.SeverityWarn,
@@ -539,7 +573,10 @@ func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, t
 	})
 	defer p.broker.state.RemoveCert(sr.Serial)
 
+	// Time the SSH command execution phase.
+	sshStart := time.Now()
 	result, err := p.execCommand(sr.Client, target, role, command, timeout)
+	sshMs := time.Since(sshStart).Milliseconds()
 	if err != nil {
 		p.broker.auditLog.LogEvent(audit.AuditEvent{
 			Severity:  audit.SeverityWarn,
@@ -557,6 +594,16 @@ func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, t
 		return nil, err
 	}
 
+	// Populate latency breakdown for one-shot exec.
+	totalMs := policyMs + certMs + sshMs
+	result.Timings = &ExecTimings{
+		PolicyMs: policyMs,
+		CertMs:   certMs,
+		SSHMs:    sshMs,
+		TotalMs:  totalMs,
+		Session:  false,
+	}
+
 	// Audit log.
 	p.broker.auditLog.LogEvent(audit.AuditEvent{
 		Severity:  audit.SeverityInfo,
@@ -570,6 +617,10 @@ func (p *ExecSessionPool) ExecOneShot(agentName, target, role, command string, t
 			"command":     truncate(command, 200),
 			"exit_code":   fmt.Sprintf("%d", result.ExitCode),
 			"duration_ms": fmt.Sprintf("%d", result.DurationMs),
+			"policy_ms":   fmt.Sprintf("%d", policyMs),
+			"cert_ms":     fmt.Sprintf("%d", certMs),
+			"ssh_ms":      fmt.Sprintf("%d", sshMs),
+			"total_ms":    fmt.Sprintf("%d", totalMs),
 		},
 	})
 

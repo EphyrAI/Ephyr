@@ -251,8 +251,13 @@ func formatDetails(evt *AuditEvent) detailColumns {
 		role := resolveField(evt, evt.Role, "role")
 		cmd := get("command")
 		sessionID := get("session_id")
-		dur := fmtDuration(get("duration_ms"))
 		exitCode := get("exit_code")
+
+		// Check for latency breakdown fields.
+		totalMs := get("total_ms")
+		certMs := get("cert_ms")
+		sshMs := get("ssh_ms")
+		isSession := get("session")
 
 		// Build the command display with optional [sess] tag.
 		cmdDisplay := truncate(cmd, colDetail)
@@ -263,9 +268,26 @@ func formatDetails(evt *AuditEvent) detailColumns {
 		}
 
 		var right []string
-		if dur != "" {
-			right = append(right, dur)
+
+		// Use latency breakdown if available, otherwise fall back to duration_ms.
+		if totalMs != "" && (certMs != "" || isSession == "true") {
+			dur := fmtDuration(totalMs)
+			if isSession == "true" {
+				// Session-based: no cert phase.
+				right = append(right, fmt.Sprintf("%s %s[sess ssh=%s]%s",
+					dur, colorDim, fmtDuration(sshMs), colorReset))
+			} else {
+				// One-shot: show cert and ssh breakdown.
+				right = append(right, fmt.Sprintf("%s %s[cert=%s ssh=%s]%s",
+					dur, colorDim, fmtDuration(certMs), fmtDuration(sshMs), colorReset))
+			}
+		} else {
+			dur := fmtDuration(get("duration_ms"))
+			if dur != "" {
+				right = append(right, dur)
+			}
 		}
+
 		if exitCode != "" {
 			right = append(right, "exit="+exitCode)
 		}

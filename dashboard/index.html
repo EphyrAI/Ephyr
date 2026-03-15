@@ -436,6 +436,7 @@
   .badge-active { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
   .badge-revoked { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
   .badge-expired { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
+  .badge-suspended { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
 
   /* Buttons */
   .btn {
@@ -631,6 +632,32 @@
   }
   .session-revoked-label {
     color: var(--red);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  /* Suspended session styling (host/service/remote disabled) */
+  .sessions-table tr.session-suspended {
+    opacity: 0.6;
+    border-left: 3px solid var(--amber);
+  }
+  .sessions-table tr.session-suspended .ttl-bar-fill {
+    background: var(--amber) !important;
+    box-shadow: none !important;
+    animation: pulse-amber 2s infinite;
+  }
+  .session-suspended .ttl-bar-fill {
+    background: var(--amber) !important;
+    box-shadow: none !important;
+    animation: pulse-amber 2s infinite;
+  }
+  @keyframes pulse-amber {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+  .session-suspended-label {
+    color: var(--amber);
     font-weight: 600;
     font-size: 12px;
     text-transform: uppercase;
@@ -1770,6 +1797,7 @@ function StatusBadge({ status }) {
   if (s === 'active') cls = 'badge-active';
   else if (s === 'revoked') cls = 'badge-revoked';
   else if (s === 'expired') cls = 'badge-expired';
+  else if (s === 'suspended') cls = 'badge-suspended';
   return <span className={`badge ${cls}`}>{status}</span>;
 }
 
@@ -1945,7 +1973,8 @@ function SidebarStats({ summary }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onRevoke, token }) {
-  const activeSessions = (sessions || []).filter(s => s.status === 'active');
+  const activeSessions = (sessions || []).filter(s => s.status === 'active' || s.status === 'suspended');
+  const suspendedSessions = (sessions || []).filter(s => s.status === 'suspended');
   const revokedSessions = (sessions || []).filter(s => s.status === 'revoked');
   const [recentActivity, setRecentActivity] = useState([]);
   const [actSummary, setActSummary] = useState({});
@@ -2162,7 +2191,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
       <div className="panel" style={{ marginBottom: '16px' }}>
         <div className="panel-header">
           <span>Sessions</span>
-          <span className="panel-count">{activeSessions.length}{revokedSessions.length > 0 ? ` + ${revokedSessions.length} revoked` : ''}</span>
+          <span className="panel-count">{activeSessions.length}{suspendedSessions.length > 0 ? ` (${suspendedSessions.length} suspended)` : ''}{revokedSessions.length > 0 ? ` + ${revokedSessions.length} revoked` : ''}</span>
         </div>
         <div className="panel-body" style={{ maxHeight: '320px', overflowY: 'auto' }}>
           {(() => {
@@ -2179,8 +2208,8 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
             });
             // Sort groups by earliest-expiring cert first
             const sortedGroups = Object.values(groups).sort((a, b) => {
-              const aMin = Math.min(...a.certs.filter(c => c.status === 'active').map(c => parseTTL(c.expires_at, now)).concat([Infinity]));
-              const bMin = Math.min(...b.certs.filter(c => c.status === 'active').map(c => parseTTL(c.expires_at, now)).concat([Infinity]));
+              const aMin = Math.min(...a.certs.filter(c => c.status === 'active' || c.status === 'suspended').map(c => parseTTL(c.expires_at, now)).concat([Infinity]));
+              const bMin = Math.min(...b.certs.filter(c => c.status === 'active' || c.status === 'suspended').map(c => parseTTL(c.expires_at, now)).concat([Infinity]));
               return aMin - bMin;
             });
             // Recent proxy & MCP activity
@@ -2193,14 +2222,15 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                       <span style={{ color: 'var(--green)', fontWeight: 600, fontSize: '12px' }}>{group.agent}</span>
                       <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
                       <span style={{ color: 'var(--cyan)', fontWeight: 600, fontSize: '12px' }}>{group.target}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-dim)' }}>{group.certs.filter(c => c.status === 'active').length} active{group.certs.some(c => c.status === 'revoked') ? `, ${group.certs.filter(c => c.status === 'revoked').length} revoked` : ''}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-dim)' }}>{group.certs.filter(c => c.status === 'active').length} active{group.certs.some(c => c.status === 'suspended') ? `, ${group.certs.filter(c => c.status === 'suspended').length} suspended` : ''}{group.certs.some(c => c.status === 'revoked') ? `, ${group.certs.filter(c => c.status === 'revoked').length} revoked` : ''}</span>
                     </div>
                     {group.certs.map(s => {
                       const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
                       const remaining = parseTTL(s.expires_at, now);
                       const isRevoked = s.status === 'revoked';
+                      const isSuspended = s.status === 'suspended';
                       return (
-                        <div key={s.serial} className={isRevoked ? 'session-revoked' : ''} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: isRevoked ? 0.5 : 1, borderLeft: isRevoked ? '3px solid var(--red)' : 'none' }}>
+                        <div key={s.serial} className={isRevoked ? 'session-revoked' : isSuspended ? 'session-suspended' : ''} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: isRevoked ? 0.5 : isSuspended ? 0.6 : 1, borderLeft: isRevoked ? '3px solid var(--red)' : isSuspended ? '3px solid var(--amber)' : 'none' }}>
                           <GrantTypeBadge type={s.type || 'ssh_cert'} />
                           <RoleBadge role={s.role} />
                           <div style={{ flex: 1 }}>
@@ -2208,6 +2238,8 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                           </div>
                           {isRevoked ? (
                             <span className="session-revoked-label" style={{ fontSize: '9px' }}>REVOKED</span>
+                          ) : isSuspended ? (
+                            <span className="session-suspended-label" style={{ fontSize: '9px' }}>SUSPENDED</span>
                           ) : (
                             <button className="btn btn-revoke" onClick={() => onRevoke(s.serial, s.type || 'ssh_cert')} style={{ fontSize: '9px', padding: '2px 8px' }}>REVOKE</button>
                           )}
@@ -2631,7 +2663,7 @@ function AgentsView({ sessions, summary, now, token, onViewActivity }) {
     const list = Object.values(map).map(a => ({
       ...a,
       targets: [...a.targets],
-      activeSessions: a.sessions.filter(s => s.status === 'active'),
+      activeSessions: a.sessions.filter(s => s.status === 'active' || s.status === 'suspended'),
     }));
 
     const statusPriority = (a) => {
@@ -2724,14 +2756,15 @@ function AgentsView({ sessions, summary, now, token, onViewActivity }) {
                 const remaining = parseTTL(s.expires_at, now);
                 const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
                 const isActive = s.status === 'active';
+                const isSuspended = s.status === 'suspended';
                 return (
-                  <div key={s.serial} className="agent-session-item" style={{ opacity: isActive ? 1 : 0.4 }}>
+                  <div key={s.serial} className={`agent-session-item${isSuspended ? ' session-suspended' : ''}`} style={{ opacity: (isActive || isSuspended) ? (isSuspended ? 0.6 : 1) : 0.4 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ color: 'var(--cyan)' }}>{s.target}</span>
                       <RoleBadge role={s.role} />
-                      <StatusBadge status={s.status} />
+                      {isSuspended ? <span className="session-suspended-label" style={{ fontSize: '9px' }}>SUSPENDED</span> : <StatusBadge status={s.status} />}
                     </div>
-                    {isActive ? (
+                    {(isActive || isSuspended) ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '150px' }}>
                         <TTLBar remaining={remaining} maxTTL={maxTTL} />
                       </div>
@@ -2835,9 +2868,10 @@ function SessionsView({ sessions, now, onRevoke }) {
   const filtered = useMemo(() => {
     const list = (sessions || []).filter(s => {
       if (statusFilter === 'ACTIVE' && s.status !== 'active') return false;
+      if (statusFilter === 'SUSPENDED' && s.status !== 'suspended') return false;
       if (statusFilter === 'REVOKED' && s.status !== 'revoked') return false;
       if (statusFilter === 'EXPIRED' && s.status !== 'expired') return false;
-      if (statusFilter === 'INACTIVE' && s.status === 'active') return false;
+      if (statusFilter === 'INACTIVE' && s.status === 'active' && s.status !== 'suspended') return false;
       if (filterType !== 'ALL') {
         const sType = s.type || 'ssh_cert';
         if (filterType === 'SSH' && sType !== 'ssh_cert') return false;
@@ -2846,14 +2880,14 @@ function SessionsView({ sessions, now, onRevoke }) {
       }
       return true;
     });
-    // Sort: active first, then revoked, then expired
+    // Sort: active first, then suspended, then revoked, then expired
     list.sort((a, b) => {
-      const priority = { active: 0, revoked: 1, expired: 2 };
-      const aP = priority[a.status] !== undefined ? priority[a.status] : 2;
-      const bP = priority[b.status] !== undefined ? priority[b.status] : 2;
+      const priority = { active: 0, suspended: 1, revoked: 2, expired: 3 };
+      const aP = priority[a.status] !== undefined ? priority[a.status] : 3;
+      const bP = priority[b.status] !== undefined ? priority[b.status] : 3;
       if (aP !== bP) return aP - bP;
-      if (aP === 0) {
-        // Both active: sort by expires_at ascending (expiring first)
+      if (aP === 0 || aP === 1) {
+        // Both active/suspended: sort by expires_at ascending (expiring first)
         return new Date(a.expires_at || 0).getTime() - new Date(b.expires_at || 0).getTime();
       }
       // Both revoked/expired: sort by expires_at descending (most recently expired first)
@@ -2863,8 +2897,9 @@ function SessionsView({ sessions, now, onRevoke }) {
   }, [sessions, statusFilter, filterType, now]);
 
   const activeCount = (sessions || []).filter(s => s.status === 'active').length;
+  const suspendedCount = (sessions || []).filter(s => s.status === 'suspended').length;
   const revokedCount = (sessions || []).filter(s => s.status === 'revoked').length;
-  const expiredCount = (sessions || []).filter(s => s.status !== 'active' && s.status !== 'revoked').length;
+  const expiredCount = (sessions || []).filter(s => s.status !== 'active' && s.status !== 'revoked' && s.status !== 'suspended').length;
   const sshCount = (sessions || []).filter(s => !s.type || s.type === 'ssh_cert').length;
   const serviceCount = (sessions || []).filter(s => s.type === 'service').length;
   const mcpCount = (sessions || []).filter(s => s.type === 'mcp').length;
@@ -2875,11 +2910,13 @@ function SessionsView({ sessions, now, onRevoke }) {
         {[
           { key: 'ALL', label: `ALL (${(sessions || []).length})` },
           { key: 'ACTIVE', label: `ACTIVE (${activeCount})` },
+          { key: 'SUSPENDED', label: `SUSPENDED (${suspendedCount})` },
           { key: 'REVOKED', label: `REVOKED (${revokedCount})` },
           { key: 'EXPIRED', label: `EXPIRED (${expiredCount})` },
         ].map(f => (
           <button key={f.key} className={`filter-btn ${statusFilter === f.key ? 'active' : ''}`}
-            style={statusFilter === f.key && f.key === 'REVOKED' ? { borderColor: 'var(--red)', color: 'var(--red)', background: 'var(--red-dim)' } : {}}
+            style={statusFilter === f.key && f.key === 'REVOKED' ? { borderColor: 'var(--red)', color: 'var(--red)', background: 'var(--red-dim)' } :
+                   statusFilter === f.key && f.key === 'SUSPENDED' ? { borderColor: 'var(--amber)', color: 'var(--amber)', background: 'var(--amber-dim)' } : {}}
             onClick={() => setStatusFilter(f.key)}>
             {f.label}
           </button>
@@ -2921,23 +2958,24 @@ function SessionsView({ sessions, now, onRevoke }) {
               <tr><td colSpan="9" className="empty-state">No sessions</td></tr>
             ) : filtered.map(s => {
               const isActive = s.status === 'active';
+              const isSuspended = s.status === 'suspended';
               const isRevoked = s.status === 'revoked';
               const remaining = parseTTL(s.expires_at, now);
               const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
-              const rowClass = isRevoked ? 'session-revoked' : (!isActive ? 'inactive' : '');
+              const rowClass = isRevoked ? 'session-revoked' : isSuspended ? 'session-suspended' : (!isActive ? 'inactive' : '');
               return (
                 <tr key={s.serial} className={rowClass}>
-                  <td><StatusDot status={isActive ? 'active' : 'offline'} /></td>
+                  <td><StatusDot status={isActive ? 'active' : isSuspended ? 'idle' : 'offline'} /></td>
                   <td><GrantTypeBadge type={s.type || 'ssh_cert'} /></td>
                   <td style={{ color: 'var(--green)', fontWeight: 600 }}>{s.agent}</td>
                   <td style={{ color: 'var(--cyan)', fontWeight: 600 }}>{s.target}</td>
                   <td><RoleBadge role={s.role} /></td>
-                  <td>{isRevoked ? <span className="session-revoked-label">REVOKED</span> : <StatusBadge status={s.status} />}</td>
+                  <td>{isRevoked ? <span className="session-revoked-label">REVOKED</span> : isSuspended ? <span className="session-suspended-label">SUSPENDED</span> : <StatusBadge status={s.status} />}</td>
                   <td style={{ color: 'var(--text-dim)', fontSize: '11px', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.command || '-'}
                   </td>
                   <td style={{ minWidth: '180px' }}>
-                    {isActive ? (
+                    {(isActive || isSuspended) ? (
                       <TTLBar remaining={remaining} maxTTL={maxTTL} />
                     ) : isRevoked ? (
                       <TTLBar remaining={Math.max(0, remaining)} maxTTL={maxTTL} />
@@ -2946,7 +2984,7 @@ function SessionsView({ sessions, now, onRevoke }) {
                     )}
                   </td>
                   <td>
-                    {isActive && (
+                    {(isActive || isSuspended) && (
                       <button className="btn btn-revoke" onClick={() => onRevoke(s.serial, s.type || 'ssh_cert')}>REVOKE</button>
                     )}
                     {isRevoked && (

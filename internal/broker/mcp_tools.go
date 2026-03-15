@@ -486,6 +486,9 @@ func (s *MCPServer) toolExec(ctx context.Context, agent *MCPAgent, args map[stri
 	}
 	sessionID, _ := getStringArg(args, "session_id")
 
+	// Start timing the policy evaluation phase.
+	policyStart := time.Now()
+
 	// Validate: target exists in policy.
 	s.broker.policyMu.RLock()
 	tgt, targetExists := s.broker.policyCfg.Raw.Targets[target]
@@ -639,13 +642,16 @@ func (s *MCPServer) toolExec(ctx context.Context, agent *MCPAgent, args map[stri
 		return errorResult("exec subsystem is not available"), nil
 	}
 
+	// End policy evaluation timing.
+	policyMs := time.Since(policyStart).Milliseconds()
+
 	// Execute the command.
 	var result *ExecResult
 	var err error
 	if sessionID != "" {
-		result, err = s.execPool.ExecInSession(agent.Name, sessionID, command, timeout)
+		result, err = s.execPool.ExecInSession(agent.Name, sessionID, command, timeout, policyMs)
 	} else {
-		result, err = s.execPool.ExecOneShot(agent.Name, target, role, command, timeout)
+		result, err = s.execPool.ExecOneShot(agent.Name, target, role, command, timeout, policyMs)
 	}
 	if err != nil {
 		return errorResult(fmt.Sprintf("exec failed: %s", err.Error())), nil
