@@ -1244,21 +1244,291 @@
     .stats-row { grid-template-columns: repeat(3, 1fr); }
   }
   @media (max-width: 1100px) {
-    .sidebar { width: 180px; }
-    .main-area { margin-left: 180px; }
+    .sidebar { width: 180px; min-width: 180px; }
     .panels-row { grid-template-columns: 1fr; }
     .hosts-grid { grid-template-columns: 1fr; }
   }
-  @media (max-width: 900px) {
-    .stats-row { grid-template-columns: repeat(2, 1fr); }
-    .sidebar { display: none; }
-    .main-area { margin-left: 0; }
+
+  /* ── Mobile hamburger button ── */
+  .mobile-menu-btn {
+    display: none;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 40px;
+    height: 40px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 20px;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: border-color 0.2s, color 0.2s;
+    padding: 0;
+    line-height: 1;
   }
-  @media (max-width: 600px) {
-    .stats-row { grid-template-columns: 1fr; }
-    .services-grid { grid-template-columns: 1fr; }
-    .content { padding: 12px; }
+  .mobile-menu-btn:hover { border-color: var(--green); color: var(--green); }
+
+  /* ── Mobile nav overlay backdrop ── */
+  .mobile-nav-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 99;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .mobile-nav-overlay.visible {
+    opacity: 1;
+  }
+
+  /* ── Tablet (768px) ── */
+  @media (max-width: 768px) {
+    /* Hamburger visible */
+    .mobile-menu-btn { display: flex; }
+
+    /* Sidebar becomes slide-in overlay */
+    .sidebar {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: 260px; min-width: 260px;
+      transform: translateX(-100%);
+      transition: transform 0.3s ease;
+      z-index: 200;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+    }
+    .sidebar.mobile-open {
+      transform: translateX(0);
+    }
+    .mobile-nav-overlay {
+      display: block;
+    }
+
+    /* Main area takes full width */
+    .main-area { margin-left: 0; }
+
+    /* Topbar adjustments */
+    .topbar { padding: 0 12px; gap: 8px; }
+    .topbar-title { font-size: 12px; letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Stat cards: 2 columns */
+    .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+
+    /* Panels stack */
+    .panels-row { grid-template-columns: 1fr; }
+
+    /* Card grids reduce minmax */
+    .hosts-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+    .agents-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+    .services-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+
+    /* Tables: horizontal scroll */
+    .sessions-table,
+    .audit-table,
+    .tasks-table,
+    .rbac-matrix { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+    /* Activity feed: reduce grid to more compact layout */
+    .activity-entry {
+      grid-template-columns: 70px 80px auto 100px 60px 50px;
+      padding: 6px 8px;
+      font-size: 10px;
+    }
+
+    /* Slideout panels: full width */
     .slideout-panel { width: 100%; right: -100%; }
+    .slideout-panel.open { right: 0; }
+
+    /* Envelope grid stacks */
+    .envelope-grid { grid-template-columns: 1fr; }
+
+    /* Content padding */
+    .content { padding: 14px; }
+
+    /* Terminal connect form */
+    .terminal-connect-form { max-width: 100%; }
+
+    /* Filter bars wrap */
+    .audit-filters,
+    .activity-filters { flex-wrap: wrap; gap: 6px; }
+    .filter-btn { padding: 6px 10px; font-size: 10px; }
+
+    /* Slideout close button: bigger touch target */
+    .slideout-close { width: 36px; height: 36px; font-size: 16px; }
+
+    /* Touch targets: minimum 44px for key interactive elements */
+    .nav-item { padding: 12px 16px; min-height: 44px; }
+    .btn { padding: 8px 12px; min-height: 36px; }
+    .toggle-switch { width: 44px; height: 24px; }
+    .toggle-thumb { width: 18px; height: 18px; }
+    .toggle-switch input:checked ~ .toggle-thumb { left: 22px; }
+
+    /* Privacy toggle and logout: bigger touch targets */
+    .privacy-toggle { padding: 6px 10px; min-height: 36px; }
+    .logout-btn { padding: 6px 12px; min-height: 36px; }
+
+    /* Topbar right: tighter spacing */
+    .topbar-right { gap: 8px; }
+    .conn-status { font-size: 9px; }
+
+    /* Modal: constrain to viewport */
+    .modal-box { width: 90vw; max-width: 380px; padding: 24px; }
+
+    /* Terminal panel tabs: scrollable */
+    .terminal-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+    /* Task tree indentation: reduce on tablet */
+    .task-tree-level { margin-left: 16px; }
+
+    /* Sidebar stats and footer font adjustments */
+    .sidebar-footer { font-size: 10px; }
+
+    /* Overview event terminal body */
+    .terminal-body { font-size: 10px; }
+    .event-line { gap: 6px; }
+    .event-time { min-width: 60px; font-size: 10px; }
+  }
+
+  /* ── Phone (480px) ── */
+  @media (max-width: 480px) {
+    /* Stat cards: single column */
+    .stats-row { grid-template-columns: 1fr; gap: 6px; margin-bottom: 12px; }
+    .stat-card { padding: 12px; }
+    .stat-value { font-size: 22px; }
+    .stat-label { font-size: 9px; }
+
+    /* All card grids: single column */
+    .hosts-grid,
+    .agents-grid,
+    .services-grid { grid-template-columns: 1fr; gap: 8px; }
+
+    /* Content: tighter padding */
+    .content { padding: 8px; }
+
+    /* Topbar */
+    .topbar { height: 44px; min-height: 44px; padding: 0 8px; }
+    .topbar-title { font-size: 11px; letter-spacing: 0.5px; }
+
+    /* Hide less critical topbar elements on very small screens */
+    .conn-status span:not(.conn-dot) { display: none; }
+    .privacy-toggle span { font-size: 9px; }
+    .logout-btn { font-size: 9px; padding: 4px 8px; }
+
+    /* Activity feed: collapse to stacked layout */
+    .activity-entry {
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto auto;
+      gap: 2px 8px;
+      padding: 8px;
+    }
+    .activity-entry .act-time { grid-column: 1; }
+    .activity-entry .act-status { grid-column: 2; text-align: right; }
+    .activity-entry .act-agent { grid-column: 1 / -1; }
+    .activity-entry .act-details { grid-column: 1 / -1; white-space: normal; }
+    .activity-entry .act-target { grid-column: 1; }
+    .activity-entry .act-duration { grid-column: 2; }
+    .activity-expanded { padding: 8px 12px; }
+
+    /* Filter buttons: smaller on phone */
+    .filter-btn { padding: 6px 8px; font-size: 9px; letter-spacing: 0; }
+    .audit-filters,
+    .activity-filters { gap: 4px; }
+
+    /* Panels row gap */
+    .panels-row { gap: 8px; }
+
+    /* Panel body: reduce max-height */
+    .panel-body { max-height: 300px; }
+    .terminal-body { max-height: 180px; }
+
+    /* Session items */
+    .session-route { font-size: 11px; flex-wrap: wrap; }
+    .session-bottom { flex-wrap: wrap; }
+
+    /* Host items */
+    .host-item { padding: 8px 10px; flex-wrap: wrap; }
+    .host-right { gap: 8px; }
+    .host-name { font-size: 11px; }
+
+    /* Host card meta */
+    .host-card-meta { gap: 8px; }
+    .host-card-actions { flex-wrap: wrap; }
+
+    /* Agent card adjustments */
+    .agent-card { padding: 12px; }
+    .agent-card-name { font-size: 12px; }
+
+    /* Service cards */
+    .service-card { padding: 12px; }
+    .service-card-name { font-size: 12px; }
+    .service-card-url { font-size: 10px; }
+
+    /* Slideout panel body */
+    .slideout-body { padding: 14px; }
+    .slideout-header { padding: 12px 14px; }
+    .slideout-footer { padding: 12px 14px; }
+
+    /* Form elements */
+    .form-row { flex-direction: column; gap: 0; }
+    .form-input, .form-select, .form-textarea { font-size: 14px; padding: 10px 12px; }
+
+    /* Settings */
+    .settings-section { padding: 14px; }
+    .settings-row { flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 0; }
+
+    /* Task tree: tighter on phone */
+    .task-tree-level { margin-left: 12px; }
+    .task-tree-node { padding: 8px 8px 8px 16px; }
+    .task-tree-root { padding: 10px 12px; }
+    .task-node-header { gap: 4px; }
+    .task-node-meta { flex-wrap: wrap; gap: 6px; font-size: 11px; }
+    .task-node-actions { margin-left: 0; margin-top: 6px; width: 100%; }
+
+    /* Terminal */
+    .terminal-xterm-container { width: 100% !important; }
+
+    /* Modal */
+    .modal-box { width: 95vw; padding: 20px; }
+    .modal-box h2 { font-size: 14px; }
+    .modal-box input[type="text"],
+    .modal-box input[type="password"] { font-size: 14px; }
+
+    /* Typography: enforce minimum readable sizes */
+    body { font-size: 13px; }
+    .badge { font-size: 9px; padding: 3px 6px; }
+    .overview-compact-entry { font-size: 10px; }
+
+    /* Cascade warning */
+    .cascade-warning { padding: 10px 12px; }
+
+    /* Theme picker: wrap */
+    .theme-picker { flex-wrap: wrap; }
+    .theme-btn { padding: 6px 0; font-size: 8px; min-height: 32px; }
+
+    /* Sidebar when open: slightly narrower on phone */
+    .sidebar { width: 240px; min-width: 240px; }
+
+    /* Topbar-right: hide privacy text on very small screens */
+    .privacy-toggle { padding: 6px; }
+
+    /* RBAC template cards */
+    .rbac-template-card { min-width: 100%; }
+
+    /* Overview activity body */
+    .overview-activity-body { max-height: 200px; }
+    .overview-activity-stats { flex-wrap: wrap; gap: 8px; }
+  }
+
+  /* ── Very small phones (360px) ── */
+  @media (max-width: 360px) {
+    .sidebar { width: 220px; min-width: 220px; }
+    .topbar-title { font-size: 10px; }
+    .topbar-right { gap: 4px; }
+    .privacy-toggle { display: none; }
+    .content { padding: 6px; }
+    .stat-value { font-size: 20px; }
+    .mobile-menu-btn { width: 36px; height: 36px; font-size: 18px; }
   }
 </style>
 </head>
@@ -4345,6 +4615,7 @@ function App() {
   const [view, setView] = useState('overview');
   const [now, setNow] = useState(Date.now());
   const [privacyMode, setPrivacyMode] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const [summary, setSummary] = useState({});
   const [hosts, setHosts] = useState([]);
@@ -4552,7 +4823,8 @@ function App() {
 
   return (
     <div className="app-layout">
-      <div className="sidebar">
+      {mobileNavOpen && <div className={`mobile-nav-overlay ${mobileNavOpen ? 'visible' : ''}`} onClick={() => setMobileNavOpen(false)} />}
+      <div className={`sidebar ${mobileNavOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-brand">
           <h1>EPHYR</h1>
           <div className="subtitle">SSH CERTIFICATE BROKER</div>
@@ -4566,7 +4838,7 @@ function App() {
               return (
                 <React.Fragment key={n.id}>
                   {showGroup && <div className="nav-group-label">{n.group}</div>}
-                  <div className={`nav-item ${view === n.id ? 'active' : ''}`} onClick={() => { if (n.id !== 'activity') setActivityAgent(''); setView(n.id); }}>
+                  <div className={`nav-item ${view === n.id ? 'active' : ''}`} onClick={() => { if (n.id !== 'activity') setActivityAgent(''); setView(n.id); setMobileNavOpen(false); }}>
                     <span className="nav-icon">{n.icon}</span>
                     {n.label}
                   </div>
@@ -4592,6 +4864,7 @@ function App() {
 
       <div className="main-area">
         <div className="topbar">
+          <button className="mobile-menu-btn" onClick={() => setMobileNavOpen(!mobileNavOpen)} aria-label="Toggle navigation">{'\u2630'}</button>
           <div className="topbar-title">{viewTitles[view]}</div>
           <div className="topbar-right">
             <button className={`privacy-toggle ${privacyMode ? 'active' : ''}`} onClick={() => setPrivacyMode(!privacyMode)}>
