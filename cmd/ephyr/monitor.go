@@ -6,16 +6,23 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // AuditEvent represents a single JSON line from the audit log.
+// Fields mirror internal/audit.AuditEvent so we capture top-level
+// target, role, serial, and duration in addition to the details map.
 type AuditEvent struct {
 	Timestamp string            `json:"timestamp"`
 	Severity  string            `json:"severity"`
 	EventType string            `json:"event_type"`
 	Agent     string            `json:"agent"`
+	Target    string            `json:"target"`
+	Role      string            `json:"role"`
+	Serial    string            `json:"serial"`
+	Duration  string            `json:"duration"`
 	Details   map[string]string `json:"details"`
 }
 
@@ -33,6 +40,22 @@ const (
 	colorWhite   = "\033[37m"
 	colorBgRed   = "\033[41m"
 )
+
+// Column widths for aligned output.
+const (
+	colTime    = 8  // HH:MM:SS
+	colIcon    = 5  // EXEC, SESS+, etc.
+	colSev     = 4  // INFO, WARN, etc.
+	colAgent   = 12 // agent name
+	colTarget  = 14 // target/service/remote/task_id
+	colRole    = 8  // role/method
+	colDetail  = 40 // command/description
+	colPadIcon = 1  // space after icon
+	colPadSev  = 2  // spaces after severity
+)
+
+// separator is the dim horizontal line printed between event groups.
+var separator = colorDim + strings.Repeat("\u2500", 93) + colorReset
 
 // eventIcons maps event types to 5-character labels.
 var eventIcons = map[string]string{
@@ -137,6 +160,15 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
+// padRight pads a string with spaces to the given width.
+// If s is longer than width, it is truncated.
+func padRight(s string, width int) string {
+	if len(s) >= width {
+		return s[:width]
+	}
+	return s + strings.Repeat(" ", width-len(s))
+}
+
 // fmtDuration formats a millisecond string into a compact duration.
 func fmtDuration(msStr string) string {
 	if msStr == "" {
@@ -153,7 +185,7 @@ func fmtDuration(msStr string) string {
 	return fmt.Sprintf("%dms", ms)
 }
 
-// eventGroup categorizes an event type for blank-line separation.
+// eventGroup categorizes an event type for separator insertion.
 func eventGroup(evt string) string {
 	switch {
 	case evt == "mcp_exec" || evt == "mcp_exec_error" ||
@@ -175,23 +207,61 @@ func eventGroup(evt string) string {
 	}
 }
 
+// resolveField returns the value from the event's top-level field first,
+// falling back to the details map. This handles the fact that the broker
+// logs target/role both as top-level JSON fields and sometimes redundantly
+// in the details map.
+func resolveField(evt *AuditEvent, topLevel, detailKey string) string {
+	if topLevel != "" {
+		return topLevel
+	}
+	if evt.Details != nil {
+		if v, ok := evt.Details[detailKey]; ok {
+			return v
+		}
+	}
+	return ""
+}
+
 // formatDetails builds a detail string based on event type, returning
-// both a detail string and a right-aligned suffix.
-func formatDetails(evt string, d map[string]string) (string, string) {
+// the target column, role/method column, detail/command column, and a
+// right-aligned suffix.
+type detailColumns struct {
+	target  string // col: 14 chars
+	role    string // col: 8 chars
+	detail  string // col: 40 chars (may contain ANSI)
+	right   string // right-aligned suffix
+	indent  int    // indentation level (for task hierarchy)
+}
+
+func formatDetails(evt *AuditEvent) detailColumns {
 	get := func(key string) string {
-		if v, ok := d[key]; ok {
+		if evt.Details == nil {
+			return ""
+		}
+		if v, ok := evt.Details[key]; ok {
 			return v
 		}
 		return ""
 	}
 
-	switch evt {
+	switch evt.EventType {
 	case "mcp_exec":
-		target := truncate(get("target"), 14)
-		role := truncate(get("role"), 8)
-		cmd := truncate(get("command"), 40)
+		target := resolveField(evt, evt.Target, "target")
+		role := resolveField(evt, evt.Role, "role")
+		cmd := get("command")
+		sessionID := get("session_id")
 		dur := fmtDuration(get("duration_ms"))
 		exitCode := get("exit_code")
+
+		// Build the command display with optional [sess] tag.
+		cmdDisplay := truncate(cmd, colDetail)
+		if sessionID != "" {
+			// Session-based exec: show [sess] tag and truncate command shorter.
+			tag := colorDim + "[sess]" + colorReset
+			cmdDisplay = truncate(cmd, colDetail-7) + " " + tag
+		}
+
 		var right []string
 		if dur != "" {
 			right = append(right, dur)
@@ -199,40 +269,74 @@ func formatDetails(evt string, d map[string]string) (string, string) {
 		if exitCode != "" {
 			right = append(right, "exit="+exitCode)
 		}
-		return fmt.Sprintf("%-14s %-8s %s", target, role, cmd),
-			strings.Join(right, "  ")
+
+		return detailColumns{
+			target: target,
+			role:   role,
+			detail: cmdDisplay,
+			right:  strings.Join(right, "  "),
+		}
 
 	case "mcp_exec_error":
-		target := truncate(get("target"), 14)
-		role := truncate(get("role"), 8)
+		target := resolveField(evt, evt.Target, "target")
+		role := resolveField(evt, evt.Role, "role")
 		errMsg := get("error")
 		cmd := get("command")
-		info := truncate(cmd, 40)
+		info := truncate(cmd, colDetail)
 		if info == "" {
-			info = truncate(errMsg, 40)
+			info = truncate(errMsg, colDetail)
 		}
-		return fmt.Sprintf("%-14s %-8s %s", target, role, info),
-			colorRed + "ERROR" + colorReset
+		return detailColumns{
+			target: target,
+			role:   role,
+			detail: info,
+			right:  colorRed + "ERROR" + colorReset,
+		}
 
-	case "mcp_session_create", "mcp_session_close":
-		target := truncate(get("target"), 14)
-		role := truncate(get("role"), 8)
+	case "mcp_session_create":
+		target := resolveField(evt, evt.Target, "target")
+		role := resolveField(evt, evt.Role, "role")
 		sid := get("session_id")
 		info := ""
 		if sid != "" {
 			info = "session=" + truncate(sid, 30)
 		}
-		return fmt.Sprintf("%-14s %-8s %s", target, role, info), ""
+		return detailColumns{
+			target: target,
+			role:   role,
+			detail: info,
+			right:  colorGreen + colorBold + "NEW SESSION" + colorReset,
+		}
+
+	case "mcp_session_close":
+		target := resolveField(evt, evt.Target, "target")
+		role := resolveField(evt, evt.Role, "role")
+		sid := get("session_id")
+		info := ""
+		if sid != "" {
+			info = "session=" + truncate(sid, 30)
+		}
+		dur := evt.Duration
+		right := colorYellow + "CLOSED" + colorReset
+		if dur != "" {
+			right = "dur=" + dur + "  " + right
+		}
+		return detailColumns{
+			target: target,
+			role:   role,
+			detail: info,
+			right:  right,
+		}
 
 	case "http_proxy":
-		svc := truncate(get("service"), 14)
+		svc := get("service")
 		method := get("method")
-		if len(method) > 8 {
-			method = method[:8]
+		if len(method) > colRole {
+			method = method[:colRole]
 		}
 		path := get("path")
 		if path == "" {
-			// Extract path from full URL
+			// Extract path from full URL.
 			url := get("url")
 			if idx := strings.Index(url, "://"); idx >= 0 {
 				rest := url[idx+3:]
@@ -245,7 +349,7 @@ func formatDetails(evt string, d map[string]string) (string, string) {
 				path = url
 			}
 		}
-		path = truncate(path, 35)
+		path = truncate(path, colDetail-5)
 		dur := fmtDuration(get("duration_ms"))
 		status := get("status_code")
 		var right []string
@@ -259,56 +363,92 @@ func formatDetails(evt string, d map[string]string) (string, string) {
 		if errMsg != "" {
 			right = append(right, colorRed+truncate(errMsg, 30)+colorReset)
 		}
-		return fmt.Sprintf("%-14s %-8s %s", svc, method, path),
-			strings.Join(right, "  ")
+		return detailColumns{
+			target: svc,
+			role:   method,
+			detail: path,
+			right:  strings.Join(right, "  "),
+		}
 
 	case "http_proxy_denied":
-		svc := truncate(get("service"), 14)
+		svc := get("service")
 		method := get("method")
-		if len(method) > 8 {
-			method = method[:8]
+		if len(method) > colRole {
+			method = method[:colRole]
 		}
-		url := truncate(get("url"), 35)
-		return fmt.Sprintf("%-14s %-8s %s", svc, method, url),
-			colorRed + "BLOCKED" + colorReset
+		url := truncate(get("url"), colDetail-5)
+		return detailColumns{
+			target: svc,
+			role:   method,
+			detail: url,
+			right:  colorRed + "BLOCKED" + colorReset,
+		}
 
 	case "mcp_federation":
-		remote := truncate(get("remote"), 14)
-		tool := truncate(get("tool"), 30)
+		remote := get("remote")
+		tool := truncate(get("tool"), colDetail)
 		dur := fmtDuration(get("duration_ms"))
-		return fmt.Sprintf("%-14s %s", remote, tool), dur
+		return detailColumns{
+			target: remote,
+			detail: tool,
+			right:  dur,
+		}
 
 	case "federation_arg_denied":
-		remote := truncate(get("remote"), 14)
-		reason := truncate(get("reason"), 40)
-		return fmt.Sprintf("%-14s %s", remote, reason),
-			colorRed + "BLOCKED" + colorReset
+		remote := get("remote")
+		reason := truncate(get("reason"), colDetail)
+		return detailColumns{
+			target: remote,
+			detail: reason,
+			right:  colorRed + "BLOCKED" + colorReset,
+		}
 
 	case "task_create":
-		tid := truncate(get("task_id"), 12)
-		desc := truncate(get("description"), 30)
+		tid := get("task_id")
+		tidShort := truncate(tid, 10) + "..."
+		if len(tid) <= 12 {
+			tidShort = tid
+		}
+		desc := truncate(get("description"), colDetail-2)
+		canDeleg := get("can_delegate")
 		var right []string
+		right = append(right, "depth=0")
+		if canDeleg == "true" {
+			right = append(right, "can_delegate")
+		}
 		if ttl := get("ttl"); ttl != "" {
 			right = append(right, "TTL="+ttl)
 		}
 		if ttype := get("token_type"); ttype != "" {
 			right = append(right, ttype)
 		}
-		if targets := get("targets"); targets != "" {
-			right = append(right, truncate(targets, 20))
+		return detailColumns{
+			target: tidShort,
+			detail: desc,
+			right:  strings.Join(right, "  "),
+			indent: 0,
 		}
-		return fmt.Sprintf("task=%-12s  %s", tid, desc),
-			strings.Join(right, "  ")
 
 	case "task_delegate":
-		tid := truncate(get("child_task_id"), 12)
+		tid := get("child_task_id")
 		if tid == "" {
-			tid = truncate(get("task_id"), 12)
+			tid = get("task_id")
 		}
-		desc := truncate(get("description"), 30)
+		tidShort := truncate(tid, 10) + "..."
+		if len(tid) <= 12 {
+			tidShort = tid
+		}
+		desc := truncate(get("description"), colDetail-2)
+		depthStr := get("depth")
+		depth := 0
+		if depthStr != "" {
+			if d, err := strconv.Atoi(depthStr); err == nil {
+				depth = d
+			}
+		}
 		var right []string
-		if depth := get("depth"); depth != "" {
-			right = append(right, "depth="+depth)
+		if depthStr != "" {
+			right = append(right, "depth="+depthStr)
 		}
 		if pid := get("parent_task_id"); pid != "" {
 			right = append(right, "parent="+truncate(pid, 12))
@@ -316,12 +456,20 @@ func formatDetails(evt string, d map[string]string) (string, string) {
 		if ttl := get("ttl"); ttl != "" {
 			right = append(right, "TTL="+ttl)
 		}
-		return fmt.Sprintf("task=%-12s  %s", tid, desc),
-			strings.Join(right, "  ")
+		return detailColumns{
+			target: tidShort,
+			detail: desc,
+			right:  strings.Join(right, "  "),
+			indent: depth,
+		}
 
 	case "task_revoke", "task_revoke_dashboard":
-		tid := truncate(get("task_id"), 12)
-		desc := truncate(get("description"), 30)
+		tid := get("task_id")
+		tidShort := truncate(tid, 10) + "..."
+		if len(tid) <= 12 {
+			tidShort = tid
+		}
+		desc := truncate(get("description"), colDetail-2)
 		if desc == "" {
 			desc = "revoked"
 		}
@@ -329,76 +477,116 @@ func formatDetails(evt string, d map[string]string) (string, string) {
 		if cascade := get("cascade_count"); cascade != "" {
 			right = "cascade=" + cascade
 		}
-		if evt == "task_revoke_dashboard" {
+		if evt.EventType == "task_revoke_dashboard" {
 			if right != "" {
 				right += "  "
 			}
 			right += colorDim + "(dashboard)" + colorReset
 		}
-		return fmt.Sprintf("task=%-12s  %s", tid, desc), right
+		return detailColumns{
+			target: tidShort,
+			detail: desc,
+			right:  right,
+		}
 
 	case "task_bind":
-		tid := truncate(get("task_id"), 12)
-		return fmt.Sprintf("task=%-12s  holder key bound", tid), ""
+		tid := get("task_id")
+		tidShort := truncate(tid, 10) + "..."
+		if len(tid) <= 12 {
+			tidShort = tid
+		}
+		return detailColumns{
+			target: tidShort,
+			detail: "holder key bound",
+		}
 
 	case "command_denied":
-		target := truncate(get("target"), 14)
-		role := truncate(get("role"), 8)
-		cmd := colorRed + colorBold + truncate(get("command"), 32) + colorReset
+		target := resolveField(evt, evt.Target, "target")
+		role := resolveField(evt, evt.Role, "role")
+		cmd := colorRed + colorBold + truncate(get("command"), colDetail-8) + colorReset
 		pattern := get("pattern")
-		return fmt.Sprintf("%-14s %-8s %s", target, role, cmd),
-			"pattern=" + colorRed + pattern + colorReset
+		return detailColumns{
+			target: target,
+			role:   role,
+			detail: cmd,
+			right:  "pattern=" + colorRed + pattern + colorReset,
+		}
 
 	case "request_denied", "request_body_denied":
-		svc := truncate(get("service"), 14)
+		svc := get("service")
 		method := get("method")
-		if len(method) > 8 {
-			method = method[:8]
+		if len(method) > colRole {
+			method = method[:colRole]
 		}
-		url := colorRed + colorBold + truncate(get("url"), 32) + colorReset
+		url := colorRed + colorBold + truncate(get("url"), colDetail-8) + colorReset
 		pattern := get("pattern")
-		return fmt.Sprintf("%-14s %-8s %s", svc, method, url),
-			"pattern=" + colorRed + pattern + colorReset
+		return detailColumns{
+			target: svc,
+			role:   method,
+			detail: url,
+			right:  "pattern=" + colorRed + pattern + colorReset,
+		}
 
 	case "auto_revoke":
-		target := get("target")
+		target := resolveField(evt, evt.Target, "target")
 		svc := get("service")
-		col := truncate(svc, 14)
+		col := svc
 		if col == "" {
-			col = truncate(target, 14)
+			col = target
 		}
-		role := truncate(get("role"), 8)
-		reason := colorRed + colorBold + truncate(get("reason"), 40) + colorReset
-		return fmt.Sprintf("%-14s %-8s %s", col, role, reason), ""
+		role := resolveField(evt, evt.Role, "role")
+		reason := colorRed + colorBold + truncate(get("reason"), colDetail) + colorReset
+		return detailColumns{
+			target: col,
+			role:   role,
+			detail: reason,
+		}
 
 	case "exec_denied", "session_denied":
-		target := truncate(get("target"), 14)
+		target := resolveField(evt, evt.Target, "target")
 		reason := get("reason")
-		return fmt.Sprintf("%-14s  %s", target, reason), ""
+		return detailColumns{
+			target: target,
+			detail: reason,
+		}
 
 	case "cert_issued":
-		target := truncate(get("target"), 14)
-		role := truncate(get("role"), 8)
+		target := resolveField(evt, evt.Target, "target")
+		role := resolveField(evt, evt.Role, "role")
 		serial := truncate(get("serial"), 16)
 		ttl := get("ttl")
 		right := ""
 		if ttl != "" {
 			right = "TTL=" + ttl
 		}
-		return fmt.Sprintf("%-14s %-8s serial=%s", target, role, serial), right
+		return detailColumns{
+			target: target,
+			role:   role,
+			detail: "serial=" + serial,
+			right:  right,
+		}
 
 	case "cert_denied":
-		target := truncate(get("target"), 14)
-		role := truncate(get("role"), 8)
-		reason := truncate(get("reason"), 40)
-		return fmt.Sprintf("%-14s %-8s %s", target, role, reason), ""
+		target := resolveField(evt, evt.Target, "target")
+		role := resolveField(evt, evt.Role, "role")
+		reason := truncate(get("reason"), colDetail)
+		return detailColumns{
+			target: target,
+			role:   role,
+			detail: reason,
+		}
 
 	case "cert_revoked":
-		target := truncate(get("target"), 14)
-		role := truncate(get("role"), 8)
+		target := resolveField(evt, evt.Target, "target")
+		role := resolveField(evt, evt.Role, "role")
 		serial := truncate(get("serial"), 16)
 		reason := truncate(get("reason"), 30)
-		return fmt.Sprintf("%-14s %-8s serial=%s", target, role, serial), reason
+		return detailColumns{
+			target: target,
+			role:   role,
+			detail: "serial=" + serial,
+			right:  reason,
+		}
 
 	case "startup":
 		listen := get("listen")
@@ -410,14 +598,20 @@ func formatDetails(evt string, d map[string]string) (string, string) {
 		if dash != "" {
 			parts = append(parts, "dash="+dash)
 		}
-		return strings.Join(parts, "  "), ""
+		return detailColumns{
+			detail: strings.Join(parts, "  "),
+		}
 
 	case "shutdown":
-		return get("signal"), ""
+		return detailColumns{
+			detail: get("signal"),
+		}
 
 	case "policy_reload":
-		path := truncate(get("path"), 40)
-		return path, ""
+		path := truncate(get("path"), colDetail)
+		return detailColumns{
+			detail: path,
+		}
 
 	case "host_toggle", "service_toggle", "remote_toggle":
 		target := get("target")
@@ -427,7 +621,6 @@ func formatDetails(evt string, d map[string]string) (string, string) {
 		if target == "" {
 			target = get("remote")
 		}
-		target = truncate(target, 14)
 		state := get("state")
 		if state == "" {
 			state = get("action")
@@ -438,32 +631,47 @@ func formatDetails(evt string, d map[string]string) (string, string) {
 		} else if state == "disabled" {
 			stateStr = colorYellow + "disabled" + colorReset
 		}
-		return fmt.Sprintf("%-14s  %s", target, stateStr), ""
+		return detailColumns{
+			target: target,
+			detail: stateStr,
+		}
 
 	case "terminal_open":
-		target := truncate(get("target"), 14)
-		return fmt.Sprintf("%-14s  terminal opened", target), ""
+		target := get("target")
+		return detailColumns{
+			target: target,
+			detail: "terminal opened",
+		}
 
 	case "terminal_close":
-		target := truncate(get("target"), 14)
-		return fmt.Sprintf("%-14s  terminal closed", target), ""
+		target := get("target")
+		return detailColumns{
+			target: target,
+			detail: "terminal closed",
+		}
 
 	case "rate_limited":
 		reason := get("reason")
 		if reason == "" {
-			reason = genericDetails(d)
+			reason = genericDetails(evt.Details)
 		}
-		return truncate(reason, 40), ""
+		return detailColumns{
+			detail: truncate(reason, colDetail),
+		}
 
 	case "anomaly_detected":
 		reason := get("reason")
 		if reason == "" {
-			reason = genericDetails(d)
+			reason = genericDetails(evt.Details)
 		}
-		return truncate(reason, 40), ""
+		return detailColumns{
+			detail: truncate(reason, colDetail),
+		}
 
 	default:
-		return genericDetails(d), ""
+		return detailColumns{
+			detail: genericDetails(evt.Details),
+		}
 	}
 }
 
@@ -482,7 +690,7 @@ func genericDetails(d map[string]string) string {
 }
 
 // cmdMonitor implements the "ephyr monitor" subcommand.
-// It tails the audit log and renders events with color-coded output.
+// It tails the audit log and renders events with color-coded, column-aligned output.
 func cmdMonitor(args []string) {
 	logPath := "/var/log/ephyr/audit.json"
 	if len(args) > 0 {
@@ -507,6 +715,9 @@ func cmdMonitor(args []string) {
 	fmt.Printf("  %sCERT%s = dim    %s KILL %s = auto-revoke\n",
 		colorDim, colorReset, colorBgRed+colorWhite+colorBold, colorReset)
 	fmt.Printf("%s%s====================================================%s\n", colorBold, colorCyan, colorReset)
+	fmt.Printf("%s%-8s %-5s %-4s  %-12s %-14s %-8s %-40s %s%s\n",
+		colorDim, "TIME", "ICON", "SEV", "AGENT", "TARGET", "ROLE", "COMMAND/DETAIL", "METRICS", colorReset)
+	fmt.Printf("%s%s%s\n", colorDim, strings.Repeat("\u2500", 93), colorReset)
 	fmt.Println()
 
 	// Open file.
@@ -598,22 +809,45 @@ func cmdMonitor(args []string) {
 			errors++
 		}
 
-		// Blank line between different event groups.
+		// Dim separator line between different event groups.
 		grp := eventGroup(evt.EventType)
 		if prevGroup != "" && grp != prevGroup {
-			fmt.Println()
+			fmt.Println(separator)
 		}
 		prevGroup = grp
 
-		// Format detail and right columns.
-		detail, right := formatDetails(evt.EventType, evt.Details)
+		// Format detail columns.
+		cols := formatDetails(&evt)
 
 		// Agent name (pad to 12).
 		agent := evt.Agent
 		if agent == "" {
 			agent = "-"
 		}
-		agent = truncate(agent, 12)
+		agent = truncate(agent, colAgent)
+
+		// Target column (pad to 14).
+		target := truncate(cols.target, colTarget)
+
+		// Role column (pad to 8).
+		role := truncate(cols.role, colRole)
+
+		// Detail column: apply task indentation if present.
+		detail := cols.detail
+		if cols.indent > 0 {
+			indentStr := strings.Repeat("  ", cols.indent)
+			// Reduce detail width to make room for indentation.
+			maxDetail := colDetail - (cols.indent * 2)
+			if maxDetail < 10 {
+				maxDetail = 10
+			}
+			// Re-truncate detail to fit indented width (it was already truncated
+			// at colDetail by formatDetails, but may need to be shorter).
+			if len(detail) > maxDetail {
+				detail = truncate(detail, maxDetail)
+			}
+			detail = indentStr + detail
+		}
 
 		// Format the label -- auto_revoke gets inverse styling.
 		var labelStr string
@@ -625,16 +859,18 @@ func cmdMonitor(args []string) {
 				evtColor, colorBold, icon, colorReset)
 		}
 
-		// Assemble and print the line.
-		fmt.Printf("%s%s%s %s %s%-4s%s  %s%-12s%s %s",
+		// Assemble and print the line with fixed-width columns.
+		fmt.Printf("%s%s%s %s %s%-4s%s  %s%-12s%s %s%-14s%s %s%-8s%s %s",
 			colorDim, timeStr, colorReset,
 			labelStr,
 			sevColor, sev, colorReset,
 			colorBold, agent, colorReset,
+			evtColor, padRight(target, colTarget), colorReset,
+			colorDim, padRight(role, colRole), colorReset,
 			detail)
 
-		if right != "" {
-			fmt.Printf("  %s%s%s", colorDim, right, colorReset)
+		if cols.right != "" {
+			fmt.Printf("  %s%s%s", colorDim, cols.right, colorReset)
 		}
 		fmt.Println()
 
