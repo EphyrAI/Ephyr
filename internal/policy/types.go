@@ -73,6 +73,12 @@ type TargetPolicy struct {
 	AutoApprove  bool     `yaml:"auto_approve"`
 	ForceCommand string   `yaml:"force_command,omitempty"`
 	Description  string   `yaml:"description,omitempty"`
+
+	// Command filtering (disabled by default -- zero overhead unless enabled).
+	CommandFilter      bool     `yaml:"command_filter,omitempty"`          // explicit enable flag
+	CommandDeny        []string `yaml:"command_deny,omitempty"`            // deny-list: block commands matching these patterns
+	CommandAllow       []string `yaml:"command_allow,omitempty"`           // allow-list: only permit commands matching these patterns
+	AutoRevokeOnDeny   bool     `yaml:"auto_revoke_on_deny,omitempty"`    // disable agent access on denied command
 }
 
 // RoleDefinition maps a logical role name to an SSH principal.

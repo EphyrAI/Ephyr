@@ -215,6 +215,84 @@ ephyr exec your-target --role operator -- sudo systemctl status sshd
 # Expected: sshd status output (via sudo, no password)
 ```
 
+## Command filtering
+
+Command filtering is an optional defense-in-depth layer that checks commands against deny/allow patterns before they reach the target host. It is **disabled by default** -- there is zero overhead unless you explicitly enable it with `command_filter: true` on a target.
+
+### Deny-list mode
+
+Block commands matching specific patterns. All other commands are allowed.
+
+```yaml
+targets:
+  production-db:
+    host: "10.0.1.20"
+    allowed_roles: [operator]
+    command_filter: true
+    command_deny:
+      - "rm "
+      - "rm -"
+      - "rmdir"
+      - "dd if="
+      - "mkfs"
+      - "drop database"
+      - "drop table"
+      - "truncate "
+      - "> /dev/"
+    auto_revoke_on_deny: true
+```
+
+When `auto_revoke_on_deny: true` is set, the target is automatically disabled for all agents when a prohibited command is attempted. An admin must re-enable the target from the dashboard or API before any agent can connect again.
+
+### Allow-list mode
+
+Only permit commands matching specific patterns. Everything else is denied. When both `command_deny` and `command_allow` are set, the allow-list takes precedence (it is more restrictive).
+
+```yaml
+targets:
+  monitoring-host:
+    host: "10.0.1.30"
+    allowed_roles: [read]
+    command_filter: true
+    command_allow:
+      - "systemctl status*"
+      - "journalctl*"
+      - "df *"
+      - "free *"
+      - "uptime"
+      - "cat /proc/loadavg"
+```
+
+### Pattern syntax
+
+Patterns support simple glob-style matching:
+
+| Pattern | Matches |
+|---------|---------|
+| `rm ` | Any command containing "rm " (substring) |
+| `systemctl status*` | Commands starting with "systemctl status" |
+| `*.conf` | Commands ending with ".conf" |
+| `*passwd*` | Commands containing "passwd" |
+
+Matching is case-insensitive (`RM -RF` matches `rm -rf`).
+
+### How it works
+
+- Filtering runs **before** the SSH connection is established -- no certificate is issued for blocked commands
+- Denied commands are logged in the audit trail with the matched pattern, mode, and reason
+- The agent receives an informative error message explaining why the command was blocked
+- Prometheus metrics: `ephyr_commands_filtered_total`, `ephyr_commands_denied_total`, `ephyr_auto_revocations_total`
+
+### Important: this is defense-in-depth
+
+Command filtering is **not** a security boundary. Shell commands can be obfuscated (e.g., `r''m`, `$(echo rm)`, base64 encoding). The real enforcement is at the target host via:
+
+- **rbash** (restricted shell) for read-only roles
+- **sudoers allow-lists** for what each role can run with elevated privileges
+- **force_command** at the SSH certificate level for single-purpose targets
+
+Command filtering catches the obvious cases and provides an audit trail. It does not replace proper host-level controls.
+
 ## Security notes
 
 - **Ephyr controls access (who, when, how long).** The target host controls capability (what they can do once connected).

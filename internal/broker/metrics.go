@@ -42,6 +42,9 @@ type Metrics struct {
 	PopVerified          atomic.Int64 // successful PoP verifications
 	PopRejected          atomic.Int64 // failed PoP verifications
 	BindDeadlineExpired  atomic.Int64 // unbound tasks auto-revoked past deadline
+	CommandsFiltered     atomic.Int64 // total commands checked by filter
+	CommandsDenied       atomic.Int64 // total commands denied by filter
+	AutoRevocations      atomic.Int64 // total auto-revocations triggered
 
 	// Gauges
 	ActiveWatermarks    atomic.Int64
@@ -265,6 +268,9 @@ func (m *Metrics) ServePrometheus(w http.ResponseWriter, r *http.Request) {
 		{"ephyr_pop_verified_total", "Successful PoP verifications", &m.PopVerified},
 		{"ephyr_pop_rejected_total", "Failed PoP verifications", &m.PopRejected},
 		{"ephyr_bind_deadline_expired_total", "Unbound tasks auto-revoked past bind deadline", &m.BindDeadlineExpired},
+		{"ephyr_commands_filtered_total", "Total commands checked by command filter", &m.CommandsFiltered},
+		{"ephyr_commands_denied_total", "Total commands denied by command filter", &m.CommandsDenied},
+		{"ephyr_auto_revocations_total", "Total auto-revocations triggered by command filter", &m.AutoRevocations},
 	}
 
 	for _, c := range counters {

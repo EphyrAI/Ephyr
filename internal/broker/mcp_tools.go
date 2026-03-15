@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/EphyrAI/Ephyr/internal/audit"
 )
 
 // --- Argument extraction helpers ---
@@ -545,6 +547,70 @@ func (s *MCPServer) toolExec(ctx context.Context, agent *MCPAgent, args map[stri
 			s.broker.metrics.TokensRejected.Add(1)
 		}
 		return errorResult(fmt.Sprintf("envelope violation: %s", err)), nil
+	}
+
+	// Command filtering (only runs if target has command_filter: true).
+	if tgt.CommandFilter {
+		filterResult := CheckCommand(command, tgt.CommandDeny, tgt.CommandAllow, true)
+		if s.broker.metrics != nil {
+			s.broker.metrics.CommandsFiltered.Add(1)
+		}
+		if !filterResult.Allowed {
+			if s.broker.metrics != nil {
+				s.broker.metrics.CommandsDenied.Add(1)
+			}
+
+			// Audit log the denial.
+			s.broker.auditLog.LogEvent(audit.AuditEvent{
+				Severity:  audit.SeverityWarn,
+				EventType: "command_denied",
+				Agent:     agent.Name,
+				Target:    target,
+				Role:      role,
+				Details: map[string]string{
+					"command": truncate(command, 200),
+					"pattern": filterResult.Pattern,
+					"mode":    filterResult.Mode,
+					"reason":  filterResult.Reason,
+				},
+			})
+
+			// Optional auto-revoke: disable the target for all agents.
+			if tgt.AutoRevokeOnDeny {
+				if s.broker.metrics != nil {
+					s.broker.metrics.AutoRevocations.Add(1)
+				}
+				s.broker.hostCtl.SetEnabled(target, false)
+
+				s.broker.auditLog.LogEvent(audit.AuditEvent{
+					Severity:  audit.SeverityAlert,
+					EventType: "auto_revoke",
+					Agent:     agent.Name,
+					Target:    target,
+					Role:      role,
+					Details: map[string]string{
+						"command": truncate(command, 200),
+						"reason":  "Agent attempted prohibited command; target access auto-revoked pending human review",
+					},
+				})
+
+				if s.broker.eventHub != nil {
+					s.broker.eventHub.Broadcast(Event{
+						Type: "agent_auto_revoked",
+						Data: map[string]interface{}{
+							"agent":   agent.Name,
+							"target":  target,
+							"command": truncate(command, 200),
+							"reason":  filterResult.Reason,
+						},
+					})
+				}
+
+				return errorResult(fmt.Sprintf("%s\n\nYour access to %s has been suspended pending human review.", filterResult.Reason, target)), nil
+			}
+
+			return errorResult(filterResult.Reason), nil
+		}
 	}
 
 	// Check that the exec pool is available.
