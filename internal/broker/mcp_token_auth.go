@@ -84,6 +84,11 @@ func (s *MCPServer) authenticateWithMacaroon(tokenStr string) (*MCPAgent, error)
 		return nil, fmt.Errorf("macaroon verification failed: %w", err)
 	}
 
+	// Track reducer invocations (reducer runs inside Verify).
+	if s.broker.metrics != nil {
+		s.broker.metrics.ReducerInvocations.Add(1)
+	}
+
 	// 4. Look up task from signature digest.
 	task := s.broker.taskMgr.LookupBySignature(result.SigDigest)
 	if task == nil {

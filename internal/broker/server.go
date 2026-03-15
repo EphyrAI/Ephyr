@@ -213,6 +213,15 @@ func NewBrokerServer(cfg BrokerConfig) (*BrokerServer, error) {
 	bs.nonceCache = NewNonceCache(5 * time.Minute)
 	go bs.nonceCacheCleanupLoop()
 
+	// Root key store cleanup: remove expired keys every 60 seconds.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			bs.rootKeyStore.Cleanup()
+		}
+	}()
+
 	// v0.3.3: PoP clock skew (default 30s, configurable via EPHYR_POP_CLOCK_SKEW).
 	bs.popClockSkew = 30 * time.Second
 	if skewStr := os.Getenv("EPHYR_POP_CLOCK_SKEW"); skewStr != "" {
