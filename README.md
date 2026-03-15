@@ -316,38 +316,34 @@ Benchmarked on a Debian 12 LXC (1 vCPU, 512MB RAM):
 
 ## Quick Start
 
+Get Ephyr running and execute your first brokered command in under 5 minutes.
+
 ### 1. Build
 
 ```bash
 git clone https://github.com/EphyrAI/Ephyr.git
 cd Ephyr
 make build
-# Output: bin/ephyr-broker  bin/ephyr-signer  bin/ephyr
 ```
 
-Requires Go 1.24+.
+Three binaries: `bin/ephyr-broker`, `bin/ephyr-signer`, `bin/ephyr`. Requires Go 1.24+.
 
-### 2. Generate CA key
+### 2. Configure
 
 ```bash
-mkdir -p /etc/ephyr
-ssh-keygen -t ed25519 -f /etc/ephyr/ca_key -N ""
-```
+# Generate the CA key (one time)
+sudo mkdir -p /etc/ephyr
+sudo ssh-keygen -t ed25519 -f /etc/ephyr/ca_key -N ""
 
-### 3. Configure policy
-
-Create `/etc/ephyr/policy.yaml`:
-
-```yaml
+# Create a minimal policy
+sudo tee /etc/ephyr/policy.yaml << 'EOF'
 global:
-  max_active_certs: 10
   default_ttl: "5m"
   max_ttl: "30m"
 
 agents:
   claude:
-    uid: 1000
-    max_concurrent_certs: 3
+    api_key_hash: "$2a$10$YOUR_BCRYPT_HASH"  # generate with: htpasswd -nbBC 10 "" yourkey | cut -d: -f2
     can_delegate: true
 
 roles:
@@ -362,29 +358,58 @@ targets:
     port: 22
     allowed_roles: [read, operator]
     auto_approve: true
+EOF
 ```
 
-### 4. Start services
+### 3. Run
 
 ```bash
-sudo make install-user
-sudo make install-systemd
-sudo systemctl enable --now ephyr-signer
-sudo systemctl enable --now ephyr-broker
+# Start the signer (holds the CA key, never on network)
+./bin/ephyr-signer --ca-key /etc/ephyr/ca_key --socket /run/ephyr/signer.sock &
+
+# Start the broker (policy, MCP, proxy, audit)
+./bin/ephyr-broker --config /etc/ephyr/policy.yaml &
+
+# Verify
+curl -s http://localhost:8554/mcp \
+  -H "Authorization: Bearer yourkey" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
 ```
 
-### 5. Use it
+You should see `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26",...,"serverInfo":{"name":"ephyr","version":"1.0.0"}}}`.
+
+### 4. Do one thing
 
 ```bash
-ephyr session create
-ephyr exec webserver --role read -- systemctl status nginx
-ephyr targets
-ephyr services
-ephyr remotes
-ephyr inspect <token>   # inspect macaroon caveats
+# Run a command on a target via ephemeral SSH certificate
+ephyr exec webserver --role read -- hostname
 ```
+
+The broker generates a keypair, gets it signed by the signer, SSHs to the target, runs the command, and returns the output. The certificate expires in 5 minutes. No SSH keys were deployed.
+
+### 5. Create a task with delegation
+
+```bash
+# Create a scoped task — get back a macaroon token
+ephyr task create --description "deploy v2.3" --ttl 15m --can-delegate
+
+# Delegate a narrower sub-task
+ephyr task delegate --parent <task-id> \
+  --description "read-only check" \
+  --targets webserver --roles read --ttl 5m
+
+# Inspect the macaroon caveats
+ephyr inspect <token>
+```
+
+The child token's HMAC chain cryptographically proves the caveats accumulated. The reducer guarantees the child's effective authority is strictly narrower than the parent's.
+
+> For the full architecture — tiered trust, macaroon caveat chains, epoch watermark revocation, and holder-bound tokens — see [docs/architecture.md](docs/architecture.md).
 
 ## MCP Integration
+
+Point any MCP-compatible client at the broker. No SDK, no plugin, no agent framework dependency.
 
 ### Claude Code
 
