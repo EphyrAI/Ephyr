@@ -29,6 +29,7 @@ Usage:
   ephyr remotes                     List federated MCP servers
   ephyr whoami                      Show agent identity
   ephyr inspect [--token] [--json]  Inspect a macaroon token
+  ephyr monitor [logfile]           Live audit stream (default: /var/log/ephyr/audit.json)
 
 Global:
   --socket PATH    Broker socket (default: /run/ephyr/broker.sock)
@@ -64,6 +65,8 @@ func main() {
 		cmdWhoami(os.Args[2:])
 	case "inspect":
 		cmdInspect(os.Args[2:])
+	case "monitor":
+		cmdMonitor(os.Args[2:])
 	case "help", "--help", "-h":
 		fmt.Fprint(os.Stdout, usage)
 	default:

@@ -500,6 +500,18 @@
   }
   .host-item.item-disabled {
     opacity: 0.5;
+    border-left: 2px solid var(--red);
+  }
+  .disabled-badge {
+    color: var(--red);
+    font-weight: 600;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 1px 5px;
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 3px;
+    background: var(--red-dim);
   }
   .host-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .host-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
@@ -596,6 +608,52 @@
     border-bottom: 1px solid rgba(255,255,255,0.03); vertical-align: middle;
   }
   .sessions-table tr.inactive { opacity: 0.4; }
+  .sessions-table tr.session-revoked {
+    opacity: 0.5;
+    border-left: 3px solid var(--red);
+  }
+  .sessions-table tr.session-revoked .ttl-bar-fill {
+    background: var(--text-dim) !important;
+    box-shadow: none !important;
+  }
+  .sessions-table tr.session-revoked .ttl-bar {
+    position: relative;
+  }
+  .sessions-table tr.session-revoked .ttl-bar::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--red);
+    z-index: 1;
+  }
+  .session-revoked-label {
+    color: var(--red);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  /* Generic revoked session styling (for overview panel divs) */
+  .session-revoked .ttl-bar-fill {
+    background: var(--text-dim) !important;
+    box-shadow: none !important;
+  }
+  .session-revoked .ttl-bar {
+    position: relative;
+  }
+  .session-revoked .ttl-bar::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--red);
+    z-index: 1;
+  }
   .sessions-table tr:hover { background: rgba(255,255,255,0.02); }
 
   /* Audit log */
@@ -1184,7 +1242,27 @@
   .tasks-table th { text-align: left; padding: 10px 12px; color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
   .tasks-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   .tasks-table tr:hover { background: rgba(255,255,255,0.02); }
-  .tasks-table tr.revoked { opacity: 0.4; }
+  .tasks-table tr.revoked {
+    opacity: 0.5;
+    border-left: 3px solid var(--red);
+  }
+  .tasks-table tr.revoked .ttl-bar-fill {
+    background: var(--text-dim) !important;
+    box-shadow: none !important;
+  }
+  .tasks-table tr.revoked .ttl-bar {
+    position: relative;
+  }
+  .tasks-table tr.revoked .ttl-bar::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--red);
+    z-index: 1;
+  }
 
   /* Task depth badge */
   .badge-root { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
@@ -1199,6 +1277,8 @@
   .task-tree-node:last-child::before { border-left: 2px solid var(--border); }
   .task-tree-root { border-left: 3px solid var(--green); padding: 12px 16px; margin-bottom: 4px; border-radius: 4px; background: rgba(34,197,94,0.05); }
   .task-tree-root::before { display: none; }
+  .task-tree-root.tree-revoked { opacity: 0.5; border-left-color: var(--red); background: rgba(239,68,68,0.03); }
+  .task-tree-node.tree-revoked { opacity: 0.5; border-left-color: var(--red); }
   .task-tree-level { margin-left: 24px; }
 
   /* Task tree node content */
@@ -1866,6 +1946,7 @@ function SidebarStats({ summary }) {
 
 function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onRevoke, token }) {
   const activeSessions = (sessions || []).filter(s => s.status === 'active');
+  const revokedSessions = (sessions || []).filter(s => s.status === 'revoked');
   const [recentActivity, setRecentActivity] = useState([]);
   const [actSummary, setActSummary] = useState({});
   const [remotes, setRemotes] = useState([]);
@@ -2007,7 +2088,10 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                     </div>
                   </div>
                 </div>
-                <ToggleSwitch checked={h.access_enabled} onChange={() => onToggleHost(h.name)} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {!h.access_enabled && <span className="disabled-badge">DISABLED</span>}
+                  <ToggleSwitch checked={h.access_enabled} onChange={() => onToggleHost(h.name)} />
+                </div>
               </div>
             ))}
           </div>
@@ -2025,7 +2109,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
             ) : services.map(s => (
               <div key={s.name} className={`host-item${s.enabled === false ? ' item-disabled' : ' item-active-cyan'}`}>
                 <div className="host-left">
-                  <StatusDot status="online" />
+                  <StatusDot status={s.enabled === false ? 'offline' : 'online'} />
                   <div>
                     <div className="host-name">{s.name}</div>
                     <div className="host-meta">
@@ -2034,6 +2118,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {s.enabled === false && <span className="disabled-badge">DISABLED</span>}
                   <AuthTypeBadge authType={s.auth_type || 'none'} />
                   <ToggleSwitch checked={s.enabled !== false} onChange={() => handleToggleService(s.name)} />
                 </div>
@@ -2063,6 +2148,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {r.enabled === false && <span className="disabled-badge">DISABLED</span>}
                   <RemoteStatusBadge status={r.status} />
                   <ToggleSwitch checked={r.enabled !== false} onChange={() => handleToggleRemote(r.name)} />
                 </div>
@@ -2075,25 +2161,26 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
       {/* Active Sessions panel - grouped by agent+target */}
       <div className="panel" style={{ marginBottom: '16px' }}>
         <div className="panel-header">
-          <span>Active Sessions</span>
-          <span className="panel-count">{activeSessions.length}</span>
+          <span>Sessions</span>
+          <span className="panel-count">{activeSessions.length}{revokedSessions.length > 0 ? ` + ${revokedSessions.length} revoked` : ''}</span>
         </div>
         <div className="panel-body" style={{ maxHeight: '320px', overflowY: 'auto' }}>
           {(() => {
-            if (activeSessions.length === 0 && recentActivity.filter(a => (a.type || a.action_type) === 'http_proxy' || (a.type || a.action_type) === 'mcp_call').length === 0) {
+            const visibleSessions = [...activeSessions, ...revokedSessions];
+            if (visibleSessions.length === 0 && recentActivity.filter(a => (a.type || a.action_type) === 'http_proxy' || (a.type || a.action_type) === 'mcp_call').length === 0) {
               return <div className="empty-state">No active sessions</div>;
             }
-            // Group active sessions by agent+target
+            // Group sessions by agent+target
             const groups = {};
-            activeSessions.forEach(s => {
+            visibleSessions.forEach(s => {
               const key = `${s.agent}\u2192${s.target}`;
               if (!groups[key]) groups[key] = { agent: s.agent, target: s.target, certs: [] };
               groups[key].certs.push(s);
             });
             // Sort groups by earliest-expiring cert first
             const sortedGroups = Object.values(groups).sort((a, b) => {
-              const aMin = Math.min(...a.certs.map(c => parseTTL(c.expires_at, now)));
-              const bMin = Math.min(...b.certs.map(c => parseTTL(c.expires_at, now)));
+              const aMin = Math.min(...a.certs.filter(c => c.status === 'active').map(c => parseTTL(c.expires_at, now)).concat([Infinity]));
+              const bMin = Math.min(...b.certs.filter(c => c.status === 'active').map(c => parseTTL(c.expires_at, now)).concat([Infinity]));
               return aMin - bMin;
             });
             // Recent proxy & MCP activity
@@ -2106,19 +2193,24 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                       <span style={{ color: 'var(--green)', fontWeight: 600, fontSize: '12px' }}>{group.agent}</span>
                       <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
                       <span style={{ color: 'var(--cyan)', fontWeight: 600, fontSize: '12px' }}>{group.target}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-dim)' }}>{group.certs.length} cert{group.certs.length !== 1 ? 's' : ''}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-dim)' }}>{group.certs.filter(c => c.status === 'active').length} active{group.certs.some(c => c.status === 'revoked') ? `, ${group.certs.filter(c => c.status === 'revoked').length} revoked` : ''}</span>
                     </div>
                     {group.certs.map(s => {
                       const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
                       const remaining = parseTTL(s.expires_at, now);
+                      const isRevoked = s.status === 'revoked';
                       return (
-                        <div key={s.serial} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <div key={s.serial} className={isRevoked ? 'session-revoked' : ''} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: isRevoked ? 0.5 : 1, borderLeft: isRevoked ? '3px solid var(--red)' : 'none' }}>
                           <GrantTypeBadge type={s.type || 'ssh_cert'} />
                           <RoleBadge role={s.role} />
                           <div style={{ flex: 1 }}>
-                            <TTLBar remaining={remaining} maxTTL={maxTTL} />
+                            <TTLBar remaining={isRevoked ? Math.max(0, remaining) : remaining} maxTTL={maxTTL} />
                           </div>
-                          <button className="btn btn-revoke" onClick={() => onRevoke(s.serial, s.type || 'ssh_cert')} style={{ fontSize: '9px', padding: '2px 8px' }}>REVOKE</button>
+                          {isRevoked ? (
+                            <span className="session-revoked-label" style={{ fontSize: '9px' }}>REVOKED</span>
+                          ) : (
+                            <button className="btn btn-revoke" onClick={() => onRevoke(s.serial, s.type || 'ssh_cert')} style={{ fontSize: '9px', padding: '2px 8px' }}>REVOKE</button>
+                          )}
                         </div>
                       );
                     })}
@@ -2743,7 +2835,9 @@ function SessionsView({ sessions, now, onRevoke }) {
   const filtered = useMemo(() => {
     const list = (sessions || []).filter(s => {
       if (statusFilter === 'ACTIVE' && s.status !== 'active') return false;
-      if (statusFilter === 'EXPIRED' && s.status === 'active') return false;
+      if (statusFilter === 'REVOKED' && s.status !== 'revoked') return false;
+      if (statusFilter === 'EXPIRED' && s.status !== 'expired') return false;
+      if (statusFilter === 'INACTIVE' && s.status === 'active') return false;
       if (filterType !== 'ALL') {
         const sType = s.type || 'ssh_cert';
         if (filterType === 'SSH' && sType !== 'ssh_cert') return false;
@@ -2752,23 +2846,25 @@ function SessionsView({ sessions, now, onRevoke }) {
       }
       return true;
     });
-    // Sort: active sessions by expires_at ascending (expiring soonest first), then expired at bottom
+    // Sort: active first, then revoked, then expired
     list.sort((a, b) => {
-      const aActive = a.status === 'active' ? 0 : 1;
-      const bActive = b.status === 'active' ? 0 : 1;
-      if (aActive !== bActive) return aActive - bActive;
-      if (aActive === 0) {
+      const priority = { active: 0, revoked: 1, expired: 2 };
+      const aP = priority[a.status] !== undefined ? priority[a.status] : 2;
+      const bP = priority[b.status] !== undefined ? priority[b.status] : 2;
+      if (aP !== bP) return aP - bP;
+      if (aP === 0) {
         // Both active: sort by expires_at ascending (expiring first)
         return new Date(a.expires_at || 0).getTime() - new Date(b.expires_at || 0).getTime();
       }
-      // Both expired: sort by expires_at descending (most recently expired first)
+      // Both revoked/expired: sort by expires_at descending (most recently expired first)
       return new Date(b.expires_at || 0).getTime() - new Date(a.expires_at || 0).getTime();
     });
     return list;
   }, [sessions, statusFilter, filterType, now]);
 
   const activeCount = (sessions || []).filter(s => s.status === 'active').length;
-  const expiredCount = (sessions || []).length - activeCount;
+  const revokedCount = (sessions || []).filter(s => s.status === 'revoked').length;
+  const expiredCount = (sessions || []).filter(s => s.status !== 'active' && s.status !== 'revoked').length;
   const sshCount = (sessions || []).filter(s => !s.type || s.type === 'ssh_cert').length;
   const serviceCount = (sessions || []).filter(s => s.type === 'service').length;
   const mcpCount = (sessions || []).filter(s => s.type === 'mcp').length;
@@ -2779,9 +2875,11 @@ function SessionsView({ sessions, now, onRevoke }) {
         {[
           { key: 'ALL', label: `ALL (${(sessions || []).length})` },
           { key: 'ACTIVE', label: `ACTIVE (${activeCount})` },
+          { key: 'REVOKED', label: `REVOKED (${revokedCount})` },
           { key: 'EXPIRED', label: `EXPIRED (${expiredCount})` },
         ].map(f => (
           <button key={f.key} className={`filter-btn ${statusFilter === f.key ? 'active' : ''}`}
+            style={statusFilter === f.key && f.key === 'REVOKED' ? { borderColor: 'var(--red)', color: 'var(--red)', background: 'var(--red-dim)' } : {}}
             onClick={() => setStatusFilter(f.key)}>
             {f.label}
           </button>
@@ -2823,22 +2921,26 @@ function SessionsView({ sessions, now, onRevoke }) {
               <tr><td colSpan="9" className="empty-state">No sessions</td></tr>
             ) : filtered.map(s => {
               const isActive = s.status === 'active';
+              const isRevoked = s.status === 'revoked';
               const remaining = parseTTL(s.expires_at, now);
               const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
+              const rowClass = isRevoked ? 'session-revoked' : (!isActive ? 'inactive' : '');
               return (
-                <tr key={s.serial} className={!isActive ? 'inactive' : ''}>
+                <tr key={s.serial} className={rowClass}>
                   <td><StatusDot status={isActive ? 'active' : 'offline'} /></td>
                   <td><GrantTypeBadge type={s.type || 'ssh_cert'} /></td>
                   <td style={{ color: 'var(--green)', fontWeight: 600 }}>{s.agent}</td>
                   <td style={{ color: 'var(--cyan)', fontWeight: 600 }}>{s.target}</td>
                   <td><RoleBadge role={s.role} /></td>
-                  <td><StatusBadge status={s.status} /></td>
+                  <td>{isRevoked ? <span className="session-revoked-label">REVOKED</span> : <StatusBadge status={s.status} />}</td>
                   <td style={{ color: 'var(--text-dim)', fontSize: '11px', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.command || '-'}
                   </td>
                   <td style={{ minWidth: '180px' }}>
                     {isActive ? (
                       <TTLBar remaining={remaining} maxTTL={maxTTL} />
+                    ) : isRevoked ? (
+                      <TTLBar remaining={Math.max(0, remaining)} maxTTL={maxTTL} />
                     ) : (
                       <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>{relativeTime(s.expires_at)}</span>
                     )}
@@ -2846,6 +2948,9 @@ function SessionsView({ sessions, now, onRevoke }) {
                   <td>
                     {isActive && (
                       <button className="btn btn-revoke" onClick={() => onRevoke(s.serial, s.type || 'ssh_cert')}>REVOKE</button>
+                    )}
+                    {isRevoked && (
+                      <span className="session-revoked-label">REVOKED</span>
                     )}
                   </td>
                 </tr>
@@ -3875,10 +3980,11 @@ function TasksView({ token, now }) {
   const renderTreeNode = (task, allTasks) => {
     const children = allTasks.filter(t => t.parent_id === task.id);
     return (
-      <div key={task.id} className={task.depth === 0 ? 'task-tree-root' : 'task-tree-node'}>
+      <div key={task.id} className={`${task.depth === 0 ? 'task-tree-root' : 'task-tree-node'}${task.status === 'revoked' ? ' tree-revoked' : ''}`}>
         <div className="task-node-header">
           <span className={`task-status-dot ${task.status}`} />
           <span className={`badge ${task.depth === 0 ? 'badge-root' : 'badge-delegated'}`}>{task.depth === 0 ? 'ROOT' : `D${task.depth}`}</span>
+          {task.status === 'revoked' && <span className="session-revoked-label">REVOKED</span>}
           {task.can_delegate && <span className="badge badge-can-delegate">CAN DELEGATE</span>}
           {task.holder_bound === true && <span className="badge" style={{border:'1px solid var(--green)',color:'var(--green)',background:'rgba(34,197,94,0.10)'}}>HOLDER-BOUND</span>}
           {task.holder_bound === false && task.bind_deadline && <span className="badge" style={{border:'1px solid var(--amber)',color:'var(--amber)',background:'rgba(245,158,11,0.10)',animation:'pulse 2s infinite'}}>UNBOUND</span>}
@@ -3886,6 +3992,7 @@ function TasksView({ token, now }) {
           <span className="task-node-desc">{task.description || task.id.slice(0, 12)}</span>
           <div className="task-node-actions">
             {task.status === 'active' && <button className="btn btn-revoke" style={{fontSize:'11px',padding:'2px 8px'}} onClick={(e) => { e.stopPropagation(); handleRevoke(task); }}>Revoke</button>}
+            {task.status === 'revoked' && <span className="session-revoked-label">REVOKED</span>}
             <button className="btn btn-purple" style={{fontSize:'11px',padding:'2px 8px'}} onClick={(e) => { e.stopPropagation(); handleInspect(task); }}>Inspect</button>
           </div>
         </div>
@@ -3971,7 +4078,7 @@ function TasksView({ token, now }) {
                   {t.status === 'active' ? (
                     <TTLBar remaining={t.remaining_ttl_seconds} maxTTL={t.max_ttl_seconds} />
                   ) : (
-                    <span style={{color:'var(--red)',fontSize:'12px'}}>revoked</span>
+                    <TTLBar remaining={Math.max(0, t.remaining_ttl_seconds || 0)} maxTTL={t.max_ttl_seconds || 1} />
                   )}
                 </td>
                 <td>
@@ -3984,6 +4091,7 @@ function TasksView({ token, now }) {
                 <td>
                   <div style={{display:'flex',gap:'4px'}}>
                     {t.status === 'active' && <button className="btn btn-revoke" style={{fontSize:'11px',padding:'2px 8px'}} onClick={() => handleRevoke(t)}>Revoke</button>}
+                    {t.status === 'revoked' && <span className="session-revoked-label">REVOKED</span>}
                     <button className="btn btn-purple" style={{fontSize:'11px',padding:'2px 8px'}} onClick={() => handleInspect(t)}>Inspect</button>
                   </div>
                 </td>
