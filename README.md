@@ -306,6 +306,16 @@ Key operational controls: policy inspection, emergency certificate revocation, r
 - **Delegation separation** -- Broker signs task tokens with a delegated key, not the CA key
 - **Epoch revocation** -- No per-token blocklists; watermark-based invalidation in O(depth)
 
+### Request Filtering
+
+Opt-in defense-in-depth filtering across all three proxy paths. Zero overhead when disabled (~3.9ns).
+
+- **SSH command filtering** -- deny/allow patterns checked before the SSH connection is established. No certificate is issued for blocked commands.
+- **HTTP proxy filtering** -- URL path and request body patterns checked before the request is sent. Protects against destructive API calls.
+- **MCP federation filtering** -- serialized tool arguments checked against deny patterns before forwarding to remote servers.
+- **Auto-revoke** -- optionally suspend agent access on violation, requiring human re-enablement from the dashboard.
+- **Not a security boundary** -- commands can be obfuscated. The real enforcement is host-level controls (rbash, sudoers, force_command). Filtering catches the obvious cases and provides an audit trail.
+
 ## Performance
 
 Benchmarked on a Debian 12 LXC (1 vCPU, 512MB RAM):

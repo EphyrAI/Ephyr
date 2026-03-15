@@ -497,6 +497,85 @@ func (s *MCPServer) handleFederatedToolCall(ctx context.Context, w http.Response
 		return
 	}
 
+	// Argument filtering (only runs if remote has arg_filter: true).
+	state.mu.RLock()
+	argFilter := state.Config.ArgFilter
+	argDeny := state.Config.ArgDeny
+	argAutoRevoke := state.Config.AutoRevokeOnDeny
+	state.mu.RUnlock()
+
+	if argFilter && len(argDeny) > 0 {
+		// Serialize arguments to a string for pattern matching.
+		argsStr := ""
+		if params.Arguments != nil {
+			if argsBytes, marshalErr := json.Marshal(params.Arguments); marshalErr == nil {
+				argsStr = string(argsBytes)
+			}
+		}
+		if argsStr != "" {
+			filterResult := CheckCommand(argsStr, argDeny, nil, true)
+			if s.broker.metrics != nil {
+				s.broker.metrics.CommandsFiltered.Add(1)
+			}
+			if !filterResult.Allowed {
+				if s.broker.metrics != nil {
+					s.broker.metrics.CommandsDenied.Add(1)
+				}
+
+				s.broker.auditLog.LogEvent(audit.AuditEvent{
+					Severity:  audit.SeverityWarn,
+					EventType: "federation_arg_denied",
+					Agent:     agent.Name,
+					Details: map[string]string{
+						"remote":  remoteName,
+						"tool":    toolName,
+						"pattern": filterResult.Pattern,
+						"mode":    filterResult.Mode,
+						"reason":  filterResult.Reason,
+					},
+				})
+
+				if argAutoRevoke {
+					if s.broker.metrics != nil {
+						s.broker.metrics.AutoRevocations.Add(1)
+					}
+					state.mu.Lock()
+					state.Config.Enabled = false
+					state.mu.Unlock()
+
+					s.broker.auditLog.LogEvent(audit.AuditEvent{
+						Severity:  audit.SeverityAlert,
+						EventType: "auto_revoke",
+						Agent:     agent.Name,
+						Details: map[string]string{
+							"remote": remoteName,
+							"tool":   toolName,
+							"reason": "Agent sent prohibited arguments; remote access auto-revoked pending human review",
+						},
+					})
+
+					if s.broker.eventHub != nil {
+						s.broker.eventHub.Broadcast(Event{
+							Type: "agent_auto_revoked",
+							Data: map[string]interface{}{
+								"agent":  agent.Name,
+								"remote": remoteName,
+								"tool":   toolName,
+								"reason": filterResult.Reason,
+							},
+						})
+					}
+
+					s.writeJSONRPC(w, req.ID, errorResult(fmt.Sprintf("%s\n\nYour access to remote %s has been suspended pending human review.", filterResult.Reason, remoteName)), nil)
+					return
+				}
+
+				s.writeJSONRPC(w, req.ID, errorResult(filterResult.Reason), nil)
+				return
+			}
+		}
+	}
+
 	// Check/issue MCP access grant (unless passthrough mode).
 	if s.broker.grantStore != nil {
 		grantMode := s.broker.grantStore.Mode

@@ -126,7 +126,13 @@ This name is used in CLI commands, MCP tool calls, and audit logs.
 | max_ttl | string (Go duration) | (global max_ttl) | No | Maximum certificate lifetime for this specific target. Must be less than or equal to the global max_ttl. If unset, the global value applies. |
 | auto_approve | bool | false | No | When true, certificate requests for this target are automatically approved without manual intervention. When false, requests enter a "pending" state. |
 | force_command | string | "" | No | If set, the issued certificate includes an SSH force-command critical option, restricting the session to only this command. |
+| command_filter | bool | false | No | Enable command filtering for this target. When disabled (default), there is zero overhead (~3.9ns). When enabled, commands are checked against `command_deny` and `command_allow` patterns before the SSH connection is established. |
+| command_deny | list of strings | [] | No | Deny-list: block commands matching these patterns (substring or glob). Evaluated only when `command_filter: true`. |
+| command_allow | list of strings | [] | No | Allow-list: only permit commands matching these patterns. Takes precedence over `command_deny` when both are set (more restrictive). Evaluated only when `command_filter: true`. |
+| auto_revoke_on_deny | bool | false | No | When true and a command is denied, the target is automatically disabled for all agents. An admin must re-enable the target from the dashboard or API. |
 | description | string | "" | No | Human-readable description for dashboards and audit logs. |
+
+For detailed command filtering configuration including pattern syntax, deny-list vs allow-list modes, and security considerations, see [Command filtering in Target Setup](target-setup.md#command-filtering).
 
 **Validation rules:**
 - host must not be empty or contain whitespace.

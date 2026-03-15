@@ -215,11 +215,17 @@ ephyr exec your-target --role operator -- sudo systemctl status sshd
 # Expected: sshd status output (via sudo, no password)
 ```
 
-## Command filtering
+## Request filtering
 
-Command filtering is an optional defense-in-depth layer that checks commands against deny/allow patterns before they reach the target host. It is **disabled by default** -- there is zero overhead unless you explicitly enable it with `command_filter: true` on a target.
+Request filtering is an optional defense-in-depth layer that checks inputs against deny/allow patterns before they reach the backend. It covers all three proxy paths: SSH commands, HTTP proxy requests, and MCP federation tool calls. Filtering is **disabled by default** on all paths -- there is zero overhead unless you explicitly enable it.
 
-### Deny-list mode
+Prometheus metrics for all filtering paths: `ephyr_commands_filtered_total`, `ephyr_commands_denied_total`, `ephyr_auto_revocations_total`.
+
+### SSH command filtering
+
+Enable with `command_filter: true` on a target in `policy.yaml`.
+
+#### Deny-list mode
 
 Block commands matching specific patterns. All other commands are allowed.
 
@@ -244,7 +250,7 @@ targets:
 
 When `auto_revoke_on_deny: true` is set, the target is automatically disabled for all agents when a prohibited command is attempted. An admin must re-enable the target from the dashboard or API before any agent can connect again.
 
-### Allow-list mode
+#### Allow-list mode
 
 Only permit commands matching specific patterns. Everything else is denied. When both `command_deny` and `command_allow` are set, the allow-list takes precedence (it is more restrictive).
 
@@ -263,35 +269,96 @@ targets:
       - "cat /proc/loadavg"
 ```
 
-### Pattern syntax
-
-Patterns support simple glob-style matching:
-
-| Pattern | Matches |
-|---------|---------|
-| `rm ` | Any command containing "rm " (substring) |
-| `systemctl status*` | Commands starting with "systemctl status" |
-| `*.conf` | Commands ending with ".conf" |
-| `*passwd*` | Commands containing "passwd" |
-
-Matching is case-insensitive (`RM -RF` matches `rm -rf`).
-
-### How it works
+#### How it works
 
 - Filtering runs **before** the SSH connection is established -- no certificate is issued for blocked commands
 - Denied commands are logged in the audit trail with the matched pattern, mode, and reason
 - The agent receives an informative error message explaining why the command was blocked
-- Prometheus metrics: `ephyr_commands_filtered_total`, `ephyr_commands_denied_total`, `ephyr_auto_revocations_total`
+
+### HTTP proxy filtering
+
+Enable with `request_filter: true` on a service in `services.json`. Checks the URL path against `request_deny` / `request_allow` patterns, and optionally checks the request body against `body_deny` patterns.
+
+```json
+{
+  "name": "gitea",
+  "url_prefix": "http://10.0.1.54:3000",
+  "auth_type": "bearer",
+  "credential": "your-token",
+  "request_filter": true,
+  "request_deny": ["/api/v1/admin/*", "*/delete"],
+  "body_deny": ["drop database", "drop table"],
+  "auto_revoke_on_deny": false
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `request_filter` | bool | false | Enable URL/body filtering for this service |
+| `request_deny` | list of strings | [] | Deny URL path patterns (block if matched) |
+| `request_allow` | list of strings | [] | Allow URL path patterns (only permit if matched; takes precedence over deny) |
+| `body_deny` | list of strings | [] | Deny patterns matched against the request body |
+| `auto_revoke_on_deny` | bool | false | Disable the service for all agents when a request is denied |
+
+**How it works:**
+
+- The URL path is extracted from the request URL and checked against `request_deny` / `request_allow`
+- If the request has a body and `body_deny` patterns are configured, the body is checked separately
+- Denied requests are logged in the audit trail (event types: `request_denied`, `request_body_denied`)
+- When `auto_revoke_on_deny` is true, the service is disabled (set `enabled: false`)
+
+### MCP federation filtering
+
+Enable with `arg_filter: true` on a remote in `remotes.json`. The tool call arguments are serialized to JSON and checked against `arg_deny` patterns before the call is forwarded to the remote server.
+
+```json
+{
+  "name": "deploy-tools",
+  "url": "http://10.0.1.74:8560/mcp",
+  "enabled": true,
+  "arg_filter": true,
+  "arg_deny": ["rm ", "format", "destroy"],
+  "auto_revoke_on_deny": true
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `arg_filter` | bool | false | Enable argument filtering for this remote |
+| `arg_deny` | list of strings | [] | Deny patterns matched against the serialized JSON arguments |
+| `auto_revoke_on_deny` | bool | false | Disable the remote for all agents when arguments are denied |
+
+**How it works:**
+
+- The tool arguments (`map[string]interface{}`) are serialized to a JSON string
+- The JSON string is checked against `arg_deny` patterns using the same matching logic as command filtering
+- Denied calls are logged in the audit trail (event type: `federation_arg_denied`)
+- When `auto_revoke_on_deny` is true, the remote is disabled (`enabled: false`)
+
+### Pattern syntax
+
+All filtering paths use the same pattern matching. Patterns support simple glob-style matching:
+
+| Pattern | Matches |
+|---------|---------|
+| `rm ` | Any input containing "rm " (substring) |
+| `systemctl status*` | Input starting with "systemctl status" |
+| `*.conf` | Input ending with ".conf" |
+| `*passwd*` | Input containing "passwd" |
+
+Matching is case-insensitive (`RM -RF` matches `rm -rf`).
 
 ### Important: this is defense-in-depth
 
-Command filtering is **not** a security boundary. Shell commands can be obfuscated (e.g., `r''m`, `$(echo rm)`, base64 encoding). The real enforcement is at the target host via:
+Request filtering is **not** a security boundary. Shell commands can be obfuscated (e.g., `r''m`, `$(echo rm)`, base64 encoding), URL paths can be encoded, and JSON arguments can be structured to avoid pattern matches. The real enforcement is at the backend:
 
-- **rbash** (restricted shell) for read-only roles
+- **rbash** (restricted shell) for read-only SSH roles
 - **sudoers allow-lists** for what each role can run with elevated privileges
 - **force_command** at the SSH certificate level for single-purpose targets
+- **allowed_paths** and **allowed_methods** on HTTP proxy services
+- **RBAC tool restrictions** on federated remotes
 
-Command filtering catches the obvious cases and provides an audit trail. It does not replace proper host-level controls.
+Request filtering catches the obvious cases and provides an audit trail. It does not replace proper backend controls.
 
 ## Security notes
 

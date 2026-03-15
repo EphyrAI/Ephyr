@@ -242,3 +242,189 @@ func BenchmarkCheckCommand_AllowList10_NoMatch(b *testing.B) {
 		CheckCommand("rm -rf /important/data", nil, allow, true)
 	}
 }
+
+// --- HTTP proxy filtering tests ---
+
+func TestCheckCommand_HTTPProxy(t *testing.T) {
+	tests := []struct {
+		name    string
+		urlPath string
+		deny    []string
+		allow   []string
+		want    bool
+	}{
+		{
+			name:    "deny admin path",
+			urlPath: "/api/v1/admin/users",
+			deny:    []string{"/api/v1/admin/*"},
+			want:    false,
+		},
+		{
+			name:    "deny delete endpoint",
+			urlPath: "/api/v1/repos/myrepo/delete",
+			deny:    []string{"*/delete"},
+			want:    false,
+		},
+		{
+			name:    "allow normal path with deny list",
+			urlPath: "/api/v1/repos/myrepo",
+			deny:    []string{"/api/v1/admin/*", "*/delete"},
+			want:    true,
+		},
+		{
+			name:    "allow-list permits matching path",
+			urlPath: "/api/v1/repos/list",
+			allow:   []string{"/api/v1/repos/*"},
+			want:    true,
+		},
+		{
+			name:    "allow-list blocks non-matching path",
+			urlPath: "/api/v1/admin/settings",
+			allow:   []string{"/api/v1/repos/*"},
+			want:    false,
+		},
+		{
+			name:    "filter disabled passes everything",
+			urlPath: "/api/v1/admin/destroy",
+			deny:    []string{"admin", "destroy"},
+			want:    true, // tested via filterEnabled=false below
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enabled := true
+			if tt.name == "filter disabled passes everything" {
+				enabled = false
+			}
+			result := CheckCommand(tt.urlPath, tt.deny, tt.allow, enabled)
+			if result.Allowed != tt.want {
+				t.Errorf("CheckCommand(%q, deny=%v, allow=%v) = Allowed:%v, want %v (reason: %s)",
+					tt.urlPath, tt.deny, tt.allow, result.Allowed, tt.want, result.Reason)
+			}
+		})
+	}
+}
+
+func TestCheckCommand_HTTPBody(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		deny []string
+		want bool
+	}{
+		{
+			name: "deny drop database in body",
+			body: `{"query": "DROP DATABASE production"}`,
+			deny: []string{"drop database"},
+			want: false,
+		},
+		{
+			name: "deny drop table in body",
+			body: `{"sql": "drop table users; --"}`,
+			deny: []string{"drop database", "drop table"},
+			want: false,
+		},
+		{
+			name: "allow safe body content",
+			body: `{"query": "SELECT * FROM users WHERE id = 1"}`,
+			deny: []string{"drop database", "drop table", "truncate"},
+			want: true,
+		},
+		{
+			name: "deny pattern in JSON value",
+			body: `{"command": "rm -rf /data"}`,
+			deny: []string{"rm -rf"},
+			want: false,
+		},
+		{
+			name: "empty body always allowed",
+			body: "",
+			deny: []string{"drop database"},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.body == "" {
+				// Empty body should not be checked (filterEnabled=true but nothing to match)
+				result := CheckCommand(tt.body, tt.deny, nil, true)
+				if !result.Allowed {
+					t.Errorf("empty body should be allowed, got denied")
+				}
+				return
+			}
+			result := CheckCommand(tt.body, tt.deny, nil, true)
+			if result.Allowed != tt.want {
+				t.Errorf("CheckCommand(body=%q, deny=%v) = Allowed:%v, want %v (reason: %s)",
+					truncateTestStr(tt.body, 60), tt.deny, result.Allowed, tt.want, result.Reason)
+			}
+		})
+	}
+}
+
+func TestCheckCommand_MCPArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args string // serialized JSON arguments
+		deny []string
+		want bool
+	}{
+		{
+			name: "deny rm in arguments",
+			args: `{"command":"rm -rf /tmp/data","target":"server1"}`,
+			deny: []string{"rm ", "format", "destroy"},
+			want: false,
+		},
+		{
+			name: "deny format in arguments",
+			args: `{"action":"format","disk":"/dev/sda"}`,
+			deny: []string{"rm ", "format", "destroy"},
+			want: false,
+		},
+		{
+			name: "deny destroy in arguments",
+			args: `{"operation":"destroy","resource":"database"}`,
+			deny: []string{"rm ", "format", "destroy"},
+			want: false,
+		},
+		{
+			name: "allow safe arguments",
+			args: `{"action":"status","service":"nginx"}`,
+			deny: []string{"rm ", "format", "destroy"},
+			want: true,
+		},
+		{
+			name: "case insensitive match",
+			args: `{"cmd":"FORMAT disk"}`,
+			deny: []string{"format"},
+			want: false,
+		},
+		{
+			name: "no deny patterns allows all",
+			args: `{"anything":"goes"}`,
+			deny: []string{},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enabled := len(tt.deny) > 0
+			result := CheckCommand(tt.args, tt.deny, nil, enabled)
+			if result.Allowed != tt.want {
+				t.Errorf("CheckCommand(args=%q, deny=%v) = Allowed:%v, want %v (reason: %s)",
+					truncateTestStr(tt.args, 60), tt.deny, result.Allowed, tt.want, result.Reason)
+			}
+		})
+	}
+}
+
+// truncateTestStr shortens a string for test error messages.
+func truncateTestStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}

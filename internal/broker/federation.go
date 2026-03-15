@@ -29,6 +29,11 @@ type RemoteMCPConfig struct {
 	RefreshSeconds int               `json:"refresh_seconds,omitempty"` // discovery refresh interval, default 60
 	MaxResponseKB  int               `json:"max_response_kb,omitempty"` // max response body in KB, default 1024
 	ToolPrefix     string            `json:"tool_prefix,omitempty"`     // override namespace prefix for tools
+
+	// Argument filtering (disabled by default -- zero overhead unless enabled).
+	ArgFilter        bool     `json:"arg_filter,omitempty"`          // enable argument filtering on tool calls
+	ArgDeny          []string `json:"arg_deny,omitempty"`            // deny patterns matched against serialized arguments
+	AutoRevokeOnDeny bool     `json:"auto_revoke_on_deny,omitempty"` // disable remote on denied argument
 }
 
 // RemoteStatus represents the connection state of a remote MCP server.

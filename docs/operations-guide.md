@@ -301,6 +301,9 @@ Authentication uses the dashboard token.
 | `ephyr_pop_verified_total` | Proof-of-possession signatures verified (Bind) |
 | `ephyr_pop_rejected_total` | Proof-of-possession signatures rejected (Bind) |
 | `ephyr_bind_deadline_expired_total` | Delegated tokens expired before binding |
+| `ephyr_commands_filtered_total` | Total commands/requests checked by the request filter |
+| `ephyr_commands_denied_total` | Total commands/requests denied by the request filter |
+| `ephyr_auto_revocations_total` | Total auto-revocations triggered by request filter violations |
 
 **Gauges:**
 
@@ -325,6 +328,8 @@ Authentication uses the dashboard token.
 | `ephyr_pop_rejected_total` | Rate > 5/min | Warning | Possible token replay or holder key mismatch |
 | `ephyr_bind_deadline_expired_total` | Rate > 2/min | Warning | Delegated tokens expiring before bind -- child agents may be slow to start |
 | `ephyr_macaroons_rejected_total` | Rate > 10/min | Warning | Invalid macaroons presented -- possible token forgery or corruption |
+| `ephyr_commands_denied_total` | Rate > 5/min | Warning | Agent hitting command/request filter -- check if deny patterns are too broad or agent is misbehaving |
+| `ephyr_auto_revocations_total` | Any increase | Alert | Agent triggered auto-revoke -- target/service/remote disabled, requires human re-enablement |
 
 ### Grafana Dashboard Suggestions
 

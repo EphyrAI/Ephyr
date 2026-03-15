@@ -1014,6 +1014,57 @@ requesting agent.
 
 ---
 
+### Request Filtering
+
+Request filtering applies to the `exec`, `http_request`, and federated tool calls.
+Filtering is opt-in per target, service, or remote -- there is zero overhead when disabled.
+
+#### `exec` -- Command Filtering
+
+When `command_filter: true` is set on a target in `policy.yaml`, the command is
+checked against `command_deny` / `command_allow` patterns before the SSH
+connection is established. If the command is blocked, no certificate is issued.
+
+**Possible error responses:**
+
+| Condition | Error message |
+|-----------|---------------|
+| Deny-list match | `"Command blocked: destructive operation detected..."` (or `privilege modification`, `dangerous operation`, or `prohibited pattern`) |
+| Allow-list miss | `"Command not in allow list. Only commands matching the configured allow patterns are permitted on this target."` |
+| Auto-revoke triggered | The deny message followed by `"\n\nYour access to {target} has been suspended pending human review."` |
+
+#### `http_request` -- URL/Body Filtering
+
+When `request_filter: true` is set on a service in `services.json`, the URL
+path is checked against `request_deny` / `request_allow` patterns, and the
+request body is checked against `body_deny` patterns before the request is
+sent. Uses the same pattern syntax as command filtering.
+
+**Possible error responses:**
+
+| Condition | Error message |
+|-----------|---------------|
+| URL deny-list match | Same format as command filtering (pattern-based message) |
+| URL allow-list miss | `"Command not in allow list..."` |
+| Body deny-list match | `"Request body blocked: ..."` |
+| Auto-revoke triggered | The deny message followed by `"\n\nYour access to service {name} has been suspended pending human review."` |
+
+#### Federated tool calls -- Argument Filtering
+
+When `arg_filter: true` is set on a remote in `remotes.json`, the serialized
+tool arguments are checked against `arg_deny` patterns before the call is
+forwarded to the remote MCP server.
+
+**Possible error responses:**
+
+| Condition | Error message |
+|-----------|---------------|
+| Arg deny-list match | Same format as command filtering (pattern-based message) |
+| Auto-revoke triggered | The deny message followed by `"\n\nYour access to remote {name} has been suspended pending human review."` |
+
+See [Request Filtering in Target Setup](target-setup.md#request-filtering) for
+configuration examples and pattern syntax.
+
 ---
 
 ### Task Identity Tools (v0.2)

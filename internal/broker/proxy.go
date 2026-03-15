@@ -47,6 +47,13 @@ type ServiceConfig struct {
 	Enabled        *bool             `json:"enabled,omitempty"` // nil or true = enabled, false = disabled
 	GrantMode      string            `json:"grant_mode,omitempty"` // "ttl" or "passthrough"
 	Headers        map[string]string `json:"headers"`          // extra headers to inject
+
+	// Request filtering (disabled by default -- zero overhead unless enabled).
+	RequestFilter    bool     `json:"request_filter,omitempty"`       // enable URL/body filtering
+	RequestDeny      []string `json:"request_deny,omitempty"`         // deny URL path patterns
+	RequestAllow     []string `json:"request_allow,omitempty"`        // allow URL path patterns
+	BodyDeny         []string `json:"body_deny,omitempty"`            // deny request body patterns
+	AutoRevokeOnDeny bool     `json:"auto_revoke_on_deny,omitempty"`  // disable service on denied request
 }
 
 // NetworkPolicy controls which hosts/networks the proxy may reach.

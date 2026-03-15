@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -860,6 +861,124 @@ func (s *MCPServer) toolHTTPRequest(ctx context.Context, agent *MCPAgent, args m
 					s.broker.metrics.TokensRejected.Add(1)
 				}
 				return errorResult(fmt.Sprintf("envelope violation: %s", err)), nil
+			}
+		}
+	}
+
+	// Request filtering (only runs if service has request_filter: true).
+	if s.proxyEngine != nil {
+		if svc := s.proxyEngine.matchService(rawURL); svc != nil && svc.RequestFilter {
+			// Extract URL path for pattern matching.
+			urlPath := rawURL
+			if parsed, parseErr := url.Parse(rawURL); parseErr == nil {
+				urlPath = parsed.Path
+			}
+
+			// Check URL path against RequestDeny/RequestAllow.
+			filterResult := CheckCommand(urlPath, svc.RequestDeny, svc.RequestAllow, true)
+			if s.broker.metrics != nil {
+				s.broker.metrics.CommandsFiltered.Add(1)
+			}
+			if !filterResult.Allowed {
+				if s.broker.metrics != nil {
+					s.broker.metrics.CommandsDenied.Add(1)
+				}
+
+				s.broker.auditLog.LogEvent(audit.AuditEvent{
+					Severity:  audit.SeverityWarn,
+					EventType: "request_denied",
+					Agent:     agent.Name,
+					Details: map[string]string{
+						"url":     truncate(rawURL, 200),
+						"method":  method,
+						"service": svc.Name,
+						"pattern": filterResult.Pattern,
+						"mode":    filterResult.Mode,
+						"reason":  filterResult.Reason,
+					},
+				})
+
+				if svc.AutoRevokeOnDeny {
+					if s.broker.metrics != nil {
+						s.broker.metrics.AutoRevocations.Add(1)
+					}
+					disabled := false
+					svc.Enabled = &disabled
+
+					s.broker.auditLog.LogEvent(audit.AuditEvent{
+						Severity:  audit.SeverityAlert,
+						EventType: "auto_revoke",
+						Agent:     agent.Name,
+						Details: map[string]string{
+							"service": svc.Name,
+							"url":     truncate(rawURL, 200),
+							"reason":  "Agent attempted prohibited request; service access auto-revoked pending human review",
+						},
+					})
+
+					if s.broker.eventHub != nil {
+						s.broker.eventHub.Broadcast(Event{
+							Type: "agent_auto_revoked",
+							Data: map[string]interface{}{
+								"agent":   agent.Name,
+								"service": svc.Name,
+								"url":     truncate(rawURL, 200),
+								"reason":  filterResult.Reason,
+							},
+						})
+					}
+
+					return errorResult(fmt.Sprintf("%s\n\nYour access to service %s has been suspended pending human review.", filterResult.Reason, svc.Name)), nil
+				}
+
+				return errorResult(filterResult.Reason), nil
+			}
+
+			// Check body against BodyDeny patterns (if body is non-empty and patterns exist).
+			if len(svc.BodyDeny) > 0 && body != "" {
+				bodyResult := CheckCommand(body, svc.BodyDeny, nil, true)
+				if s.broker.metrics != nil {
+					s.broker.metrics.CommandsFiltered.Add(1)
+				}
+				if !bodyResult.Allowed {
+					if s.broker.metrics != nil {
+						s.broker.metrics.CommandsDenied.Add(1)
+					}
+
+					s.broker.auditLog.LogEvent(audit.AuditEvent{
+						Severity:  audit.SeverityWarn,
+						EventType: "request_body_denied",
+						Agent:     agent.Name,
+						Details: map[string]string{
+							"url":     truncate(rawURL, 200),
+							"method":  method,
+							"service": svc.Name,
+							"pattern": bodyResult.Pattern,
+							"reason":  bodyResult.Reason,
+						},
+					})
+
+					if svc.AutoRevokeOnDeny {
+						if s.broker.metrics != nil {
+							s.broker.metrics.AutoRevocations.Add(1)
+						}
+						disabled := false
+						svc.Enabled = &disabled
+
+						s.broker.auditLog.LogEvent(audit.AuditEvent{
+							Severity:  audit.SeverityAlert,
+							EventType: "auto_revoke",
+							Agent:     agent.Name,
+							Details: map[string]string{
+								"service": svc.Name,
+								"url":     truncate(rawURL, 200),
+								"reason":  "Agent sent prohibited request body; service access auto-revoked pending human review",
+							},
+						})
+					}
+
+					return errorResult(fmt.Sprintf("Request body blocked: %s", bodyResult.Reason)), nil
+				}
 			}
 		}
 	}
