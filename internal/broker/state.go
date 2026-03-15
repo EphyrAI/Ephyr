@@ -131,15 +131,17 @@ func (cs *CertState) ListAllCerts() []*ActiveCert {
 	return result
 }
 
-// CleanExpired removes all certificates whose ExpiresAt is in the past.
-// Returns the number of certificates removed.
+// CleanExpired removes certificates that have been expired for longer than
+// the grace period. This keeps recently-expired certs visible in the dashboard
+// for a short window before cleanup.
 func (cs *CertState) CleanExpired() int {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	now := time.Now()
+	gracePeriod := 30 * time.Second
 	removed := 0
 	for serial, cert := range cs.certs {
-		if cert.ExpiresAt.Before(now) {
+		if cert.ExpiresAt.Add(gracePeriod).Before(now) {
 			delete(cs.certs, serial)
 			removed++
 		}
