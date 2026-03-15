@@ -1236,7 +1236,7 @@ curl -s http://localhost:8553/v1/dashboard/remotes \
 
 If a remote shows status `error` or `disconnected`:
 
-1. **Check the remote is reachable from the LXC:**
+1. **Check the remote is reachable from the broker host:**
    ```bash
    curl -s http://10.0.1.80:8560/mcp \
      -X POST -H "Content-Type: application/json" \
@@ -1574,7 +1574,7 @@ ls -la "$BACKUP_DIR"
 
 ### Recovery Procedure
 
-From a backup to a fresh Debian 12 LXC:
+From a backup to a fresh Linux host (bare metal, VM, LXC container, or cloud instance):
 
 1. **Install Go and build Ephyr:**
    ```bash
@@ -1808,7 +1808,7 @@ Key things to check:
 
 ### Performance Benchmark Baseline
 
-Expected latencies for a healthy system (LXC on R430):
+Expected latencies for a healthy system (single-core Linux host, 512 MB RAM):
 
 | Operation | p50 | p95 | p99 |
 |-----------|-----|-----|-----|
@@ -1821,7 +1821,7 @@ Expected latencies for a healthy system (LXC on R430):
 | exec (simple command) | < 2s | < 5s | < 8s |
 
 If latencies are significantly above these baselines:
-- Check system load on the LXC (`top`, `vmstat 1`)
+- Check system load on the broker host (`top`, `vmstat 1`)
 - Check signer IPC latency: `grep delegation_ipc /v1/metrics` output
 - Check target host SSH responsiveness: `time ssh agent-read@<target> 'echo ok'`
 

@@ -1245,7 +1245,7 @@ The auth cache avoids repeated bcrypt comparisons for the same API key:
 ### 10.3 Measured Performance (Integration Tests)
 
 The following numbers are from the integration test suite running against
-the production Ephyr instance on LXC CT 112 (1 vCPU, 512MB RAM):
+a single-core Linux host with 512 MB RAM:
 
 | Operation | Average Latency | Notes |
 |-----------|----------------|-------|

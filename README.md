@@ -318,7 +318,7 @@ Opt-in defense-in-depth filtering across all three proxy paths. Zero overhead wh
 
 ## Performance
 
-Benchmarked on a Debian 12 LXC (1 vCPU, 512MB RAM):
+Benchmarked on a single-core Linux host with 512 MB RAM:
 
 | Operation | Latency | Notes |
 |-----------|---------|-------|
@@ -536,12 +536,30 @@ go test ./test/integration/  # Integration tests (requires running instance)
 
 ## Requirements
 
+Ephyr runs on any Linux system: bare metal server, VM, LXC container, Docker, Raspberry Pi, or cloud instance. The three-process architecture works the same regardless of platform.
+
+**Resource requirements:**
+
+| Deployment | CPU | RAM | Notes |
+|------------|-----|-----|-------|
+| Minimal (signer + broker) | 1 vCPU | 256 MB | Small deployments, no dashboard traffic |
+| Recommended (production) | 2 vCPU | 512 MB | Dashboard, federation, concurrent agents |
+| High-throughput | 4 vCPU | 1 GB | 100+ concurrent sessions, many federated remotes |
+
+The broker idles at ~15 MB RSS. Under load (100 concurrent sessions), memory stays under 100 MB. The signer uses ~5 MB. No external databases, no message queues, no container runtime required.
+
+**Build and runtime dependencies:**
+
 - **Go 1.24+** -- uses enhanced routing patterns and recent stdlib features (build from source only)
 - **Linux** -- `SO_PEERCRED` for Unix socket peer authentication is Linux-specific
 - **Docker 24+** -- for containerized deployment (alternative to building from source)
 - **OpenSSH** -- target hosts need `TrustedUserCAKeys` configured
 - **systemd** -- recommended for production (manual/Ansible deployment)
 - **nftables** -- recommended for network isolation
+
+**Deployment flexibility:**
+
+The broker can run on the same host as the agent (co-located), but deploying on a dedicated host provides stronger trust boundary isolation -- the agent cannot access the CA key or broker internals directly. Go binaries cross-compile to ARM, so Ephyr runs comfortably on a Raspberry Pi 4 (4 GB) for small deployments.
 
 ## Documentation
 

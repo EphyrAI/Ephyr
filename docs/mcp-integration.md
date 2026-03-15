@@ -1400,7 +1400,7 @@ Common error responses:
 ### SSH Connection Fails
 
 ```bash
-# Test SSH connectivity from the LXC
+# Test SSH connectivity from the broker host
 ssh -o ConnectTimeout=5 agent-op@TARGET_HOST
 
 # Check target host SSH config

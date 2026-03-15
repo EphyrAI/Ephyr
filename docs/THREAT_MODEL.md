@@ -30,7 +30,7 @@ The broker mediates three proxy paths:
 
 ```
  ┌─────────────────────────────────────────────────────────────────────┐
- │  BROKER HOST (dedicated VM/LXC)                                    │
+ │  BROKER HOST (dedicated VM, container, bare metal, or cloud)        │
  │                                                                     │
  │  ┌──────────────┐    Unix socket     ┌───────────────────────────┐ │
  │  │              │   (SO_PEERCRED)    │                           │ │
@@ -314,7 +314,7 @@ The following recommendations are derived from the threats enumerated above. The
 
 2. **Enable TLS verification for services (T7).** Configure proper TLS certificates for internal services or deploy a private CA. Avoid relying on `InsecureSkipVerify` in environments where the network between the broker and services crosses trust boundaries.
 
-3. **Deploy the broker on a dedicated host (T3, T4).** Run the signer and broker on a dedicated VM or LXC container with no other workloads. This limits the attack surface and ensures systemd sandboxing is the primary isolation layer, not one among many.
+3. **Deploy the broker on a dedicated host (T3, T4).** Run the signer and broker on a dedicated host (VM, container, bare metal, or cloud instance) with no other workloads. This limits the attack surface and ensures systemd sandboxing is the primary isolation layer, not one among many.
 
 ### High
 

@@ -303,7 +303,7 @@ External modes: `deny` (block all public), `restricted` (allow-list only),
 
 ### Host Firewall (nftables)
 
-Default-drop input policy on the Ephyr broker host:
+Default-drop input policy on the Ephyr host (applies to any Linux platform -- bare metal, VM, LXC container, or cloud instance):
 - Allow SSH + dashboard (8553) + MCP (8554) from `192.168.0.0/16`
 - Allow established/related + loopback
 - Drop everything else
@@ -371,6 +371,8 @@ ping keepalive, 60-second pong timeout.
 ---
 
 ## Recommendations for Production
+
+**Deployment isolation:** Deploy the signer and broker on a dedicated host (VM, container, bare metal, or cloud instance) for strongest trust boundary isolation. Co-location with the agent is supported but weakens the trust boundary -- the agent process can potentially access broker memory or Unix sockets.
 
 **Key management:** Rotate the CA key periodically. Back up securely (GPG
 offline). Never copy the CA key to any other system.

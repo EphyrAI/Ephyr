@@ -8,7 +8,7 @@ certificates to LLM agents, replacing static SSH keys with ephemeral,
 policy-governed credentials.
 
 The system is split into three processes -- Signer, Broker, and CLI -- each
-running with the minimum privileges required for its function.
+running with the minimum privileges required for its function. The three-process architecture is platform-agnostic. The signer and broker communicate via Unix sockets, which work identically on bare metal, VMs, containers, and single-board computers. Deploy on any Linux host.
 
 ```mermaid
 graph TD

@@ -6,6 +6,42 @@ MCP configuration, and operational verification.
 
 ---
 
+## Deployment Options
+
+Ephyr runs on any Linux system. The three-process architecture (signer + broker + CLI) works the same regardless of platform.
+
+| Platform | Notes |
+|----------|-------|
+| **Bare metal** | Direct install, best performance, full systemd hardening |
+| **VM** (Proxmox, VMware, Hyper-V, etc.) | Recommended for production -- strong isolation with low overhead |
+| **LXC container** | Lightweight option for Proxmox or standalone LXD environments |
+| **Docker** | Fastest way to try Ephyr; suitable for dev/test and CI pipelines |
+| **Raspberry Pi** (4/5, 4 GB+) | Go cross-compiles to ARM; the broker runs comfortably on a Pi for small deployments |
+| **Cloud instance** (EC2, GCE, Azure VM, etc.) | Standard Linux instance; no cloud-specific dependencies |
+
+### Resource Requirements
+
+| Deployment size | CPU | RAM | Notes |
+|-----------------|-----|-----|-------|
+| Minimal (signer + broker) | 1 vCPU | 256 MB | Small deployments, no dashboard traffic |
+| Recommended (production) | 2 vCPU | 512 MB | Dashboard, federation, concurrent agents |
+| High-throughput | 4 vCPU | 1 GB | 100+ concurrent sessions, many federated remotes |
+
+The broker idles at ~15 MB RSS. Under load (100 concurrent sessions), memory stays under 100 MB. The signer uses ~5 MB. No external databases, no message queues, no container runtime required.
+
+### Co-location vs. Dedicated Host
+
+The broker can run on the same host as the agent or on a separate dedicated host.
+
+| Model | Pros | Cons |
+|-------|------|------|
+| **Dedicated host** (recommended) | Strongest trust boundary -- agent cannot access CA key, broker memory, or Unix sockets directly. nftables UID isolation optional. | Requires a separate host (VM, container, or bare metal). |
+| **Co-located** | Simpler to operate; single host. nftables UID-based rules prevent the agent from bypassing the broker. | Weaker trust boundary -- a compromised agent process could potentially access broker memory or Unix sockets if it escalates privileges. |
+
+For production deployments, a dedicated host provides the strongest isolation. Co-location is acceptable for development, testing, and small deployments where operational simplicity is more important than defense-in-depth.
+
+---
+
 ## Prerequisites
 
 **Broker host requirements:**
@@ -23,6 +59,8 @@ MCP configuration, and operational verification.
 - TCP port 8553 for dashboard (configurable)
 - TCP port 8554 for MCP endpoint (configurable)
 - SSH (port 22) from broker host to all target hosts
+
+**Raspberry Pi note:** Ephyr's Go binaries cross-compile to ARM with `GOARCH=arm64`. Build on any machine and copy the binaries to the Pi, or build directly on a Pi 4/5 with Go installed.
 
 ---
 

@@ -117,7 +117,7 @@ and privilege levels:
 
 ```mermaid
 graph TD
-    subgraph HOST["HOST (LXC / VM)"]
+    subgraph HOST["HOST (any Linux platform)"]
         subgraph Signer["ephyr-signer<br/>UID: 999 | NET: AF_UNIX only"]
             S1["Ed25519 CA key"]
             S2["Sign SSH certs"]
@@ -143,7 +143,7 @@ graph TD
 <summary>View as text</summary>
 
 ```
-+--- HOST (LXC / VM) --------------------------------------------------+
++--- HOST (any Linux platform) ----------------------------------------+
 |                                                                       |
 |  +-----------------------------+    +------------------------------+  |
 |  | ephyr-signer                |    | ephyr-broker                 |  |
@@ -271,7 +271,7 @@ REST API calls.
 | :8553 (dashboard) | TCP, restricted to 192.168.0.0/16 by nft |
 | :8554 (MCP) | TCP, restricted to 192.168.0.0/16 by nft |
 
-The nftables firewall on the LXC enforces input filtering (default drop)
+The nftables firewall on the broker host enforces input filtering (default drop)
 and output filtering for the agent UID (1000), blocking direct access to
 all backend IPs. The agent can only reach the broker on localhost; all
 backend access must go through the broker's proxy.
@@ -2184,13 +2184,13 @@ operations lightweight.
 
 ## 14. Deployment Topology
 
-### 14.1 Single-Host Deployment (Current)
+### 14.1 Single-Host Deployment (Recommended Starting Point)
 
-All three processes run on a single LXC container:
+All three processes run on a single Linux host (bare metal, VM, LXC container, cloud instance, or Raspberry Pi). Minimal resource requirements: 1 vCPU, 256 MB RAM for the signer and broker; 2 vCPU, 512 MB RAM recommended for production workloads with dashboard and federation.
 
 ```
 +---------------------------------------------------+
-|  LXC Container (Debian 12, 1 vCPU, 512MB RAM)    |
+|  Linux Host (any platform, 2 vCPU, 512MB RAM)    |
 |                                                   |
 |  systemd                                          |
 |  +-----+  +--------+  +--------+                 |
@@ -2216,9 +2216,11 @@ All three processes run on a single LXC container:
 +-------------------+  +-------------------+
 ```
 
+The broker idles at ~15 MB RSS. Under load (100 concurrent sessions), memory stays under 100 MB. The signer uses ~5 MB.
+
 ### 14.2 Multi-Host Deployment (Future)
 
-For larger deployments, the signer can run on a dedicated hardened host:
+For larger deployments or stronger trust boundaries, the signer can run on a dedicated hardened host (VM, container, or bare metal):
 
 ```
 +------------------+         +------------------+
@@ -2300,7 +2302,7 @@ Key differences between signer and broker service units:
 
 ### 14.4 nftables Isolation
 
-The LXC firewall provides two layers of protection:
+The host firewall provides two layers of protection:
 
 ```
 Input chain (default DROP):

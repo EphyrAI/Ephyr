@@ -241,7 +241,7 @@ its function:
 
 ```
                     +-------------------------------------------------+
-                    |            EPHYR HOST (VM/LXC)                 |
+                    |            EPHYR HOST (any Linux platform)      |
                     |                                                 |
   +-----------+     |  +----------+   AF_UNIX    +----------------+  |
   |           |     |  |          |<============>|                |  |
@@ -1774,8 +1774,12 @@ Ordered by impact:
 **Critical:**
 
 1. **Deploy on a dedicated host.** Run the signer and broker on a
-   dedicated VM or LXC container with no other workloads. This ensures
-   systemd sandboxing is the primary isolation layer, not one among many.
+   dedicated host (VM, LXC container, bare metal, or cloud instance) with
+   no other workloads. This ensures systemd sandboxing is the primary
+   isolation layer, not one among many. Co-location with the agent is
+   supported but weakens the trust boundary -- the agent process can
+   potentially access broker memory or Unix sockets if it escalates
+   privileges.
 
 2. **Enable host key verification.** The default SSH client uses
    `InsecureIgnoreHostKey`. Until host key pinning is implemented in
@@ -2070,7 +2074,7 @@ at startup without it ever existing in a regular file.
 
 ```
  ┌───────────────────────────────────────────────────────────────────────────┐
- │  EPHYR HOST (dedicated VM or LXC container)                             │
+ │  EPHYR HOST (dedicated VM, container, bare metal, or cloud instance)    │
  │                                                                           │
  │  ┌─────────────────┐                                                     │
  │  │  SIGNER          │   Trust Boundary B1                                │
