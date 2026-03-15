@@ -460,13 +460,54 @@ Works with Claude Code, Claude Desktop, Cursor, Cline, OpenClaw, and any MCP-com
 
 ## Roadmap
 
-| Version | Tier | What ships |
+### Shipped
+
+| Version | Tier | Status |
 |---|---|---|
 | **v0.1** | **Core** | Broker foundation: SSH/HTTP/MCP access, policy, audit |
 | **v0.2a** | **Core** | Task identity: tiered trust, JWT task tokens, watermarking |
-| **v0.2b** | **Delegation** | Macaroon engine: reducer, delegation, inspect CLI |
-| **v0.2c** | **Delegation** | Dashboard: task trees, caveat inspector |
-| **v0.3** | **Bind** | Proof-of-possession: holder binding, DPoP-style signing |
+| **v0.2b** | **Delegation** | Macaroon engine: HMAC chain, reducer, delegation, inspect CLI |
+| **v0.2c** | **Delegation** | Dashboard: task trees, envelope inspector, cascade revocation |
+| **v0.3** | **Bind** | Proof-of-possession: holder binding, two-phase delegation key exchange |
+
+### Planned
+
+#### Cross-Agent Delegation
+
+Currently, delegation requires the parent and child to be the same agent. A task created by `agent-a` can only delegate to `agent-a`. This is a deliberate constraint — the security implications of cross-agent token transfer require careful design.
+
+The planned behavior: `agent-a` creates a delegated child task and specifies `agent-b` as the child agent. The child's effective envelope is the intersection of the parent's capability ceiling and `agent-b`'s own RBAC permissions from policy. This prevents escalation — the child can never exceed either the parent's delegation or its own policy limits.
+
+Use cases: supervisor agents delegating read-only sub-tasks to specialist agents, orchestration workflows where a coordinator dispatches scoped work to purpose-built agents.
+
+Implementation scope: remove the agent-name match check in `CreateChildTask`, add intersection with the child agent's resolved RBAC permissions, audit the cross-agent handoff.
+
+#### `require_pop` Policy Option
+
+Currently, proof-of-possession is enforced automatically when a task has `HolderBound=true` (i.e., the agent provided a public key at task creation). There is no way for an administrator to require that all tasks from a specific agent must be holder-bound.
+
+The planned behavior: a `require_pop: true` field in the agent's policy configuration. When set, `task_create` rejects requests that do not include a `holder_pub_key` parameter, and `task_delegate` enforces binding deadlines on all children. This lets operators mandate PoP for high-security environments without relying on agents to opt in.
+
+```yaml
+agents:
+  production-bot:
+    require_pop: true  # all tasks must be holder-bound
+    can_delegate: true
+```
+
+Implementation scope: add `RequirePoP` to the agent policy struct, check it in `toolTaskCreate`, reject unbound task creation when set.
+
+#### SSH Host Key Verification
+
+The SSH exec engine currently uses `InsecureIgnoreHostKey`, accepting any host key presented by the target. This is the highest-priority open security item (see [T6 in the Threat Model](docs/THREAT_MODEL.md)).
+
+The planned behavior: a `host_key` field per target in policy.yaml containing the expected SSH host key fingerprint. The broker verifies the target's host key against the pinned fingerprint during every connection. Mismatches are rejected and logged as a critical audit event.
+
+#### TLS Certificate Verification for HTTP Proxy
+
+The HTTP proxy uses `InsecureSkipVerify: true` for backend service connections. This is the second-highest open security item (see [T7 in the Threat Model](docs/THREAT_MODEL.md)).
+
+The planned behavior: per-service TLS CA configuration in `services.json`, allowing operators to pin a CA certificate or specific server certificate for each backend service.
 
 ## Dependencies
 
