@@ -539,6 +539,26 @@ func (s *MCPServer) toolExec(ctx context.Context, agent *MCPAgent, args map[stri
 
 	// Validate: host is enabled.
 	if !s.broker.hostCtl.IsEnabled(target) {
+		s.broker.auditLog.LogEvent(audit.AuditEvent{
+			Severity:  audit.SeverityWarn,
+			EventType: "exec_denied",
+			Agent:     agent.Name,
+			Details: map[string]string{
+				"target": target,
+				"role":   role,
+				"reason": "target disabled",
+			},
+		})
+		if s.broker.eventHub != nil {
+			s.broker.eventHub.Broadcast(Event{
+				Type: "exec_denied",
+				Data: map[string]interface{}{
+					"agent":  agent.Name,
+					"target": target,
+					"reason": "target disabled",
+				},
+			})
+		}
 		return errorResult(fmt.Sprintf("target %q is currently disabled", target)), nil
 	}
 
@@ -707,6 +727,26 @@ func (s *MCPServer) toolSessionCreate(ctx context.Context, agent *MCPAgent, args
 
 	// Validate: host is enabled.
 	if !s.broker.hostCtl.IsEnabled(target) {
+		s.broker.auditLog.LogEvent(audit.AuditEvent{
+			Severity:  audit.SeverityWarn,
+			EventType: "session_denied",
+			Agent:     agent.Name,
+			Details: map[string]string{
+				"target": target,
+				"role":   role,
+				"reason": "target disabled",
+			},
+		})
+		if s.broker.eventHub != nil {
+			s.broker.eventHub.Broadcast(Event{
+				Type: "session_denied",
+				Data: map[string]interface{}{
+					"agent":  agent.Name,
+					"target": target,
+					"reason": "target disabled",
+				},
+			})
+		}
 		return errorResult(fmt.Sprintf("target %q is currently disabled", target)), nil
 	}
 
