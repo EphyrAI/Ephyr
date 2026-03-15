@@ -30,6 +30,7 @@ Usage:
   ephyr whoami                      Show agent identity
   ephyr inspect [--token] [--json]  Inspect a macaroon token
   ephyr monitor [logfile]           Live audit stream (default: /var/log/ephyr/audit.json)
+  ephyr demo [--broker URL] [--key KEY]   Run full pipeline demo (macaroon + PoP)
 
 Global:
   --socket PATH    Broker socket (default: /run/ephyr/broker.sock)
@@ -67,6 +68,8 @@ func main() {
 		cmdInspect(os.Args[2:])
 	case "monitor":
 		cmdMonitor(os.Args[2:])
+	case "demo":
+		cmdDemo(os.Args[2:])
 	case "help", "--help", "-h":
 		fmt.Fprint(os.Stdout, usage)
 	default:
