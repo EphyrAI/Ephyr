@@ -8,10 +8,10 @@ all:
           # ephyr_dashboard_token: "changeme"
           # ephyr_git_repo: "https://github.com/EphyrAI/Ephyr.git"
           # ephyr_agents:
-          #   claude:
+          #   my-agent:
           #     uid: 1000
           #     max_concurrent_certs: 3
-          #     description: "Claude Code agent"
+          #     description: "Primary automation agent"
           # ephyr_targets:
           #   webserver:
           #     host: "10.0.1.10"

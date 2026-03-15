@@ -1,6 +1,6 @@
 [Unit]
 Description=Ephyr SSH Certificate Signer
-Documentation=https://github.com/ben-spanswick/ephyr
+Documentation=https://github.com/EphyrAI/Ephyr
 After=network.target
 
 [Service]

@@ -1493,7 +1493,7 @@ token (`mac_` prefix) by default; legacy JWT tokens are also supported.
   "params": {
     "name": "task_create",
     "arguments": {
-      "description": "Investigate unhealthy n8n container on dockerhost",
+      "description": "Investigate unhealthy n8n container on web-server",
       "ttl": "15m"
     }
   }
@@ -1510,7 +1510,7 @@ token (`mac_` prefix) by default; legacy JWT tokens are also supported.
     "content": [
       {
         "type": "text",
-        "text": "{"task_id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","token":"eyJhbGciOiJFZERTQSIsInR5cCI6IkNUVC1FIiwia2lkIjoiZGVsZWc6Li4uIn0.eyJzdWIiOiJjbGF1ZGUiLCJ0YXNrIjp7ImlkIjoiMDFKUVhZWi4uLiJ9fQ.signature","expires_at":"2026-03-13T15:15:00Z","ttl_seconds":900,"envelope":{"targets":["dockerhost","mandrake-rack","hugoblog"],"roles":["read","operator"],"services":["github","gitea","grafana"],"remotes":["demo-tools"],"methods":["GET","POST","PUT","DELETE"]}}"
+        "text": "{"task_id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","token":"eyJhbGciOiJFZERTQSIsInR5cCI6IkNUVC1FIiwia2lkIjoiZGVsZWc6Li4uIn0.eyJzdWIiOiJjbGF1ZGUiLCJ0YXNrIjp7ImlkIjoiMDFKUVhZWi4uLiJ9fQ.signature","expires_at":"2026-03-13T15:15:00Z","ttl_seconds":900,"envelope":{"targets":["web-server","staging-server","blog-server"],"roles":["read","operator"],"services":["github","gitea","grafana"],"remotes":["demo-tools"],"methods":["GET","POST","PUT","DELETE"]}}"
       }
     ]
   }
@@ -1573,7 +1573,7 @@ all active tasks for the agent (same as `task_list`).
     "content": [
       {
         "type": "text",
-        "text": "{"task":{"id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","agent_name":"claude","description":"Investigate unhealthy n8n container on dockerhost","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","root_id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","parent_id":"","depth":0,"lineage":["01JQXYZ1A2B3C4D5E6F7G8H9JK"],"initiated_by":"ephyr:apikey:ak_claude","envelope":{"targets":["dockerhost"],"roles":["operator"],"services":[],"remotes":[],"methods":[]}},"remaining_ttl":"12m30s","is_revoked":false}"
+        "text": "{"task":{"id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","agent_name":"claude","description":"Investigate unhealthy n8n container on web-server","created_at":"2026-03-13T15:00:00Z","expires_at":"2026-03-13T15:15:00Z","root_id":"01JQXYZ1A2B3C4D5E6F7G8H9JK","parent_id":"","depth":0,"lineage":["01JQXYZ1A2B3C4D5E6F7G8H9JK"],"initiated_by":"ephyr:apikey:ak_claude","envelope":{"targets":["web-server"],"roles":["operator"],"services":[],"remotes":[],"methods":[]}},"remaining_ttl":"12m30s","is_revoked":false}"
       }
     ]
   }
@@ -1707,9 +1707,9 @@ The HMAC chain guarantees caveats cannot be removed (monotonic attenuation).
     "name": "task_delegate",
     "arguments": {
       "parent_task_id": "01JQXYZ...",
-      "description": "Read-only check on dockerhost",
+      "description": "Read-only check on web-server",
       "ttl": "10m",
-      "envelope": {"targets": ["dockerhost"], "roles": ["read"], "services": [], "remotes": [], "methods": []}
+      "envelope": {"targets": ["web-server"], "roles": ["read"], "services": [], "remotes": [], "methods": []}
     }
   }
 }
@@ -1725,7 +1725,7 @@ The HMAC chain guarantees caveats cannot be removed (monotonic attenuation).
     "content": [
       {
         "type": "text",
-        "text": "{\"task_id\":\"01JQABC...\",\"parent_task_id\":\"01JQXYZ...\",\"token\":\"mac_...\",\"depth\":1,\"expires_at\":\"2026-03-14T15:10:00Z\",\"envelope\":{\"targets\":[\"dockerhost\"],\"roles\":[\"read\"],\"services\":[],\"remotes\":[],\"methods\":[]}}"
+        "text": "{\"task_id\":\"01JQABC...\",\"parent_task_id\":\"01JQXYZ...\",\"token\":\"mac_...\",\"depth\":1,\"expires_at\":\"2026-03-14T15:10:00Z\",\"envelope\":{\"targets\":[\"web-server\"],\"roles\":[\"read\"],\"services\":[],\"remotes\":[],\"methods\":[]}}"
       }
     ]
   }

@@ -19,13 +19,13 @@ func TestLoadPolicy(t *testing.T) {
 		t.Errorf("expected 3 roles, got %d", len(rc.Raw.Roles))
 	}
 
-	// Verify claude agent.
-	claude, ok := rc.Raw.Agents["claude"]
+	// Verify demo agent.
+	demo, ok := rc.Raw.Agents["demo-agent"]
 	if !ok {
-		t.Fatal("agent 'claude' not found")
+		t.Fatal("agent 'demo-agent' not found")
 	}
-	if claude.UID != 1000 {
-		t.Errorf("claude UID: expected 1000, got %d", claude.UID)
+	if demo.UID != 1000 {
+		t.Errorf("demo-agent UID: expected 1000, got %d", demo.UID)
 	}
 
 	// Verify target max_ttl resolution.

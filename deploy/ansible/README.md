@@ -35,10 +35,10 @@ all:
           ansible_user: root
           ephyr_dashboard_token: "my-secret-token"
           ephyr_agents:
-            claude:
+            my-agent:
               uid: 1000
               max_concurrent_certs: 3
-              description: "Claude Code agent"
+              description: "Primary automation agent"
           ephyr_targets:
             webserver:
               host: "10.0.1.10"

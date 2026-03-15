@@ -55,11 +55,11 @@ tail -20 /var/log/ephyr/audit.json | jq .        # Last 20 events
 
 # Quick health check
 curl -s http://localhost:8553/v1/dashboard/status \
-  -H "Authorization: Bearer password" | jq .
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" | jq .
 
 # Metrics
 curl -s http://localhost:8553/v1/metrics \
-  -H "Authorization: Bearer password"
+  -H "Authorization: Bearer $DASHBOARD_TOKEN"
 
 # MCP health (requires API key)
 curl -s -X POST http://localhost:8554/mcp \
@@ -178,11 +178,11 @@ ls -la /run/ephyr/
 
 # Dashboard health endpoint
 curl -s http://localhost:8553/v1/dashboard/status \
-  -H "Authorization: Bearer password" | jq '.status'
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" | jq '.status'
 
 # Check delegation key is valid
 curl -s http://localhost:8553/v1/metrics \
-  -H "Authorization: Bearer password" | grep delegation_cert_age
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" | grep delegation_cert_age
 ```
 
 ### Log Access
@@ -261,7 +261,7 @@ configuration and logs the error. It does not crash.
 
 ```bash
 curl -s http://localhost:8553/v1/metrics \
-  -H "Authorization: Bearer password"
+  -H "Authorization: Bearer $DASHBOARD_TOKEN"
 ```
 
 The endpoint returns Prometheus exposition format (`text/plain; version=0.0.4`).
@@ -383,13 +383,13 @@ For external monitoring (Uptime Kuma, etc.):
 
 **Dashboard health (HTTP 200 with valid token):**
 ```bash
-curl -sf http://192.168.100.75:8553/v1/dashboard/status \
-  -H "Authorization: Bearer password" > /dev/null
+curl -sf http://BROKER_HOST:8553/v1/dashboard/status \
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" > /dev/null
 ```
 
 **MCP health (JSON-RPC initialize handshake):**
 ```bash
-curl -sf -X POST http://192.168.100.75:8554/mcp \
+curl -sf -X POST http://BROKER_HOST:8554/mcp \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <API_KEY>" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"healthcheck","version":"1.0"}}}' \
@@ -466,7 +466,7 @@ After disabling, expect ~100ms added latency per MCP request (bcrypt cost 10).
 ```bash
 # Get cache hit/miss counts from Prometheus metrics
 curl -s http://localhost:8553/v1/metrics \
-  -H "Authorization: Bearer password" \
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" \
   | grep auth_cache
 
 # Expected output:
@@ -475,7 +475,7 @@ curl -s http://localhost:8553/v1/metrics \
 
 # Calculate hit ratio
 curl -s http://localhost:8553/v1/metrics \
-  -H "Authorization: Bearer password" \
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" \
   | grep auth_cache | awk '/hits/{h=$2} /misses/{m=$2} END{if(h+m>0) printf "Hit ratio: %.1f%%\n", h/(h+m)*100; else print "No data"}'
 ```
 
@@ -654,7 +654,7 @@ automatically (default: every 50 minutes, with 1-hour TTL).
 ```bash
 # Check delegation cert age and count
 curl -s http://localhost:8553/v1/metrics \
-  -H "Authorization: Bearer password" \
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" \
   | grep -E 'delegation_(cert_age|certs_held|rotations)'
 
 # Expected healthy output:
@@ -702,14 +702,14 @@ roles:
 
 # SSH targets
 targets:
-  docker-host:
-    host: "192.168.100.100"
+  web-server:
+    host: "10.0.1.10"
     port: 22
     vlan: 100
     allowed_roles: [read, operator, admin]
     max_ttl: "10m"
     auto_approve: true
-    description: "DockerHost"
+    description: "Production Docker host"
 
 # RBAC templates (reusable permission sets)
 templates:
@@ -741,7 +741,7 @@ agents:
     api_key_hash: "$2a$10$..."
     inherits: [full-ops]          # Inherit from template(s)
     ssh:                           # Override/extend SSH access
-      docker-host:
+      web-server:
         roles: [read, operator, admin]
     services:                      # Override/extend service access
       github:
@@ -777,7 +777,7 @@ agents:
 
 3. If the agent needs nftables isolation, add output drop rules:
    ```bash
-   nft add rule inet filter output meta skuid 1001 ip daddr 192.168.100.100 drop
+   nft add rule inet filter output meta skuid 1001 ip daddr 10.0.1.10 drop
    # ... repeat for each backend IP
    ```
 
@@ -797,7 +797,7 @@ agents:
    ```yaml
    targets:
      new-host:
-       host: "192.168.100.200"
+       host: "10.0.1.50"
        port: 22
        vlan: 100
        allowed_roles: [read, operator]
@@ -812,13 +812,13 @@ agents:
    ssh-keygen -y -f /etc/ephyr/ca_key > /tmp/ca_key.pub
 
    # Copy to target
-   scp /tmp/ca_key.pub root@192.168.100.200:/etc/ssh/
+   scp /tmp/ca_key.pub root@10.0.1.50:/etc/ssh/
 
    # On target, add to sshd_config:
    # TrustedUserCAKeys /etc/ssh/ca_key.pub
 
    # Reload sshd on target
-   ssh root@192.168.100.200 'systemctl reload sshd'
+   ssh root@10.0.1.50 'systemctl reload sshd'
 
    # Clean up
    rm /tmp/ca_key.pub
@@ -826,7 +826,7 @@ agents:
 
 3. Create principal-based users on the target (if not existing):
    ```bash
-   ssh root@192.168.100.200 '
+   ssh root@10.0.1.50 '
      useradd -r -s /bin/rbash agent-read 2>/dev/null
      useradd -r -s /bin/bash agent-op 2>/dev/null
      useradd -r -s /bin/bash agent-admin 2>/dev/null
@@ -840,7 +840,7 @@ agents:
 
 5. Update nftables if agents should be blocked from direct access:
    ```bash
-   nft add rule inet filter output meta skuid 1000 ip daddr 192.168.100.200 drop
+   nft add rule inet filter output meta skuid 1000 ip daddr 10.0.1.50 drop
    ```
 
 ### Adding a New Role
@@ -1042,11 +1042,11 @@ Services can be added via the dashboard API:
 
 ```bash
 curl -s -X POST http://localhost:8553/v1/dashboard/services \
-  -H "Authorization: Bearer password" \
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "new-service",
-    "url_prefix": "http://192.168.100.50:8080",
+    "url_prefix": "http://10.0.1.50:8080",
     "auth_type": "bearer",
     "credential": "my-secret-token",
     "description": "New service description",
@@ -1067,14 +1067,14 @@ Valid `auth_type` values:
 
 ```bash
 curl -s -X DELETE http://localhost:8553/v1/dashboard/services/new-service \
-  -H "Authorization: Bearer password" | jq .
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" | jq .
 ```
 
 ### Toggling a Service On/Off
 
 ```bash
 curl -s -X POST http://localhost:8553/v1/dashboard/services/gitea/toggle \
-  -H "Authorization: Bearer password" | jq .
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" | jq .
 ```
 
 Disabled services reject all proxy requests with "service is disabled."
@@ -1086,7 +1086,7 @@ Disabled services reject all proxy requests with "service is disabled."
 2. Update the service config:
    ```bash
    curl -s -X PUT http://localhost:8553/v1/dashboard/services/github \
-     -H "Authorization: Bearer password" \
+     -H "Authorization: Bearer $DASHBOARD_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{
        "credential": "new_github_pat_value_here"
@@ -1147,7 +1147,7 @@ curl -s -X POST http://localhost:8554/mcp \
     "params":{
       "name":"http_request",
       "arguments":{
-        "url":"http://192.168.100.100:3001/api/status-page/heartbeat/test",
+        "url":"http://10.0.1.10:3001/api/status-page/heartbeat/test",
         "method":"GET"
       }
     }
@@ -1176,11 +1176,11 @@ Remote tools appear namespaced as `{remote_name}.{tool_name}` (e.g.,
 
 ```bash
 curl -s -X POST http://localhost:8553/v1/dashboard/remotes \
-  -H "Authorization: Bearer password" \
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "my-tools",
-    "url": "http://192.168.100.80:8560/mcp",
+    "url": "http://10.0.1.80:8560/mcp",
     "auth_type": "none",
     "description": "My custom MCP tools",
     "enabled": true,
@@ -1199,14 +1199,14 @@ After adding, the federator performs an asynchronous MCP handshake
 
 ```bash
 curl -s -X DELETE http://localhost:8553/v1/dashboard/remotes/my-tools \
-  -H "Authorization: Bearer password" | jq .
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" | jq .
 ```
 
 ### Toggling Remotes On/Off
 
 ```bash
 curl -s -X POST http://localhost:8553/v1/dashboard/remotes/demo-tools/toggle \
-  -H "Authorization: Bearer password" | jq .
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" | jq .
 ```
 
 Disabled remotes are skipped by the refresh loop and their tools are not
@@ -1224,7 +1224,7 @@ curl -s -X POST http://localhost:8554/mcp \
 
 # Via dashboard API
 curl -s http://localhost:8553/v1/dashboard/remotes \
-  -H "Authorization: Bearer password" | jq .
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" | jq .
 ```
 
 ### Debugging Federation Connectivity
@@ -1233,7 +1233,7 @@ If a remote shows status `error` or `disconnected`:
 
 1. **Check the remote is reachable from the LXC:**
    ```bash
-   curl -s http://192.168.100.74:8560/mcp \
+   curl -s http://10.0.1.80:8560/mcp \
      -X POST -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"debug","version":"1.0"}}}'
    ```
@@ -1258,7 +1258,7 @@ If a remote shows status `error` or `disconnected`:
 5. **Check the remote state in detail:**
    ```bash
    curl -s http://localhost:8553/v1/dashboard/remotes \
-     -H "Authorization: Bearer password" \
+     -H "Authorization: Bearer $DASHBOARD_TOKEN" \
      | jq '.[] | select(.name == "demo-tools")'
    ```
 
@@ -1331,7 +1331,7 @@ Checklist:
 1. **Check delegation key is healthy:**
    ```bash
    curl -s http://localhost:8553/v1/metrics \
-     -H "Authorization: Bearer password" \
+     -H "Authorization: Bearer $DASHBOARD_TOKEN" \
      | grep delegation
    # delegation_certs_held should be >= 1
    # delegation_cert_age_seconds should be < 3600
@@ -1429,7 +1429,7 @@ Checklist:
 1. **Verify metrics endpoint responds:**
    ```bash
    curl -s http://localhost:8553/v1/metrics \
-     -H "Authorization: Bearer password" | head -20
+     -H "Authorization: Bearer $DASHBOARD_TOKEN" | head -20
    ```
 
 2. **Trigger some activity to increment counters:**
@@ -1442,7 +1442,7 @@ Checklist:
    ```
 
 3. **Check Prometheus scrape config:**
-   Ensure the target is `http://192.168.100.75:8553/v1/metrics` and the
+   Ensure the target is `http://BROKER_HOST:8553/v1/metrics` and the
    `Authorization` header is being sent.
 
 4. **Check if the broker was recently restarted:**
@@ -1626,7 +1626,7 @@ From a backup to a fresh Debian 12 LXC:
    ```bash
    systemctl status ephyr-signer ephyr-broker
    curl -s http://localhost:8553/v1/dashboard/status \
-     -H "Authorization: Bearer password" | jq .
+     -H "Authorization: Bearer $DASHBOARD_TOKEN" | jq .
    ```
 
 ---
@@ -1692,7 +1692,7 @@ systemctl status ephyr-signer ephyr-broker
 
 # 2. Check delegation key was established
 curl -s http://localhost:8553/v1/metrics \
-  -H "Authorization: Bearer password" \
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" \
   | grep delegation_certs_held
 # Should show 1
 
@@ -1708,7 +1708,7 @@ curl -s -X POST http://localhost:8554/mcp \
 curl -s -X POST http://localhost:8554/mcp \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <API_KEY>" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"exec","arguments":{"target":"docker-host","role":"read","command":"hostname"}}}' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"exec","arguments":{"target":"web-server","role":"read","command":"hostname"}}}' \
   | jq '.result.content[0].text | fromjson | .exit_code'
 # Should return 0
 
@@ -1761,11 +1761,11 @@ cd /opt/ephyr
 # Run integration tests (requires running broker)
 /usr/local/go/bin/go test -tags integration -v -timeout 120s ./test/integration/
 
-# Run with custom endpoint (default: http://192.168.100.75:8554/mcp)
-EPHYR_MCP_ENDPOINT="http://localhost:8554/mcp" \
+# Run with custom endpoint (default: http://localhost:8554/mcp)
+EPHYR_MCP_ENDPOINT="http://BROKER_HOST:8554/mcp" \
 EPHYR_MCP_KEY="<API_KEY>" \
-EPHYR_DASH_ENDPOINT="http://localhost:8553" \
-EPHYR_DASH_TOKEN="password" \
+EPHYR_DASH_ENDPOINT="http://BROKER_HOST:8553" \
+EPHYR_DASH_TOKEN="$DASHBOARD_TOKEN" \
   /usr/local/go/bin/go test -tags integration -v -timeout 120s ./test/integration/
 
 # Run a specific test
@@ -1863,11 +1863,11 @@ table inet filter {
 
     chain output {
         type filter hook output priority filter; policy accept;
-        meta skuid 1000 ip daddr 192.168.100.100 drop          # Block agent -> DockerHost
-        meta skuid 1000 ip daddr 192.168.100.54 drop           # Block agent -> Gitea
-        meta skuid 1000 ip daddr 192.168.100.63 drop           # Block agent -> HugoBlog
-        meta skuid 1000 ip daddr 192.168.100.74 drop           # Block agent -> Command Center
-        meta skuid 1000 ip daddr 192.168.30.55 drop            # Block agent -> MandrakeRack
+        meta skuid 1000 ip daddr 10.0.1.10 drop                 # Block agent -> web-server
+        meta skuid 1000 ip daddr 10.0.1.20 drop                # Block agent -> app-server
+        meta skuid 1000 ip daddr 10.0.1.30 drop                # Block agent -> blog-server
+        meta skuid 1000 ip daddr 10.0.1.40 drop                # Block agent -> git-server
+        meta skuid 1000 ip daddr 10.0.2.10 drop                # Block agent -> staging
     }
 }
 ```

@@ -1,6 +1,6 @@
 [Unit]
 Description=Ephyr SSH Certificate Broker
-Documentation=https://github.com/ben-spanswick/ephyr
+Documentation=https://github.com/EphyrAI/Ephyr
 After=network.target ephyr-signer.service
 Wants=ephyr-signer.service
 
@@ -10,6 +10,12 @@ User=ephyr-broker
 Group=ephyr-broker
 
 ExecStart=/usr/local/bin/ephyr-broker --policy /etc/ephyr/policy.yaml
+
+# Port configuration (defaults: MCP=8554, Dashboard=8553).
+# Uncomment and change to use different ports:
+# Environment=EPHYR_MCP_LISTEN=:8554
+# Environment=EPHYR_DASHBOARD_LISTEN=:8553
+# Environment=EPHYR_DASHBOARD_TOKEN=changeme
 
 # Runtime directory: creates /run/ephyr owned by ephyr-broker.
 RuntimeDirectory=ephyr

@@ -94,7 +94,7 @@ Delegated task authority for multi-agent workflows. Implements the Delegation Ca
 - **Macaroon-based task tokens** -- HMAC-chained caveats make restriction removal cryptographically impossible. The HMAC chain proves caveat accumulation; the reducer derives semantic narrowing.
 - **Broker-mediated delegation** -- parent tasks delegate to children with attenuated scope. The broker mediates every delegation for audit and pre-validation.
 - **Effective envelope reducer** -- set intersection, minimums, and boolean AND derive the most-restrictive authority from accumulated caveats.
-- **Cross-agent delegation** -- `claude` can delegate to `investigator-bot` with reduced scope. The child gets the intersection of parent ceiling and child policy.
+- **Cross-agent delegation** -- one agent can delegate to another with reduced scope. The child gets the intersection of parent ceiling and child policy.
 - **Lineage-aware audit** -- full task trees with ULID correlation. "What happened during this deployment?" is a single query.
 
 #### What Ephyr Delegation does NOT provide
@@ -111,9 +111,9 @@ Holder-bound tokens and replay resistance.
 
 ## Features
 
-### MCP Server (15 Tools)
+### MCP Server (16 Tools)
 
-JSON-RPC 2.0 over Streamable HTTP, implementing [MCP 2025-03-26](https://modelcontextprotocol.io/). Fifteen tools (9 core + 5 task identity + 1 delegation) plus federated tools from remote servers.
+JSON-RPC 2.0 over Streamable HTTP, implementing [MCP 2025-03-26](https://modelcontextprotocol.io/). Sixteen tools (9 core + 7 task identity) plus federated tools from remote servers.
 
 **Core Tools:**
 
@@ -138,6 +138,7 @@ JSON-RPC 2.0 over Streamable HTTP, implementing [MCP 2025-03-26](https://modelco
 | `task_info` | Get task details, status, and lineage |
 | `task_list` | List active tasks for this agent |
 | `task_revoke` | Revoke a task and all its tokens via epoch watermark (cascading to children) |
+| `task_bind` | Bind a task token to a holder key for proof-of-possession (Ephyr Bind) |
 
 **Federated Tools:**
 
@@ -337,7 +338,7 @@ curl -s http://localhost:8554/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
 ```
 
-Dashboard at `http://localhost:8553` (token: `changeme`). Edit `examples/policy.yaml` to add your targets.
+Dashboard at `http://localhost:8553` (default port, token: `changeme`). Edit `examples/policy.yaml` to add your targets.
 
 ### Option B: Build from source
 
@@ -363,7 +364,7 @@ global:
   max_ttl: "30m"
 
 agents:
-  claude:
+  my-agent:
     api_key_hash: "$2a$10$YOUR_BCRYPT_HASH"  # generate with: htpasswd -nbBC 10 "" yourkey | cut -d: -f2
     can_delegate: true
 
@@ -492,7 +493,7 @@ ephyr/
 │   ├── policy/         # Policy types, YAML loader, evaluation
 │   └── signer/         # Certificate signing, CA key, IPC
 ├── dashboard/          # React 18 SPA
-├── deploy/             # systemd units, provisioning scripts
+├── deploy/             # systemd units, provisioning scripts, Ansible roles
 ├── docs/               # Architecture, security, API reference
 │   ├── architecture.md
 │   ├── security.md

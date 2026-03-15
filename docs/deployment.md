@@ -176,7 +176,7 @@ roles:
 
 targets:
   my-server:
-    host: "192.168.1.10"
+    host: "10.0.1.10"
     port: 22
     allowed_roles: [read, operator]
     auto_approve: true
@@ -814,9 +814,9 @@ go test ./test/integration/ -v -count=1
 Override connection parameters with environment variables:
 
 ```bash
-EPHYR_MCP_ENDPOINT=http://192.168.100.75:8554/mcp \
+EPHYR_MCP_ENDPOINT=http://BROKER_HOST:8554/mcp \
 EPHYR_MCP_KEY=your-api-key \
-EPHYR_DASH_ENDPOINT=http://192.168.100.75:8553 \
+EPHYR_DASH_ENDPOINT=http://BROKER_HOST:8553 \
 EPHYR_DASH_TOKEN=your-dashboard-token \
 go test ./test/integration/ -v -count=1
 ```

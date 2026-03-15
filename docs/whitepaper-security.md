@@ -820,7 +820,7 @@ agents:
     api_key_hash: "$2a$10$..."
     inherits: [monitoring]
     ssh:
-      dockerhost:
+      web-server:
         roles: [read, operator]
         auto_approve: true
     services:
@@ -846,8 +846,8 @@ roles:
     principal: "agent-admin"
 
 targets:
-  dockerhost:
-    host: "192.168.100.100"
+  web-server:
+    host: "10.0.1.10"
     port: 22
     allowed_roles: [read, operator, admin]
     max_ttl: "30m"
@@ -954,7 +954,7 @@ bound of what the token can authorize:
 ```json
 {
   "envelope": {
-    "targets":  ["dockerhost", "hugoblog"],
+    "targets":  ["web-server", "blog-server"],
     "roles":    ["read", "operator"],
     "services": ["grafana", "gitea"],
     "remotes":  ["demo-tools"],
@@ -983,9 +983,9 @@ wildcards are resolved to explicit literal arrays:
 
 ```
   Policy: agent.ssh = { "*": { roles: [read] } }
-  Targets in policy: [dockerhost, hugoblog, mandrake-rack]
+  Targets in policy: [web-server, blog-server, staging-server]
 
-  Resolved envelope.targets = ["dockerhost", "hugoblog", "mandrake-rack"]
+  Resolved envelope.targets = ["web-server", "blog-server", "staging-server"]
 ```
 
 This ensures that tokens are self-describing -- a security reviewer can
@@ -1011,7 +1011,7 @@ narrowing via the effective envelope reducer.
   | Id:       <root task ULID bytes>                        |
   |                                                         |
   | Caveats (HMAC-chained):                                 |
-  |   "targets = dockerhost"                                |
+  |   "targets = web-server"                                |
   |   "roles = read"                                        |
   |   "services = grafana"                                  |
   |   "methods = GET"                                       |
@@ -1218,11 +1218,10 @@ characters:
 (no external dependency) using `crypto/rand` for the random component,
 ensuring cryptographic-quality randomness.
 
-### 7.6 Ephyr Bind (Planned)
+### 7.6 Ephyr Bind (v0.3)
 
 Ephyr Bind (v0.3 tier) extends bearer macaroon tokens with holder
-binding via DPoP-style proof-of-possession. This is planned but not
-yet implemented.
+binding via DPoP-style proof-of-possession.
 
 **Holder binding mechanism:**
 - Each task generates an ephemeral Ed25519 keypair
@@ -1415,7 +1414,7 @@ chain of operations from a root task to any leaf operation:
   "severity": "INFO",
   "event_type": "mcp_exec",
   "agent": "claude",
-  "target": "dockerhost",
+  "target": "web-server",
   "role": "read",
   "details": {
     "task_id": "01JQXYZ...",

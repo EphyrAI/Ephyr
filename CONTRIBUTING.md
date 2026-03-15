@@ -6,7 +6,7 @@ Thanks for your interest in contributing to Ephyr! This document covers the basi
 
 ```bash
 # Clone the repo
-git clone https://github.com/ben-spanswick/Ephyr.git
+git clone https://github.com/EphyrAI/Ephyr.git
 cd ephyr
 
 # Build all binaries
@@ -31,9 +31,9 @@ internal/      Core packages (not importable externally)
   macaroon/    Macaroon minting, verification, reducer (Delegation)
   policy/      Policy engine, YAML config, evaluation pipeline
   signer/      Certificate signing, CA key management
-configs/       Default policy.yaml
+examples/      Example policy.yaml and CA key generation script
 dashboard/     React 18 SPA (single HTML file, CDN dependencies)
-deploy/        Systemd unit files
+deploy/        Systemd units, provisioning scripts, Ansible roles
 docs/          Documentation
 ```
 

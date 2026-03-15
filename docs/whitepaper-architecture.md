@@ -551,7 +551,7 @@ URI prefix.
                     API Key Authentication
                     =====================
 
-  API Key: "sprawl-mcp-test-key-2026"
+  API Key: "your-mcp-api-key-here"
                 |
                 v
   +--------------------------+
@@ -609,7 +609,7 @@ agents:
     api_key_hash: "$2a$10$o3MSVZK1FYM..."
     inherits: [full-ops]
     ssh:
-      docker-host:
+      web-server:
         roles: [read, operator, admin]
     services:
       github:
@@ -837,7 +837,7 @@ Remotes are stored in `/var/lib/ephyr/remotes.json`:
 {
   "demo-tools": {
     "name": "demo-tools",
-    "url": "http://192.168.100.74:8560/mcp",
+    "url": "http://10.0.1.80:8560/mcp",
     "auth_type": "none",
     "enabled": true,
     "timeout": 30,
@@ -895,8 +895,8 @@ roles:                     # SSH role definitions
     description: "Operational commands"
 
 targets:                   # SSH target hosts
-  docker-host:
-    host: "192.168.100.100"
+  web-server:
+    host: "10.0.1.10"
     port: 22
     vlan: 100
     allowed_roles: [read, operator, admin]
@@ -919,7 +919,7 @@ agents:                    # Per-agent configuration
     api_key_hash: "$2a$10$..."
     inherits: [full-ops]
     ssh:
-      docker-host:
+      web-server:
         roles: [read, operator, admin]
     services:
       github:
@@ -1000,7 +1000,7 @@ remote levels:
 ssh:
   "*":                    # All targets
     roles: [read]
-  docker-host:            # Specific override wins
+  web-server:            # Specific override wins
     roles: [read, operator, admin]
 
 services:
@@ -1014,7 +1014,7 @@ remotes:
 ```
 
 Resolution order for permission checks:
-1. Exact match by name (e.g., `docker-host`)
+1. Exact match by name (e.g., `web-server`)
 2. Wildcard match (`"*"`)
 3. No match -> access denied
 
@@ -1188,8 +1188,8 @@ processes all caveats and derives the resulting authority:
 
 ```
 Caveat examples:
-  target = docker-host
-  target = hugoblog
+  target = web-server
+  target = blog-server
   role = read
   role = operator
   service = github
@@ -1241,10 +1241,10 @@ Payload (base64url):
     "depth": 0,
     "lineage": ["01J5VKRM7P3QXYZ..."],
     "initiated_by": "ephyr:apikey:ak_xxx",
-    "description": "Check dockerhost disk usage"
+    "description": "Check web-server disk usage"
   },
   "envelope": {
-    "targets": ["docker-host", "hugoblog"],
+    "targets": ["web-server", "blog-server"],
     "roles": ["read", "operator"],
     "services": ["github", "grafana"],
     "remotes": ["demo-tools"],
@@ -1403,8 +1403,8 @@ permissions, with wildcards expanded to literal lists:
 
 ```
   Agent RBAC:                      Envelope at issuance:
-  ssh:                             targets: [docker-host, hugoblog,
-    "*":                                     mandrake-rack]
+  ssh:                             targets: [web-server, blog-server,
+    "*":                                     staging-server]
       roles: [read, operator]      roles: [read, operator]
   services:                        services: [github, grafana,
     "*":                                      uptime-kuma, homepage,
@@ -1589,7 +1589,7 @@ in the request arguments:
     "payload": {
       "task_id": "01J5VKRM7P...",
       "req_type": "ssh_exec",
-      "resource": "docker-host",
+      "resource": "web-server",
       "method": "operator",
       "body_hash": "<SHA-256 hex of canonical request body>",
       "mac_digest": "<SHA-256 hex of serialized macaroon>",
@@ -1740,7 +1740,7 @@ Event format:
   "timestamp": "2026-03-13T10:30:00Z",
   "data": {
     "agent": "claude",
-    "target": "docker-host",
+    "target": "web-server",
     "role": "operator",
     "exit_code": "0"
   }
@@ -1903,7 +1903,7 @@ aggregators).
   "severity": "INFO",
   "event_type": "mcp_exec",
   "agent": "claude",
-  "target": "docker-host",
+  "target": "web-server",
   "role": "operator",
   "serial": "001a2b3c4d5e6f70",
   "duration": "847ms",
@@ -2190,11 +2190,11 @@ Input chain (default DROP):
   - MCP (port 8554, from 192.168.0.0/16): ACCEPT
 
 Output chain (default ACCEPT):
-  - Agent UID 1000 -> 192.168.100.100 (DockerHost): DROP
-  - Agent UID 1000 -> 192.168.100.54 (Gitea): DROP
-  - Agent UID 1000 -> 192.168.100.63 (HugoBlog): DROP
-  - Agent UID 1000 -> 192.168.100.74 (CommandCenter): DROP
-  - Agent UID 1000 -> 192.168.30.55 (MandrakeRack): DROP
+  - Agent UID 1000 -> 10.0.1.10 (web-server): DROP
+  - Agent UID 1000 -> 10.0.1.20 (app-server): DROP
+  - Agent UID 1000 -> 10.0.1.30 (blog-server): DROP
+  - Agent UID 1000 -> 10.0.1.40 (git-server): DROP
+  - Agent UID 1000 -> 10.0.2.10 (staging): DROP
 ```
 
 The output rules ensure that the agent process (UID 1000) cannot
@@ -2251,7 +2251,7 @@ Services can be added via the dashboard REST API or by editing
 {
   "new-service": {
     "name": "new-service",
-    "url_prefix": "http://192.168.100.50:8080",
+    "url_prefix": "http://10.0.1.50:8080",
     "auth_type": "bearer",
     "credential": "secret-token-here",
     "description": "New internal service",
@@ -2331,7 +2331,7 @@ Content-Type: application/json
 
 {
   "name": "my-tools",
-  "url": "http://192.168.100.80:8560/mcp",
+  "url": "http://10.0.1.80:8560/mcp",
   "auth_type": "bearer",
   "credential": "remote-api-key",
   "enabled": true,
@@ -2397,7 +2397,7 @@ Targets are added in `policy.yaml` and take effect on SIGHUP:
 ```yaml
 targets:
   new-host:
-    host: "192.168.100.200"
+    host: "10.0.1.50"
     port: 22
     vlan: 100
     allowed_roles: [read, operator]

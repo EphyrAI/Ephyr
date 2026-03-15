@@ -35,10 +35,10 @@ ephyr_rate_limit_window: 60
 
 # Agent definitions. Example:
 #   ephyr_agents:
-#     claude:
+#     my-agent:
 #       uid: 1000
 #       max_concurrent_certs: 3
-#       description: "Claude Code agent"
+#       description: "Primary automation agent"
 ephyr_agents: {}
 
 # Role definitions. Defaults match the standard three-role model.

@@ -13,8 +13,8 @@ services:
     depends_on:
       - signer
     ports:
-      - "8553:8553"  # Dashboard
-      - "8554:8554"  # MCP
+      - "${EPHYR_DASHBOARD_PORT:-8553}:8553"  # Dashboard (default: 8553)
+      - "${EPHYR_MCP_PORT:-8554}:8554"        # MCP (default: 8554)
     volumes:
       - socket:/run/ephyr
       - ./examples/policy.yaml:/etc/ephyr/policy.yaml:ro

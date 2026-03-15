@@ -274,10 +274,10 @@ Override defaults with environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| EPHYR_MCP_ENDPOINT | http://192.168.100.75:8554/mcp | MCP endpoint URL |
+| EPHYR_MCP_ENDPOINT | http://localhost:8554/mcp | MCP endpoint URL |
 | EPHYR_MCP_KEY | (built-in test key) | MCP API key |
-| EPHYR_DASH_ENDPOINT | http://192.168.100.75:8553 | Dashboard endpoint URL |
-| EPHYR_DASH_TOKEN | password | Dashboard token |
+| EPHYR_DASH_ENDPOINT | http://localhost:8553 | Dashboard endpoint URL |
+| EPHYR_DASH_TOKEN | (your dashboard token) | Dashboard token |
 
 A JSON report is written to `/tmp/ephyr-smoke-report.json` after each run.
 

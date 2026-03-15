@@ -10,10 +10,10 @@ global:
     window_seconds: 60
 
 agents:
-  claude:
+  demo-agent:
     uid: 1000
     max_concurrent_certs: 3
-    description: "Claude Code agent"
+    description: "Demo agent for testing"
 
 roles:
   read:

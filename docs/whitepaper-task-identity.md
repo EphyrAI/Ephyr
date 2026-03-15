@@ -428,10 +428,10 @@ eliminates the entire class of JWT algorithm confusion attacks (e.g.,
     "depth":        0,
     "lineage":      ["01JQKX7M3NFGP4R5S6T7V8W9XY"],
     "initiated_by": "ephyr:apikey:ak_claude",
-    "description":  "Deploy monitoring stack to dockerhost"
+    "description":  "Deploy monitoring stack to web-server"
   },
   "envelope": {
-    "targets":  ["dockerhost", "hugoblog"],
+    "targets":  ["web-server", "blog-server"],
     "roles":    ["operator", "read"],
     "services": ["grafana", "portainer"],
     "remotes":  ["demo-tools"],
@@ -782,7 +782,7 @@ set of five arrays:
 
 ```go
 type Envelope struct {
-    Targets  []string  // SSH targets: ["dockerhost", "hugoblog"]
+    Targets  []string  // SSH targets: ["web-server", "blog-server"]
     Roles    []string  // SSH roles: ["read", "operator"]
     Services []string  // HTTP proxy services: ["grafana", "portainer"]
     Remotes  []string  // MCP federation remotes: ["demo-tools"]
@@ -803,9 +803,9 @@ array of all matching resources at the time the task is created.
 
 ```
 Policy:           ssh: {"*": {roles: ["read"]}}
-Available targets: dockerhost, hugoblog, mandrake-rack
+Available targets: web-server, blog-server, staging-server
 
-Resolved envelope: targets: ["dockerhost", "hugoblog", "mandrake-rack"]
+Resolved envelope: targets: ["web-server", "blog-server", "staging-server"]
                    roles: ["read"]
 ```
 
@@ -826,7 +826,7 @@ service discovery is formalized.
 Each envelope dimension has a corresponding check method:
 
 ```go
-envelope.ContainsTarget("dockerhost")   // true if "dockerhost" or "*" in Targets
+envelope.ContainsTarget("web-server")   // true if "web-server" or "*" in Targets
 envelope.ContainsRole("operator")       // true if "operator" or "*" in Roles
 envelope.ContainsService("grafana")     // true if "grafana" or "*" in Services
 envelope.ContainsMethod("POST")         // true if "POST" or "*" in Methods
@@ -898,17 +898,17 @@ chain) combined with deterministic semantic narrowing (reducer).
 
 ```
 Parent macaroon caveats:
-  target IN [dockerhost, hugoblog, mandrake-rack]
+  target IN [web-server, blog-server, staging-server]
   role IN [read, operator]
   can_delegate = true
 
 Child delegation adds caveats:
-  target IN [hugoblog, mandrake-rack, grafana-host]
+  target IN [blog-server, staging-server, grafana-host]
   role IN [read]
   can_delegate = false
 
 Reducer output (effective envelope):
-  targets:      [hugoblog, mandrake-rack]   (intersection)
+  targets:      [blog-server, staging-server]   (intersection)
   roles:        [read]                       (intersection)
   can_delegate: false                        (AND)
 ```
@@ -1818,4 +1818,4 @@ Random: 80-bit cryptographic random
 ---
 
 *This document describes Ephyr v0.3.0 as implemented on 2026-03-14.
-Source code: `/opt/clauth/` on LXC CT 112 (192.168.100.75).*
+Source code: available at [github.com/ben-spanswick/ephyr](https://github.com/ben-spanswick/ephyr).*

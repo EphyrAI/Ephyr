@@ -12,7 +12,7 @@ Ephyr is an access broker for AI agents. You connect to one MCP endpoint and get
 
 For new setups, configure your MCP client with:
 - **Type:** `url`
-- **URL:** `http://<broker-host>:8554/mcp`
+- **URL:** `http://<broker-host>:<port>/mcp` (default port: 8554)
 - **Auth:** `Authorization: Bearer <your-api-key>`
 
 The broker URL and API key are set in your MCP client configuration (e.g., Claude Code's `settings.json`, Cursor's MCP config). Ask your administrator if you don't have them.
@@ -79,6 +79,7 @@ Credentials are injected automatically. You do not provide authentication. Optio
 | `task_info` | Get task details (envelope, lineage, TTL remaining) |
 | `task_list` | List your active tasks |
 | `task_revoke` | Revoke a task and all its tokens (cascading to children) |
+| `task_bind` | Bind a task token to a holder key for proof-of-possession |
 
 Tasks give you **scoped, auditable identity**. When you create a task, you get back a macaroon-based task token (prefixed `mac_`) that you can use as a Bearer token instead of your API key. The task token:
 
@@ -89,7 +90,7 @@ Tasks give you **scoped, auditable identity**. When you create a task, you get b
 
 **Create a task:**
 ```json
-{"name": "task_create", "arguments": {"description": "Deploy blog update to hugoblog", "ttl": "30m"}}
+{"name": "task_create", "arguments": {"description": "Deploy config update to webserver", "ttl": "30m"}}
 // Returns: task_id, token (mac_...), expires_at
 ```
 
@@ -114,9 +115,9 @@ Tasks give you **scoped, auditable identity**. When you create a task, you get b
 ```json
 {"name": "task_delegate", "arguments": {
   "parent_task_id": "<parent-id>",
-  "description": "Read-only check on hugoblog",
+  "description": "Read-only check on webserver",
   "ttl": "10m",
-  "envelope": {"targets": ["hugoblog"], "roles": ["read"], "services": [], "remotes": [], "methods": []}
+  "envelope": {"targets": ["webserver"], "roles": ["read"], "services": [], "remotes": [], "methods": []}
 }}
 // Returns: task_id, parent_task_id, token (mac_...), depth, envelope
 ```
