@@ -1,10 +1,18 @@
 #!/bin/bash
 # Ephyr Live Audit Stream
 # Shows real-time broker events in a clean, colored format
-# Usage: ./ephyr-live.sh
+# Dependencies: sshpass, bash only (no python/jq required)
+# Usage: ./ephyr-live.sh [BROKER_HOST] [PASSWORD]
 
-HOST="192.168.100.75"
-PASS="ff3fmmmk"
+HOST="${1:-192.168.100.75}"
+PASS="${2:-ff3fmmmk}"
+
+CYAN='\033[36m'
+YELLOW='\033[33m'
+RED='\033[31m'
+DIM='\033[2m'
+BOLD='\033[1m'
+RESET='\033[0m'
 
 clear
 echo "============================================"
@@ -14,83 +22,63 @@ echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "============================================"
 echo ""
 
-sshpass -p "$PASS" ssh -o StrictHostKeyChecking=accept-new root@$HOST \
+sshpass -p "$PASS" ssh -o StrictHostKeyChecking=accept-new root@"$HOST" \
   "tail -f /var/log/ephyr/audit.json" 2>/dev/null | \
-python3 -c "
-import sys, json
-from datetime import datetime
+while IFS= read -r line; do
+    sev=$(echo "$line" | grep -o '"severity":"[^"]*"' | head -1 | cut -d'"' -f4)
+    evt=$(echo "$line" | grep -o '"event_type":"[^"]*"' | head -1 | cut -d'"' -f4)
+    agent=$(echo "$line" | grep -o '"agent":"[^"]*"' | head -1 | cut -d'"' -f4)
+    ts=$(echo "$line" | grep -o '"timestamp":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-COLORS = {
-    'INFO': '\033[36m',   # cyan
-    'WARN': '\033[33m',   # yellow
-    'CRIT': '\033[31m',   # red
-    'ERR':  '\033[31m',   # red
-}
-RESET = '\033[0m'
-DIM = '\033[2m'
-BOLD = '\033[1m'
+    time_str="${ts:11:8}"
+    [ -z "$time_str" ] && time_str="??:??:??"
+    [ -z "$sev" ] && sev="INFO"
+    [ -z "$evt" ] && continue
+    [ -z "$agent" ] && agent="-"
+    sev="${sev:0:4}"
 
-EVENT_ICONS = {
-    'mcp_exec':          'EXEC',
-    'http_proxy':        'HTTP',
-    'mcp_federation':    'MCP ',
-    'task_create':       'TASK+',
-    'task_delegate':     'DELE',
-    'task_revoke':       'REVK',
-    'task_bind':         'BIND',
-    'command_denied':    'DENY',
-    'auto_revoke':       'KILL',
-    'request_denied':    'DENY',
-    'cert_issued':       'CERT',
-    'cert_revoked':      'XCER',
-    'policy_reload':     'LOAD',
-    'host_toggle':       'TOGL',
-    'service_toggle':    'TOGL',
-    'terminal_open':     'TERM',
-    'terminal_close':    'TERM',
-}
+    case "$sev" in
+        WARN) color="$YELLOW" ;;
+        CRIT|ERR*) color="$RED" ;;
+        *) color="$CYAN" ;;
+    esac
 
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        e = json.loads(line)
-    except:
-        continue
+    case "$evt" in
+        mcp_exec)           label="EXEC " ;;
+        http_proxy)         label="HTTP " ;;
+        mcp_federation)     label="MCP  " ;;
+        task_create)        label="TASK+" ;;
+        task_delegate)      label="DELE " ;;
+        task_revoke*)       label="REVK " ;;
+        task_bind)          label="BIND " ;;
+        command_denied)     label="DENY " ;;
+        auto_revoke)        label="KILL " ;;
+        request_denied)     label="DENY " ;;
+        cert_issued)        label="CERT " ;;
+        cert_revoked)       label="XCER " ;;
+        policy_reload)      label="LOAD " ;;
+        host_toggle)        label="TOGL " ;;
+        service_toggle)     label="TOGL " ;;
+        terminal_*)         label="TERM " ;;
+        *)                  label="${evt:0:5}" ;;
+    esac
 
-    sev = e.get('severity', 'INFO')[:4].upper()
-    evt = e.get('event_type', '?')
-    agent = e.get('agent', '-')
-    ts = e.get('timestamp', '')
-    details = e.get('details', {})
+    detail=""
+    for key in target service remote task_id command pattern role description method status_code duration_ms cascade_count reason; do
+        val=$(echo "$line" | grep -o "\"$key\":\"[^\"]*\"" | head -1 | cut -d'"' -f4)
+        if [ -z "$val" ]; then
+            val=$(echo "$line" | grep -o "\"$key\":[0-9]*" | head -1 | cut -d: -f2)
+        fi
+        if [ -n "$val" ]; then
+            case "$key" in
+                duration_ms) detail="$detail ${val}ms" ;;
+                status_code) detail="$detail HTTP:${val}" ;;
+                cascade_count) detail="$detail cascade=${val}" ;;
+                *) detail="$detail ${key}=${val}" ;;
+            esac
+        fi
+    done
 
-    # Parse timestamp
-    try:
-        t = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-        time_str = t.strftime('%H:%M:%S')
-    except:
-        time_str = '??:??:??'
-
-    # Color
-    color = COLORS.get(sev, '')
-    icon = EVENT_ICONS.get(evt, evt[:4].upper())
-
-    # Build detail string
-    parts = []
-    for k, v in list(details.items())[:4]:
-        if k in ('duration_ms',):
-            parts.append(f'{v}ms')
-        elif k in ('target', 'service', 'remote', 'task_id', 'command', 'pattern', 'role', 'description'):
-            parts.append(f'{k}={v}')
-        elif k == 'status_code':
-            parts.append(f'HTTP {v}')
-        elif k == 'cascade_count':
-            parts.append(f'cascade={v}')
-        else:
-            parts.append(f'{k}={v}')
-    detail_str = '  '.join(parts) if parts else ''
-
-    print(f'{DIM}{time_str}{RESET} {color}{BOLD}{icon:5s}{RESET} {color}{sev:4s}{RESET}  {agent:12s} {detail_str}')
-    sys.stdout.flush()
-"
+    printf "${DIM}%s${RESET} ${color}${BOLD}%s${RESET} ${color}%s${RESET}  %-12s%s\n" \
+        "$time_str" "$label" "$sev" "$agent" "$detail"
+done
