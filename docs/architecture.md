@@ -43,6 +43,30 @@ graph TD
     Broker --- MCP[":8554 MCP"]
 ```
 
+<details>
+<summary>View as text</summary>
+
+```
++-------------------+       +-------------------------------+       +-------------------+
+| ephyr (CLI)       |       | Broker (orchestrator)         |       | Signer (CA)       |
+| +-----------+     |       | +-------------+ +-----------+ |       | +-----------+     |
+| | Agent tool|     |       | | Policy Eng. | | Session   | |       | | Ed25519   |     |
+| +-----------+     |       | | Rate Limiter| | Host Ctrl | |       | |   key     |     |
+|                   |       | | Audit Logger| | Event Hub | |       | | No network|     |
+|                   |       | | Cert State  | | Config Mgr| |       | +-----------+     |
+|                   |       | | Exec Pool   | | Proxy Eng | |       +-------------------+
+|                   |       | | MCP Server  | | Activity  | |              ^
++-------------------+       | +-------------+ +-----------+ |              |
+         |                  +-------------------------------+              |
+         |                       |         |         |                     |
+         |  Unix socket IPC     |         |          |  Unix socket IPC   |
+         +----- /run/ephyr/broker.sock ---+          +-- /run/ephyr/signer.sock
+                                 |                  |
+                            :8553 dash         :8554 MCP
+```
+
+</details>
+
 ---
 
 ## The Signer
@@ -150,6 +174,33 @@ sequenceDiagram
     Broker-->>CLI: {granted, cert, host}
 ```
 
+<details>
+<summary>View as text</summary>
+
+```
+CLI                          Broker                         Signer
+ |                             |                              |
+ |-- POST /v1/session -------->|                              |
+ |<---- {token} --------------|                              |
+ |                             |                              |
+ |-- POST /v1/request ------->|                              |
+ |   {target, role, pubkey}    | 1. Extract peer UID          |
+ |   + X-Session-Token        | 2. Validate session token    |
+ |                             | 3. Check UID matches session |
+ |                             | 4. Check host enabled        |
+ |                             | 5. Evaluate 8-step policy    |
+ |                             |                              |
+ |                             |-- sign request ------------->|
+ |                             |<-- {certificate, serial} ----|
+ |                             |                              |
+ |                             | 6. Track in CertState        |
+ |                             | 7. Audit log + WS broadcast  |
+ |                             |                              |
+ |<---- {granted, cert, host} -|                              |
+```
+
+</details>
+
 ### MCP Command Execution Flow
 
 Ephemeral keypairs generated in-memory (never touch disk):
@@ -173,6 +224,32 @@ sequenceDiagram
     ExecPool-->>Agent: {stdout, stderr, exit_code}
 ```
 
+<details>
+<summary>View as text</summary>
+
+```
+LLM Agent              Exec Pool              Signer              Target
+    |                      |                     |                   |
+    |-- POST /mcp -------->|                     |                   |
+    |   {exec, target, cmd}| Authenticate        |                   |
+    |                      | ed25519.GenerateKey()|                  |
+    |                      |                     |                   |
+    |                      |-- RequestSign ------>|                   |
+    |                      |   {pubkey}          |                   |
+    |                      |<-- {certificate} ---|                   |
+    |                      |                     |                   |
+    |                      |-- ssh.Dial(cert) ------------------>|
+    |                      |-- session.Run(cmd) ---------------->|
+    |                      |<-- stdout/stderr/exit --------------|
+    |                      |                     |                   |
+    |                      | Record activity     |                   |
+    |                      | + audit             |                   |
+    |<-- {stdout, stderr,  |                     |                   |
+    |     exit_code} ------|                     |                   |
+```
+
+</details>
+
 Persistent sessions (`session_create`) keep the SSH connection open for
 multi-command workflows. Idle sessions are cleaned up after 5 minutes.
 
@@ -193,6 +270,31 @@ sequenceDiagram
     Note right of Proxy: Audit + activity + WS broadcast
     Proxy-->>Agent: {status, body}
 ```
+
+<details>
+<summary>View as text</summary>
+
+```
+LLM Agent              Proxy Engine           Target Service
+    |                      |                       |
+    |-- POST /mcp -------->|                       |
+    |   {http_request, url}| Resolve DNS (2s)      |
+    |                      | Evaluate CIDR policy   |
+    |                      | Match service (prefix) |
+    |                      |                       |
+    |                      |-- Inject credentials ->|
+    |                      |   (bearer/basic/       |
+    |                      |    header/query)       |
+    |                      |                       |
+    |                      |<-- Response (capped) --|
+    |                      |                       |
+    |                      | Audit + activity       |
+    |                      | + WS broadcast         |
+    |                      |                       |
+    |<-- {status, body} ---|                       |
+```
+
+</details>
 
 ### API Routes Summary
 
@@ -296,6 +398,31 @@ graph TD
     Signer -->|"Signs delegation cert (infrequent IPC)"| Broker
     Broker -->|"Signs CTT-E tokens locally (no IPC per request)"| Tokens
 ```
+
+<details>
+<summary>View as text</summary>
+
+```
++---------------------+
+| Signer (root CA)    |
++----------+----------+
+           |
+           | Signs delegation cert (infrequent IPC)
+           v
++---------------------+
+| Broker (delegated   |
+|        issuer)      |
++----------+----------+
+           |
+           | Signs CTT-E tokens locally (no IPC per request)
+           v
++---------------------+
+| Task tokens (leaf   |
+|   credentials)      |
++---------------------+
+```
+
+</details>
 
 The signer holds the long-lived Ed25519 root key. The broker generates an ephemeral Ed25519 keypair and requests a delegation certificate from the signer. This cert authorizes the broker to sign task tokens (CTT-E) locally without IPC on every request.
 

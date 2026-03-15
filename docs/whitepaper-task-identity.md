@@ -296,6 +296,39 @@ sequenceDiagram
     Signer-->>Broker: New delegation cert
 ```
 
+<details>
+<summary>View as text</summary>
+
+```
+Broker                                         Signer
+  |                                               |
+  | 1. Generate Ed25519 keypair                   |
+  |    (pub, priv) = GenerateKey()                |
+  |                                               |
+  |-- 2. sign_delegation(pub, id, ttl) ---------->|
+  |                                               | 3. Generate cert ID
+  |                                               | 4. Build canonical payload:
+  |                                               |    {broker_id, cert_id,
+  |                                               |     expires_at, issued_at,
+  |                                               |     public_key}
+  |                                               | 5. Sign with root private key
+  |<- 6. (cert_id, sig, timestamps, root_pub) ----|
+  |                                               |
+  | 7. Store: priv + DelegationCert               |
+  | 8. Register cert in Validator                 |
+  | 9. Mint macaroons / sign legacy JWTs          |
+  |                                               |
+  |    ... 50 minutes pass ...                    |
+  |                                               |
+  | 10. Rotation: repeat steps 1-8                |
+  |     Move old key to prev slot                 |
+  |                                               |
+  |-- sign_delegation (rotation) ---------------->|
+  |<- New delegation cert -------------------------|
+```
+
+</details>
+
 **Timing defaults:**
 
 | Parameter     | Default | Purpose                                    |
@@ -942,6 +975,41 @@ graph TD
     R3 --> RE3["Effective can_delegate: true (AND)"]
 ```
 
+<details>
+<summary>View as text</summary>
+
+```
+Root Key (per task tree)
+    |
+    v
+sig0 = HMAC(root_key, identifier)
+    |
+    v
+sig1 = HMAC(sig0, 'target IN [A,B,C]')  ----+
+    |                                         |
+    v                                         |  Reducer: target sets
+sig2 = HMAC(sig1, 'role IN [read,op]')  --+  |       |
+    |                                      |  |       v
+    v                                      |  |  Effective targets:
+sig3 = HMAC(sig2, 'can_delegate=true') -+  |  |    [B,C] (intersection)
+    |                                    |  |  |
+    v                                    |  |  |
+sig4 = HMAC(sig3, 'target IN [B,C,D]') -|--+  |
+    |                                    |  |  |  Reducer: role sets
+    v                                    |  +--+       |
+sig5 = HMAC(sig4, 'role IN [read]')  ---+  |          v
+    |                                    |  |     Effective roles:
+    v                                    |  |       [read] (intersection)
+Final signature (32 bytes)               |  |
+    |                                    |  |  Reducer: booleans
+    v                                    +--+       |
+Verification: recompute chain,                      v
+  compare final signature                   Effective can_delegate:
+                                              true (AND)
+```
+
+</details>
+
 ### 8.6 Legacy Mode
 
 Agents without RBAC configuration receive a legacy envelope:
@@ -1569,6 +1637,43 @@ sequenceDiagram
     Note over Broker: Verify Ed25519 PoP<br/>Check nonce uniqueness
     Broker-->>Child: Response
 ```
+
+<details>
+<summary>View as text</summary>
+
+```
+Parent Agent             Ephyr Broker              Child Agent
+     |                        |                         |
+     |-- task_delegate ------>|                         |
+     |   (no child key)       | Create unbound child    |
+     |                        | (BindDeadline = 30s)    |
+     |<-- Child macaroon -----|                         |
+     |   (unbound)            |                         |
+     |                        |                         |
+     |-- Pass macaroon (out of band) ----------------->|
+     |                        |                         |
+     |                        |                         | Generate Ed25519
+     |                        |                         |   keypair
+     |                        |                         |
+     |                        |<-- task_bind -----------|
+     |                        |    (macaroon + pub key) |
+     |                        |                         |
+     |                        | Set HolderBound = true  |
+     |                        | Store HolderPubKey      |
+     |                        |                         |
+     |                        |-- Bound confirmation -->|
+     |                        |                         |
+     |                        |    All subsequent        |
+     |                        |    requests require PoP  |
+     |                        |                         |
+     |                        |<-- Request + PoP sig ---|
+     |                        |    (nonce + body_hash)  |
+     |                        | Verify Ed25519 PoP      |
+     |                        | Check nonce uniqueness   |
+     |                        |-- Response ------------>|
+```
+
+</details>
 
 After binding, every request from the child must include an Ed25519 PoP
 signature over a nonce and the request body hash. The `NonceCache`

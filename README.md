@@ -31,7 +31,7 @@ Ephyr is an access broker that sits between AI agents and infrastructure. It rep
 
 ```mermaid
 graph LR
-    Agent(("🤖 Agent")):::agent
+    Agent(("Agent")):::agent
 
     Agent -- "Bearer: mac_…" --> Broker
 
@@ -51,15 +51,44 @@ graph LR
         CA["Ed25519 CA key\nNever on network"]:::signer
     end
 
-    Broker -- "SSH certs" --> T["🖥 Targets"]:::downstream
-    Broker -- "Credential injection" --> S["🌐 Services"]:::downstream
-    Broker -- "Proxied tool calls" --> R["🔗 Remote MCP"]:::downstream
+    Broker -- "SSH certs" --> T["Targets"]:::downstream
+    Broker -- "Credential injection" --> S["Services"]:::downstream
+    Broker -- "Proxied tool calls" --> R["Remote MCP"]:::downstream
 
     classDef agent fill:#7c3aed,stroke:#7c3aed,color:#fff,font-weight:bold
     classDef core fill:#1e293b,stroke:#3b82f6,color:#e2e8f0
     classDef signer fill:#1e293b,stroke:#22c55e,color:#e2e8f0
     classDef downstream fill:#1e293b,stroke:#64748b,color:#94a3b8
 ```
+
+<details>
+<summary>View as text</summary>
+
+```
+                          +---------------------+
+                          |   ephyr-broker      |
+  +-----------+           | +-----------------+ |           +---------------+
+  |   Agent   |--Bearer-->| | Policy / RBAC   | |--SSH----->|   Targets     |
+  +-----------+  mac_...  | | Macaroon verify | |  certs    +---------------+
+                          | | Task identity   | |
+                          | | Audit logger    | |           +---------------+
+                          | | HTTP proxy +    | |--Cred---->|   Services    |
+                          | |   MCP federation| |  inject   +---------------+
+                          | +-----------------+ |
+                          +--------+------------+           +---------------+
+                                   |                 ------>|  Remote MCP   |
+                          Unix socket IPC            proxy  +---------------+
+                                   |
+                          +--------+------------+
+                          |   ephyr-signer      |
+                          | +-----------------+ |
+                          | | Ed25519 CA key  | |
+                          | | Never on network| |
+                          | +-----------------+ |
+                          +---------------------+
+```
+
+</details>
 
 **ephyr-signer** holds the Ed25519 CA private key in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. Unix socket IPC only. The CA key never leaves this process, never touches the network.
 

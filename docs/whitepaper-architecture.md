@@ -139,6 +139,39 @@ graph TD
     end
 ```
 
+<details>
+<summary>View as text</summary>
+
+```
++--- HOST (LXC / VM) --------------------------------------------------+
+|                                                                       |
+|  +-----------------------------+    +------------------------------+  |
+|  | ephyr-signer                |    | ephyr-broker                 |  |
+|  | UID: 999 | NET: AF_UNIX    |    | UID: 999 | NET: TCP+UNIX    |  |
+|  |                             |    | :8553 dash | :8554 MCP      |  |
+|  | - Ed25519 CA key            |    |                              |  |
+|  | - Sign SSH certs            |<-->| (Unix Socket)                |  |
+|  | - Sign delegation certs     |    |  /run/ephyr/signer.sock      |  |
+|  | - Root public key           |    |  SO_PEERCRED UID check       |  |
+|  +-----------------------------+    +------------------------------+  |
+|                                              ^                        |
+|                                              |                        |
+|                                     Unix Socket                       |
+|                                     /run/ephyr/broker.sock            |
+|                                     SO_PEERCRED UID check             |
+|                                              |                        |
+|                                     +--------+-------------------+    |
+|                                     | ephyr (CLI)                |    |
+|                                     | UID: 1000 (agent)         |    |
+|                                     | - Agent tool              |    |
+|                                     | - Cert requests           |    |
+|                                     | - SSH operations          |    |
+|                                     +----------------------------+    |
++-----------------------------------------------------------------------+
+```
+
+</details>
+
 **ephyr-signer** -- The key custodian. Holds the Ed25519 CA private key in
 memory. Accepts signing requests over a Unix domain socket at
 `/run/ephyr/signer.sock`. Validates the caller's UID via `SO_PEERCRED` to
@@ -182,6 +215,29 @@ graph LR
     Broker -->|"TB4: Credential injection"| Backend
     Browser <-->|"TB5: Dashboard token<br/>TCP :8553"| Broker
 ```
+
+<details>
+<summary>View as text</summary>
+
+```
+                              +------------------------------+
++-----------+   TB1: Unix     |         Broker               |
+| Signer    |<- socket + ---->| +------------------------+   |    TB4: Credential
+| (CA Key)  |   SO_PEERCRED   | | Policy Engine          |   |----- injection ----> Backend
++-----------+                 | | Session Mgr            |   |                      Services
+                              | | Proxy Engine           |   |
++-----------+   TB2: Unix     | +------------------------+   |
+| CLI       |<- socket + ---->|                              |
+| (Agent)   |   SO_PEERCRED   +------------------------------+
++-----------+                    ^                     ^
+                                 |                     |
++-----------+   TB3: Bearer      |    +-----------+    | TB5: Dashboard
+| MCP       |-- token + --------+    | Browser   |----+ token
+| Client    |   bcrypt               | Dashboard |      TCP :8553
++-----------+   TCP :8554            +-----------+
+```
+
+</details>
 
 **Boundary 1 (Signer IPC):** The signer validates caller UID via
 `SO_PEERCRED` on every connection. Only UID 999 (the broker) can request
@@ -243,6 +299,36 @@ sequenceDiagram
     Note right of Broker: 6. Audit log + event hub
     Broker-->>Agent: JSON-RPC result
 ```
+
+<details>
+<summary>View as text</summary>
+
+```
+Agent                  Broker                 Signer              Target
+  |                      |                      |                    |
+  |-- POST /mcp -------->|                      |                    |
+  |   exec + Bearer key  |                      |                    |
+  |                      | 1. Authenticate       |                    |
+  |                      | 2. Policy eval        |                    |
+  |                      | 3. Generate Ed25519   |                    |
+  |                      |    ephemeral keypair  |                    |
+  |                      |                      |                    |
+  |                      |-- sign(pub, princ) -->|                    |
+  |                      |<-- SSH certificate ---|                    |
+  |                      |                      |                    |
+  |                      | 4. SSH dial with cert |                    |
+  |                      |------- SSH connection (cert) ----------->|
+  |                      | 5. Run command        |                    |
+  |                      |------- Execute command ----------------->|
+  |                      |<------ stdout, stderr, exit_code --------|
+  |                      |                      |                    |
+  |                      | 6. Audit log +        |                    |
+  |                      |    event hub          |                    |
+  |                      |                      |                    |
+  |<-- JSON-RPC result --|                      |                    |
+```
+
+</details>
 
 ---
 
@@ -307,6 +393,42 @@ graph TD
         end
     end
 ```
+
+<details>
+<summary>View as text</summary>
+
+```
++--- BrokerServer ----------------------------------------------------------+
+|                                                                           |
+|  +--- Core Subsystems ------+  +--- State & Control ----+                 |
+|  | PolicyEngine             |  | CertState              |                 |
+|  | SignerClient             |  | RateLimiter            |                 |
+|  | SessionManager           |  | AuditLogger            |                 |
+|  +--------------------------+  +-------------------------+                 |
+|                                                                           |
+|  +--- Infrastructure -------+  +--- Service Layer ------+                 |
+|  | EventHub                 |  | MCPServer              |                 |
+|  | HostController           |  | ActivityStore          |                 |
+|  | ConfigManager            |  | ProxyEngine            |                 |
+|  +--------------------------+  +-------------------------+                 |
+|                                                                           |
+|  +--- Federation -----------+  +--- Task Identity ------+                 |
+|  | MCPFederator             |  | TaskManager            |                 |
+|  +--------------------------+  | DelegationManager      |                 |
+|                                | RevocationMap          |                 |
+|  +--- Macaroon Subsystem ---+  | Metrics                |                 |
+|  | Minter                   |  | GrantStore             |                 |
+|  | Verifier                 |  | TokenIssuer/Validator  |                 |
+|  | RootKeyStore             |  +-------------------------+                 |
+|  | Reducer                  |                                             |
+|  +--------------------------+  +--- Ephyr Bind (v0.3) --+                 |
+|                                | NonceCache             |                 |
+|                                | PoP Verifier           |                 |
+|                                +-------------------------+                 |
++---------------------------------------------------------------------------+
+```
+
+</details>
 
 ### 3.2 Initialization Sequence
 
