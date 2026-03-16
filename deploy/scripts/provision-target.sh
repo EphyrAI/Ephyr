@@ -172,6 +172,24 @@ create_role_account "agent-admin" "/bin/bash"      "agent-admin"
 
 info "Installing sudoers rules..."
 
+# Ensure sudo is installed.
+if ! command -v sudo &>/dev/null; then
+    warn "sudo is not installed. Installing..."
+    if command -v apt-get &>/dev/null; then
+        apt-get update -qq && apt-get install -y -qq sudo
+    elif command -v yum &>/dev/null; then
+        yum install -y -q sudo
+    elif command -v apk &>/dev/null; then
+        apk add --quiet sudo
+    else
+        warn "Cannot install sudo automatically. Skipping sudoers rules."
+        warn "Install sudo manually and re-run this script."
+    fi
+fi
+
+# Ensure sudoers.d directory exists.
+mkdir -p /etc/sudoers.d
+
 # Remove immutable flag if present from a previous run.
 if [[ -f "$SUDOERS_FILE" ]]; then
     chattr -i "$SUDOERS_FILE" 2>/dev/null || true
