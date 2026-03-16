@@ -388,8 +388,12 @@ func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Requ
 		sessionCounts[c.Target]++
 	}
 
+	// Track which names came from policy to avoid duplicates.
+	policyTargetNames := make(map[string]bool, len(targets))
+
 	hosts := make([]DashboardHost, 0, len(targets))
 	for name, t := range targets {
+		policyTargetNames[name] = true
 		port := t.Port
 		if port == 0 {
 			port = 22
@@ -414,6 +418,36 @@ func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Requ
 			AutoApprove:    t.AutoApprove,
 			HostKeyStatus:  hostKeyStatus,
 		})
+	}
+
+	// Merge in dynamic hosts from config manager (hosts.json).
+	// These are hosts added via the dashboard that are not yet in policy.yaml.
+	if bs.configMgr != nil {
+		for _, cfg := range bs.configMgr.GetAllConfigs() {
+			// Skip if already in the list from policy.
+			if policyTargetNames[cfg.Name] {
+				continue
+			}
+
+			port := cfg.Port
+			if port == 0 {
+				port = 22
+			}
+			hosts = append(hosts, DashboardHost{
+				Name:           cfg.Name,
+				Host:           cfg.Host,
+				VLAN:           cfg.VLAN,
+				Status:         "online",
+				Role:           cfg.Description,
+				AccessEnabled:  true,
+				ActiveSessions: sessionCounts[cfg.Name],
+				Description:    cfg.Description,
+				AllowedRoles:   cfg.AllowedRoles,
+				Port:           port,
+				AutoApprove:    cfg.AutoApprove,
+				HostKeyStatus:  "unpinned",
+			})
+		}
 	}
 
 	writeJSON(w, http.StatusOK, hosts)
