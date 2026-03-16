@@ -3,6 +3,8 @@ bin/
 *.test
 *.out
 /broker
+/ephyr
+/signer
 *.bak
 *.bak2
 /etc/
