@@ -131,6 +131,10 @@ This name is used in CLI commands, MCP tool calls, and audit logs.
 | command_allow | list of strings | [] | No | Allow-list: only permit commands matching these patterns. Takes precedence over `command_deny` when both are set (more restrictive). Evaluated only when `command_filter: true`. |
 | auto_revoke_on_deny | bool | false | No | When true and a command is denied, the target is automatically disabled for all agents. An admin must re-enable the target from the dashboard or API. |
 | description | string | "" | No | Human-readable description for dashboards and audit logs. |
+| host_key | string | "" | No | SSH public key in authorized_keys format for host key pinning (T6). When set, the broker verifies the target's host key on every connection. Mismatches are rejected and logged as ALERT. |
+| host_key_fingerprint | string | "" | No | SHA256 fingerprint of the expected host key (e.g., `SHA256:nThbg6kX...`). Alternative to `host_key` — only the fingerprint is compared. |
+
+The global `host_key_strict` option (under `global:`) requires every target to have at least one of `host_key` or `host_key_fingerprint` configured. When enabled, connections to unpinned targets are rejected.
 
 For detailed command filtering configuration including pattern syntax, deny-list vs allow-list modes, and security considerations, see [Command filtering in Target Setup](target-setup.md#command-filtering).
 

@@ -140,9 +140,9 @@ Holder-bound tokens and replay resistance.
 
 ## Features
 
-### MCP Server (16 Tools)
+### MCP Server (15 Tools)
 
-JSON-RPC 2.0 over Streamable HTTP, implementing [MCP 2025-03-26](https://modelcontextprotocol.io/). Sixteen tools (9 core + 7 task identity) plus federated tools from remote servers.
+JSON-RPC 2.0 over Streamable HTTP, implementing [MCP 2025-03-26](https://modelcontextprotocol.io/). Fifteen tools (9 core + 6 task identity) plus federated tools from remote servers.
 
 **Core Tools:**
 
@@ -497,17 +497,9 @@ agents:
 
 Implementation scope: add `RequirePoP` to the agent policy struct, check it in `toolTaskCreate`, reject unbound task creation when set.
 
-#### SSH Host Key Verification
+#### SSH Host Key Verification and TLS Certificate Verification
 
-The SSH exec engine currently uses `InsecureIgnoreHostKey`, accepting any host key presented by the target. This is the highest-priority open security item (see [T6 in the Threat Model](docs/THREAT_MODEL.md)).
-
-The planned behavior: a `host_key` field per target in policy.yaml containing the expected SSH host key fingerprint. The broker verifies the target's host key against the pinned fingerprint during every connection. Mismatches are rejected and logged as a critical audit event.
-
-#### TLS Certificate Verification for HTTP Proxy
-
-The HTTP proxy uses `InsecureSkipVerify: true` for backend service connections. This is the second-highest open security item (see [T7 in the Threat Model](docs/THREAT_MODEL.md)).
-
-The planned behavior: per-service TLS CA configuration in `services.json`, allowing operators to pin a CA certificate or specific server certificate for each backend service.
+Both T6 (SSH host key pinning) and T7 (TLS certificate verification) have been implemented and are available as opt-in configuration. See [T6](docs/THREAT_MODEL.md) and [T7](docs/THREAT_MODEL.md) in the Threat Model, and [Configuration](docs/configuration.md) for setup details.
 
 ## Dependencies
 
