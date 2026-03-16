@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,6 +30,12 @@ type RemoteMCPConfig struct {
 	RefreshSeconds int               `json:"refresh_seconds,omitempty"` // discovery refresh interval, default 60
 	MaxResponseKB  int               `json:"max_response_kb,omitempty"` // max response body in KB, default 1024
 	ToolPrefix     string            `json:"tool_prefix,omitempty"`     // override namespace prefix for tools
+
+	// TLS verification (disabled by default for backward compatibility).
+	TLSVerify      bool   `json:"tls_verify,omitempty"`      // enable TLS certificate verification
+	TLSCA          string `json:"tls_ca,omitempty"`           // path to custom CA bundle (PEM)
+	TLSCAInline    string `json:"tls_ca_inline,omitempty"`    // inline PEM CA certificate
+	TLSFingerprint string `json:"tls_fingerprint,omitempty"`  // SHA-256 fingerprint pin for leaf cert
 
 	// Argument filtering (disabled by default -- zero overhead unless enabled).
 	ArgFilter        bool     `json:"arg_filter,omitempty"`          // enable argument filtering on tool calls
@@ -116,6 +123,13 @@ func NewMCPFederator(broker *BrokerServer, filePath string) *MCPFederator {
 
 	if err := f.load(); err != nil {
 		log.Printf("[federation] could not load remotes from %s (starting fresh): %v", filePath, err)
+	}
+
+	// Warn about HTTPS remotes without TLS verification.
+	for _, state := range f.remotes {
+		if strings.HasPrefix(state.Config.URL, "https://") && !state.Config.TLSVerify {
+			log.Printf("[federation] WARNING: remote %q uses HTTPS without TLS verification (T7)", state.Config.Name)
+		}
 	}
 
 	go f.refreshLoop()
@@ -511,17 +525,28 @@ func (f *MCPFederator) backoffDuration(errorCount int) time.Duration {
 }
 
 // buildHTTPClient creates an http.Client configured for the given remote,
-// with the specified timeout and TLS skip-verify for self-signed certificates.
+// with the specified timeout and TLS configuration from the remote's settings.
 func (f *MCPFederator) buildHTTPClient(cfg *RemoteMCPConfig) *http.Client {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = federationDefaultTimeout
 	}
 
+	tlsCfg, err := buildTLSConfig(TLSSettings{
+		TLSVerify:      cfg.TLSVerify,
+		TLSCA:          cfg.TLSCA,
+		TLSCAInline:    cfg.TLSCAInline,
+		TLSFingerprint: cfg.TLSFingerprint,
+	})
+	if err != nil {
+		log.Printf("[federation] TLS config error for %s: %v (insecure fallback)", cfg.Name, err)
+		tlsCfg = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // fallback on config error
+	}
+
 	return &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: tlsCfg,
 			MaxIdleConns:    2,
 			IdleConnTimeout: 90 * time.Second,
 		},

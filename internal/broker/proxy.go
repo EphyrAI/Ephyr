@@ -22,12 +22,13 @@ import (
 
 // ProxyEngine handles HTTP proxying with credential injection and policy enforcement.
 type ProxyEngine struct {
-	mu         sync.RWMutex
-	services   map[string]*ServiceConfig // keyed by service name
-	filePath   string                    // persistent storage path
-	httpClient *http.Client
-	broker     *BrokerServer
-	policy     *NetworkPolicy
+	mu             sync.RWMutex
+	services       map[string]*ServiceConfig // keyed by service name
+	serviceClients map[string]*http.Client   // per-service HTTP clients with TLS config
+	filePath       string                    // persistent storage path
+	httpClient     *http.Client              // fallback client for non-service requests
+	broker         *BrokerServer
+	policy         *NetworkPolicy
 }
 
 // ServiceConfig defines a configured service with its credentials and access rules.
@@ -47,6 +48,12 @@ type ServiceConfig struct {
 	Enabled        *bool             `json:"enabled,omitempty"` // nil or true = enabled, false = disabled
 	GrantMode      string            `json:"grant_mode,omitempty"` // "ttl" or "passthrough"
 	Headers        map[string]string `json:"headers"`          // extra headers to inject
+
+	// TLS verification (disabled by default for backward compatibility).
+	TLSVerify      bool   `json:"tls_verify,omitempty"`      // enable TLS certificate verification
+	TLSCA          string `json:"tls_ca,omitempty"`           // path to custom CA bundle (PEM)
+	TLSCAInline    string `json:"tls_ca_inline,omitempty"`    // inline PEM CA certificate
+	TLSFingerprint string `json:"tls_fingerprint,omitempty"`  // SHA-256 fingerprint pin for leaf cert
 
 	// Request filtering (disabled by default -- zero overhead unless enabled).
 	RequestFilter    bool     `json:"request_filter,omitempty"`       // enable URL/body filtering
@@ -118,23 +125,32 @@ func NewProxyEngine(broker *BrokerServer, filePath string, pol *NetworkPolicy) *
 	}
 
 	p := &ProxyEngine{
-		services: make(map[string]*ServiceConfig),
-		filePath: filePath,
-		broker:   broker,
-		policy:   pol,
+		services:       make(map[string]*ServiceConfig),
+		serviceClients: make(map[string]*http.Client),
+		filePath:       filePath,
+		broker:         broker,
+		policy:         pol,
 		httpClient: &http.Client{
 			Timeout: time.Duration(defaultTimeoutSeconds) * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // default fallback for non-service requests
 			},
 		},
 	}
 
 	if err := p.load(); err != nil {
 		log.Printf("[proxy] could not load services from %s (starting fresh): %v", filePath, err)
+	}
+	p.rebuildServiceClients()
+
+	// Warn about HTTPS services without TLS verification.
+	for _, svc := range p.services {
+		if strings.HasPrefix(svc.URLPrefix, "https://") && !svc.TLSVerify {
+			log.Printf("[proxy] WARNING: service %q uses HTTPS without TLS verification (T7)", svc.Name)
+		}
 	}
 
 	return p
@@ -287,23 +303,36 @@ func (p *ProxyEngine) Do(agentName string, req *ProxyRequest) (*ProxyResult, err
 	defer cancel()
 	httpReq = httpReq.WithContext(ctx)
 
-	// 9. Execute the request.
+	// 9. Execute the request using per-service client if available.
+	client := p.httpClient
+	if svc != nil {
+		p.mu.RLock()
+		if c, ok := p.serviceClients[svc.Name]; ok {
+			client = c
+		}
+		p.mu.RUnlock()
+	}
+
 	start := time.Now()
-	resp, err := p.httpClient.Do(httpReq)
+	resp, err := client.Do(httpReq)
 	durationMs := time.Since(start).Milliseconds()
 
 	if err != nil {
+		details := map[string]string{
+			"url":         req.URL,
+			"method":      method,
+			"service":     serviceName(svc),
+			"error":       err.Error(),
+			"duration_ms": strconv.FormatInt(durationMs, 10),
+		}
+		if isTLSError(err) {
+			details["tls_error"] = "true"
+		}
 		p.broker.auditLog.LogEvent(audit.AuditEvent{
 			Severity:  audit.SeverityError,
 			EventType: "http_proxy",
 			Agent:     agentName,
-			Details: map[string]string{
-				"url":         req.URL,
-				"method":      method,
-				"service":     serviceName(svc),
-				"error":       err.Error(),
-				"duration_ms": strconv.FormatInt(durationMs, 10),
-			},
+			Details:   details,
 		})
 		return nil, fmt.Errorf("proxy: request failed: %w", err)
 	}
@@ -550,6 +579,7 @@ func (p *ProxyEngine) AddService(svc *ServiceConfig) error {
 
 	p.mu.Lock()
 	p.services[svc.Name] = svc
+	p.serviceClients[svc.Name] = p.buildServiceClient(svc)
 	p.mu.Unlock()
 
 	if err := p.save(); err != nil {
@@ -566,6 +596,7 @@ func (p *ProxyEngine) RemoveService(name string) error {
 		return fmt.Errorf("service %q not found", name)
 	}
 	delete(p.services, name)
+	delete(p.serviceClients, name)
 	p.mu.Unlock()
 
 	if err := p.save(); err != nil {
@@ -596,6 +627,51 @@ func (p *ProxyEngine) ListServices() []*ServiceConfig {
 		result = append(result, redactService(svc))
 	}
 	return result
+}
+
+// buildServiceClient creates an HTTP client configured with the TLS settings
+// for a specific service. If TLS configuration fails, it falls back to
+// InsecureSkipVerify with a warning.
+func (p *ProxyEngine) buildServiceClient(svc *ServiceConfig) *http.Client {
+	tlsCfg, err := buildTLSConfig(TLSSettings{
+		TLSVerify:      svc.TLSVerify,
+		TLSCA:          svc.TLSCA,
+		TLSCAInline:    svc.TLSCAInline,
+		TLSFingerprint: svc.TLSFingerprint,
+	})
+	if err != nil {
+		log.Printf("[proxy] TLS config error for %s: %v (insecure fallback)", svc.Name, err)
+		tlsCfg = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // fallback on config error
+	}
+
+	timeout := time.Duration(svc.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = time.Duration(defaultTimeoutSeconds) * time.Second
+	}
+
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(r *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			TLSClientConfig: tlsCfg,
+			MaxIdleConns:    2,
+			IdleConnTimeout: 90 * time.Second,
+		},
+	}
+}
+
+// rebuildServiceClients creates per-service HTTP clients for all loaded services.
+// Must be called after loading services from disk and whenever the service set changes.
+func (p *ProxyEngine) rebuildServiceClients() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.serviceClients = make(map[string]*http.Client, len(p.services))
+	for name, svc := range p.services {
+		p.serviceClients[name] = p.buildServiceClient(svc)
+	}
 }
 
 // save persists services to disk (atomic write: tmp + rename).

@@ -173,9 +173,9 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 
 | Aspect | Detail |
 |--------|--------|
-| **Current mitigation** | None. The broker uses `ssh.InsecureIgnoreHostKey()` -- **host key verification is disabled**. |
-| **Residual risk** | **Full MITM is possible on the SSH channel.** An attacker with network position between the broker and a target host can intercept, modify, or inject commands and responses. The ephemeral certificate and private key would be presented to the attacker's host. This is the most significant known gap in the current implementation. |
-| **Planned** | Host key pinning in `policy.yaml` (per-target known host keys). Implement `ssh.FixedHostKey()` or a callback that validates against pinned keys. |
+| **Current mitigation** | Host key pinning is available via `host_key` (full public key) and/or `host_key_fingerprint` (SHA256 fingerprint) per target in `policy.yaml`. When configured, the broker validates the presented host key against the pinned value using `ssh.FixedHostKey()` or fingerprint comparison. Mismatches are rejected and logged as `host_key_mismatch` audit events at ALERT severity. The `host_key_strict` global option enforces that every target has a pinned key. The `ephyr host-key` CLI command scans a host and outputs the key and fingerprint in policy-ready format. Targets without a pinned key fall back to accepting any host key with a one-time `host_key_unpinned` warning in the audit log. |
+| **Residual risk** | Targets without a pinned host key remain vulnerable to SSH MITM. The insecure fallback exists for backward compatibility but should be eliminated by enabling `host_key_strict: true` in production. Host key rotation requires manual policy updates. |
+| **Planned** | Automatic host key discovery and rotation. Trust-on-first-use (TOFU) mode that pins the key on first connection. |
 
 ### T7: Man-in-the-Middle -- HTTP/TLS
 
@@ -183,9 +183,9 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 
 | Aspect | Detail |
 |--------|--------|
-| **Current mitigation** | None for TLS verification. The broker's HTTP client is configured with `InsecureSkipVerify: true` for all service connections, and federated MCP server connections also use `InsecureSkipVerify: true`. |
-| **Residual risk** | An attacker with network position can intercept credential-injected HTTP requests in transit, capturing bearer tokens, API keys, and response data. This applies to both service proxy requests and federated MCP tool calls. |
-| **Planned** | Per-service TLS CA configuration in `services.json`. Option to pin specific certificates or provide a custom CA bundle for internal PKI. A global `InsecureSkipVerify` toggle that defaults to `false`. |
+| **Current mitigation** | Per-service and per-remote TLS verification via `tls_verify`, `tls_ca`, `tls_ca_inline`, and `tls_fingerprint` fields in `services.json` and `remotes.json`. When `tls_verify` is true, the broker validates server certificates against the system CA store or a custom CA bundle. Optional SHA-256 certificate fingerprint pinning provides leaf-certificate-level trust anchoring. Each service and remote MCP server gets its own HTTP client with independent TLS configuration. The broker logs a startup warning for any HTTPS service or remote that has `tls_verify` disabled. TLS-related errors are tagged in audit log entries for diagnostics. |
+| **Residual risk** | The default is `tls_verify: false` for backward compatibility. Deployers must explicitly enable TLS verification per service/remote. Services using plain HTTP (not HTTPS) are not protected regardless of this setting. |
+| **Planned** | A global default that sets `tls_verify: true` for all new services. Automatic certificate discovery and CA bundle management. |
 
 ### T8: Network Bypass -- Agent Direct Access
 
@@ -310,9 +310,9 @@ The following recommendations are derived from the threats enumerated above. The
 
 ### Critical
 
-1. **Enable host key verification (T6).** The default `InsecureIgnoreHostKey` setting allows full SSH MITM. Until host key pinning is implemented, deployers should ensure the network path between the broker and all target hosts is trusted (e.g., same VLAN, no untrusted L2 neighbors). This is the highest-priority item to address.
+1. **Enable host key verification (T6).** Pin host keys for all targets using `host_key` and/or `host_key_fingerprint` in `policy.yaml`, and enable `host_key_strict: true` in the global section. Use `ephyr host-key --host HOST` to scan each target and retrieve the pinned values. Targets without pinned keys fall back to insecure mode with an audit warning.
 
-2. **Enable TLS verification for services (T7).** Configure proper TLS certificates for internal services or deploy a private CA. Avoid relying on `InsecureSkipVerify` in environments where the network between the broker and services crosses trust boundaries.
+2. **Enable TLS verification for services (T7).** Set `tls_verify: true` on each HTTPS service in `services.json` and each HTTPS remote in `remotes.json`. For internal PKI, provide the CA bundle via `tls_ca` (file path) or `tls_ca_inline` (PEM string). For additional assurance, pin the leaf certificate SHA-256 fingerprint with `tls_fingerprint`. The broker logs a startup warning for any HTTPS endpoint with TLS verification disabled.
 
 3. **Deploy the broker on a dedicated host (T3, T4).** Run the signer and broker on a dedicated host (VM, container, bare metal, or cloud instance) with no other workloads. This limits the attack surface and ensures systemd sandboxing is the primary isolation layer, not one among many.
 
@@ -348,8 +348,8 @@ The following table provides a consolidated view of the most significant residua
 
 | # | Weakness | Severity | Boundary | Status |
 |---|----------|----------|----------|--------|
-| 1 | SSH host key verification disabled (`InsecureIgnoreHostKey`) | **Critical** | B2 | Open -- host key pinning planned |
-| 2 | TLS certificate verification disabled (`InsecureSkipVerify`) | **High** | B3, B4 | Open -- per-service TLS CA planned |
+| 1 | SSH host key verification disabled (`InsecureIgnoreHostKey`) | **Critical** | B2 | Mitigated -- host key pinning available via `host_key` / `host_key_fingerprint` per target; `host_key_strict` enforces pinning |
+| 2 | TLS certificate verification disabled (`InsecureSkipVerify`) | **High** | B3, B4 | Mitigated -- per-service/per-remote `tls_verify`, `tls_ca`, `tls_ca_inline`, `tls_fingerprint` fields available; default `false` for backward compatibility |
 | 3 | Backend credentials stored in plaintext JSON | **High** | -- | Open -- encryption at rest planned |
 | 4 | Dashboard token in WebSocket URL query parameter | **Medium** | B5 | Open -- message-based auth planned |
 | 5 | MCP API keys are bearer tokens with no secondary factor | **Medium** | B0r | Open -- mTLS/OIDC planned |

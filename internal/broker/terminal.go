@@ -153,13 +153,25 @@ func (bs *BrokerServer) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 4: Build SSH client config.
+	// Step 4: Build SSH client config with host key verification (T6).
 	sshConfig, err := buildSSHConfig(req)
 	if err != nil {
 		writeWSError(conn, "failed to configure SSH auth: "+err.Error())
 		conn.Close()
 		return
 	}
+	// Replace InsecureIgnoreHostKey with pinned host key callback if available.
+	bs.policyMu.RLock()
+	var termPinnedKey ssh.PublicKey
+	var termPinnedFP string
+	if bs.policyCfg.TargetHostKeys != nil {
+		termPinnedKey = bs.policyCfg.TargetHostKeys[targetName]
+	}
+	if tgt, ok := bs.policyCfg.Raw.Targets[targetName]; ok && termPinnedKey == nil {
+		termPinnedFP = tgt.HostKeyFingerprint
+	}
+	bs.policyMu.RUnlock()
+	sshConfig.HostKeyCallback = hostKeyCallback(targetName, termPinnedKey, termPinnedFP, bs.auditLog, &bs.termHostKeyWarned)
 
 	// Step 5: Dial SSH to the target.
 	addr := net.JoinHostPort(req.Host, fmt.Sprintf("%d", req.Port))

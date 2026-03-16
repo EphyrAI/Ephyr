@@ -82,10 +82,11 @@ type ExecSessionInfo struct {
 
 // ExecSessionPool manages persistent SSH sessions.
 type ExecSessionPool struct {
-	mu          sync.RWMutex
-	sessions    map[string]*ExecSession
-	broker      *BrokerServer
-	maxPerAgent int // max concurrent sessions per agent
+	mu             sync.RWMutex
+	sessions       map[string]*ExecSession
+	broker         *BrokerServer
+	maxPerAgent    int // max concurrent sessions per agent
+	hostKeyWarned  sync.Map // tracks targets that have already emitted an unpinned-key warning
 }
 
 // NewExecSessionPool creates a new session pool and starts the idle-session
@@ -188,11 +189,31 @@ func (p *ExecSessionPool) signAndConnect(agentName, target, role string) (*signR
 		return nil, fmt.Errorf("create cert signer: %w", err)
 	}
 
-	// 6. Build SSH client config with certificate authentication.
+	// 6. Resolve host key for this target (T6).
+	var pinnedKey ssh.PublicKey
+	var pinnedFP string
+	p.broker.policyMu.RLock()
+	if p.broker.policyCfg.TargetHostKeys != nil {
+		pinnedKey = p.broker.policyCfg.TargetHostKeys[target]
+	}
+	if tgt, ok := p.broker.policyCfg.Raw.Targets[target]; ok && pinnedKey == nil {
+		pinnedFP = tgt.HostKeyFingerprint
+	}
+	hostKeyStrict := false
+	if p.broker.policyCfg.Raw != nil {
+		hostKeyStrict = p.broker.policyCfg.Raw.Global.HostKeyStrict
+	}
+	p.broker.policyMu.RUnlock()
+
+	if hostKeyStrict && pinnedKey == nil && pinnedFP == "" {
+		return nil, fmt.Errorf("host key verification required (host_key_strict=true) but target %q has no pinned host key", target)
+	}
+
+	// Build SSH client config with certificate authentication and host key verification.
 	sshConfig := &ssh.ClientConfig{
 		User:            principal,
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(certSigner)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback(target, pinnedKey, pinnedFP, p.broker.auditLog, &p.hostKeyWarned),
 		Timeout:         10 * time.Second,
 	}
 

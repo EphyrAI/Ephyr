@@ -646,6 +646,49 @@ directly in the file.
 | timeout | int | 30 | No | Request timeout in seconds. Capped at 120 seconds. The agent may request a shorter timeout but not longer. |
 | description | string | "" | No | Human-readable description shown in service listings. |
 | headers | map of string to string | {} | No | Extra static headers injected into every request to this service. |
+| tls_verify | bool | false | No | Enable TLS certificate verification for HTTPS services. When false (default), `InsecureSkipVerify` is used for backward compatibility. When true, certificates are validated against the system CA store or a custom CA. |
+| tls_ca | string | "" | No | Path to a PEM file containing one or more CA certificates. Used when `tls_verify` is true and the service uses a private/internal CA not in the system store. |
+| tls_ca_inline | string | "" | No | Inline PEM-encoded CA certificate(s). Alternative to `tls_ca` for environments where a file path is not convenient (e.g., container deployments). Both `tls_ca` and `tls_ca_inline` can be used together; certificates from both sources are added to the pool. |
+| tls_fingerprint | string | "" | No | SHA-256 fingerprint of the expected leaf certificate (hex-encoded). Accepts formats: `SHA256:aa:bb:...`, `sha256:aa:bb:...`, `aa:bb:...`, or `aabb...`. When set and `tls_verify` is true, the broker pins to this specific certificate in addition to CA validation. |
+
+### TLS Verification
+
+Each service gets its own HTTP client with independent TLS configuration.
+When `tls_verify` is false (the default), the broker uses `InsecureSkipVerify`
+for backward compatibility. When `tls_verify` is true, the broker validates
+the server certificate chain.
+
+**Example: HTTPS service with system CA:**
+```json
+{
+  "portainer": {
+    "name": "portainer",
+    "url_prefix": "https://portainer.internal:9443",
+    "auth_type": "bearer",
+    "credential": "your-token",
+    "tls_verify": true
+  }
+}
+```
+
+**Example: HTTPS service with custom CA and fingerprint pinning:**
+```json
+{
+  "internal-api": {
+    "name": "internal-api",
+    "url_prefix": "https://api.internal:8443",
+    "auth_type": "bearer",
+    "credential": "your-token",
+    "tls_verify": true,
+    "tls_ca": "/etc/ephyr/certs/internal-ca.pem",
+    "tls_fingerprint": "SHA256:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89"
+  }
+}
+```
+
+**Startup warnings:** The broker logs a warning at startup for any HTTPS
+service with `tls_verify: false`, referencing threat model item T7. This
+helps identify services that should be migrated to verified TLS.
 
 ### Auth Types
 

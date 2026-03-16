@@ -1,6 +1,10 @@
 package policy
 
-import "time"
+import (
+	"time"
+
+	"golang.org/x/crypto/ssh"
+)
 
 // Config is the top-level policy configuration loaded from YAML.
 type Config struct {
@@ -17,6 +21,7 @@ type GlobalPolicy struct {
 	DefaultTTL     string          `yaml:"default_ttl"`      // e.g. "5m"
 	MaxTTL         string          `yaml:"max_ttl"`          // e.g. "30m"
 	RateLimit      RateLimitConfig `yaml:"rate_limit"`
+	HostKeyStrict  bool            `yaml:"host_key_strict,omitempty"` // require host key for all targets
 }
 
 // RateLimitConfig controls request throttling per agent.
@@ -79,6 +84,10 @@ type TargetPolicy struct {
 	CommandDeny        []string `yaml:"command_deny,omitempty"`            // deny-list: block commands matching these patterns
 	CommandAllow       []string `yaml:"command_allow,omitempty"`           // allow-list: only permit commands matching these patterns
 	AutoRevokeOnDeny   bool     `yaml:"auto_revoke_on_deny,omitempty"`    // disable agent access on denied command
+
+	// Host key verification (T6). Provide at least one to enable verification.
+	HostKey            string `yaml:"host_key,omitempty"`             // SSH public key in authorized_keys format
+	HostKeyFingerprint string `yaml:"host_key_fingerprint,omitempty"` // SHA256:base64 fingerprint
 }
 
 // RoleDefinition maps a logical role name to an SSH principal.
@@ -95,6 +104,7 @@ type ResolvedConfig struct {
 	GlobalMaxTTL     time.Duration
 	TargetMaxTTLs    map[string]time.Duration // target name -> parsed max_ttl
 	AgentPerms       map[string]*ResolvedAgentPerms
+	TargetHostKeys   map[string]ssh.PublicKey // target name -> parsed host key (T6)
 }
 
 // DashboardLevel represents the dashboard access level for an agent.

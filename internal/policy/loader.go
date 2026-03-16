@@ -1,11 +1,15 @@
 package policy
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 )
 
@@ -191,11 +195,49 @@ func validate(cfg *Config) (*ResolvedConfig, error) {
 		}
 	}
 
+	// Parse and validate host keys for targets (T6).
+	targetHostKeys := make(map[string]ssh.PublicKey)
+	for name, target := range cfg.Targets {
+		if target.HostKey != "" {
+			parsedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(target.HostKey))
+			if err != nil {
+				return nil, fmt.Errorf("target %q has invalid host_key: %w", name, err)
+			}
+			targetHostKeys[name] = parsedKey
+
+			// Cross-validate fingerprint if both are set.
+			if target.HostKeyFingerprint != "" {
+				hash := sha256.Sum256(parsedKey.Marshal())
+				computedFP := "SHA256:" + base64.RawStdEncoding.EncodeToString(hash[:])
+				if computedFP != target.HostKeyFingerprint {
+					return nil, fmt.Errorf("target %q host_key_fingerprint %q does not match host_key (computed %s)",
+						name, target.HostKeyFingerprint, computedFP)
+				}
+			}
+		} else if target.HostKeyFingerprint != "" {
+			// Validate fingerprint format.
+			if !strings.HasPrefix(target.HostKeyFingerprint, "SHA256:") {
+				return nil, fmt.Errorf("target %q host_key_fingerprint must start with \"SHA256:\", got %q",
+					name, target.HostKeyFingerprint)
+			}
+		}
+	}
+
+	// If host_key_strict is set, ensure every target has at least one host key field.
+	if cfg.Global.HostKeyStrict {
+		for name, target := range cfg.Targets {
+			if target.HostKey == "" && target.HostKeyFingerprint == "" {
+				return nil, fmt.Errorf("host_key_strict is enabled but target %q has no host_key or host_key_fingerprint", name)
+			}
+		}
+	}
+
 	rc := &ResolvedConfig{
 		Raw:              cfg,
 		GlobalDefaultTTL: globalDefaultTTL,
 		GlobalMaxTTL:     globalMaxTTL,
 		TargetMaxTTLs:    targetMaxTTLs,
+		TargetHostKeys:   targetHostKeys,
 	}
 
 	// Resolve RBAC permissions for all agents.

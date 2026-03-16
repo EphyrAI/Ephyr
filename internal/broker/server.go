@@ -114,6 +114,9 @@ type BrokerServer struct {
 	// v0.3.3: Proof-of-possession nonce cache for holder-bound tokens.
 	nonceCache   *NonceCache
 	popClockSkew time.Duration // max clock skew for PoP timestamp verification
+
+	// T6: Host key verification -- one-time warning tracker for terminal sessions.
+	termHostKeyWarned sync.Map
 }
 
 // NewBrokerServer initializes all components and returns a ready-to-start server.

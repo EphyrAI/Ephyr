@@ -28,6 +28,7 @@ Usage:
   ephyr services                    List HTTP proxy services
   ephyr remotes                     List federated MCP servers
   ephyr whoami                      Show agent identity
+  ephyr host-key --host HOST[:PORT] Scan and print SSH host key for policy pinning
   ephyr inspect [--token] [--json]  Inspect a macaroon token
   ephyr monitor [logfile]           Live audit stream (default: /var/log/ephyr/audit.json)
   ephyr demo [--broker URL] [--key KEY]   Run full pipeline demo (macaroon + PoP)
@@ -68,6 +69,8 @@ func main() {
 		cmdInspect(os.Args[2:])
 	case "monitor":
 		cmdMonitor(os.Args[2:])
+	case "host-key":
+		cmdHostKey(os.Args[2:])
 	case "demo":
 		cmdDemo(os.Args[2:])
 	case "help", "--help", "-h":
