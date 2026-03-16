@@ -778,6 +778,33 @@
     display: flex; gap: 10px; justify-content: flex-end;
   }
 
+  /* Provisioning steps */
+  .provision-step { margin-bottom: 16px; }
+  .provision-step-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; color: var(--text); }
+  .provision-code-wrap { position: relative; }
+  .provision-code {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--text);
+    overflow-x: auto;
+    user-select: all;
+    margin: 0;
+  }
+  .provision-copy-btn {
+    position: absolute; top: 4px; right: 4px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text-dim); font-size: 10px; padding: 2px 8px;
+    border-radius: 3px; cursor: pointer; text-transform: uppercase;
+    letter-spacing: 0.5px; transition: all 0.2s;
+  }
+  .provision-copy-btn:hover { border-color: var(--green); color: var(--green); }
+
   /* Form fields */
   .form-group { margin-bottom: 16px; }
   .form-label {
@@ -1991,13 +2018,20 @@ function SidebarStats({ summary }) {
 // 1. OVERVIEW VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onRevoke, token }) {
+function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onRevoke, token, onRefresh }) {
   const activeSessions = (sessions || []).filter(s => s.status === 'active' || s.status === 'suspended');
   const suspendedSessions = (sessions || []).filter(s => s.status === 'suspended');
   const revokedSessions = (sessions || []).filter(s => s.status === 'revoked');
   const [recentActivity, setRecentActivity] = useState([]);
   const [actSummary, setActSummary] = useState({});
   const [remotes, setRemotes] = useState([]);
+  const [showAddHost, setShowAddHost] = useState(false);
+  const [ovRoles, setOvRoles] = useState([]);
+  useEffect(() => {
+    api('GET', '/v1/dashboard/config/roles', null, token)
+      .then(data => { if (Array.isArray(data)) setOvRoles(data.map(r => typeof r === 'string' ? r : r.name)); })
+      .catch(() => {});
+  }, [token]);
   useEffect(() => {
     (async () => {
       try {
@@ -2048,6 +2082,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
   };
 
   return (
+    <>
     <div>
       {/* Row 1: Access metrics */}
       <div className="stats-row" style={{ marginBottom: '12px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
@@ -2154,7 +2189,15 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
           </div>
           <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
             {(hosts || []).length === 0 ? (
-              <div className="empty-state">No hosts configured</div>
+              <div className="empty-state">
+                No hosts configured
+                <div style={{ marginTop: '8px' }}>
+                  <a href="#" onClick={e => { e.preventDefault(); setShowAddHost(true); }}
+                    style={{ fontSize: '11px', color: 'var(--green)', textDecoration: 'none', opacity: 0.8 }}>
+                    + Add a host
+                  </a>
+                </div>
+              </div>
             ) : (hosts || []).map(h => (
               <div key={h.name} className={`host-item${h.active_sessions > 0 ? ' item-active' : ''}${!h.access_enabled ? ' item-disabled' : ''}`}>
                 <div className="host-left">
@@ -2178,6 +2221,14 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                 </div>
               </div>
             ))}
+            {(hosts || []).length > 0 && (hosts || []).length <= 3 && (
+              <div style={{ textAlign: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+                <a href="#" onClick={e => { e.preventDefault(); setShowAddHost(true); }}
+                  style={{ fontSize: '10px', color: 'var(--text-dim)', textDecoration: 'none' }}>
+                  + Add host
+                </a>
+              </div>
+            )}
           </div>
         </div>
 
@@ -2410,6 +2461,17 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         </div>
       </div>
     </div>
+
+    <HostConfigPanel
+      host={null}
+      open={showAddHost}
+      onClose={() => setShowAddHost(false)}
+      onSave={() => { if (onRefresh) onRefresh(); }}
+      onDelete={() => {}}
+      token={token}
+      roles={ovRoles}
+    />
+    </>
   );
 }
 
@@ -2417,29 +2479,51 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
 // 2. HOSTS VIEW (with config slide-out)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
+function HostConfigPanel({ host, open, onClose, onSave, onDelete, token, roles }) {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [provisioned, setProvisioned] = useState(false);
+  const [showProvisionCommands, setShowProvisionCommands] = useState(false);
+  const isNew = !host;
 
   useEffect(() => {
-    if (open && host) {
-      setLoading(true);
-      setError('');
-      api('GET', `/v1/dashboard/config/hosts/${encodeURIComponent(host.name)}`, null, token)
-        .then(data => { setConfig({...data, user: data.ssh_user || "", password: data.ssh_password || "", auth_type: data.auth_type || "password", ssh_key: data.ssh_key_path || ""}); setLoading(false); })
-        .catch(err => {
-          setConfig({
-            name: host.name, host: host.host || '', port: host.port || 22,
-            vlan: host.vlan || '', os: host.os || '', description: host.description || '',
-            user: '', auth_type: 'key', password: '', ssh_key: '',
-            allowed_roles: host.allowed_roles || [],
-            default_ttl: host.default_ttl || '5m', max_ttl: host.max_ttl || '15m',
-            auto_approve: host.auto_approve || false,
+    if (open) {
+      setProvisioned(false);
+      setShowProvisionCommands(false);
+      if (host) {
+        setLoading(true);
+        setError('');
+        api('GET', `/v1/dashboard/config/hosts/${encodeURIComponent(host.name)}`, null, token)
+          .then(data => { setConfig({...data, user: data.ssh_user || "", password: data.ssh_password || "", auth_type: data.auth_type || "password", ssh_key: data.ssh_key_path || ""}); setLoading(false); })
+          .catch(err => {
+            setConfig({
+              name: host.name, host: host.host || '', port: host.port || 22,
+              vlan: host.vlan || '', os: host.os || '', description: host.description || '',
+              user: '', auth_type: 'key', password: '', ssh_key: '',
+              allowed_roles: host.allowed_roles || [],
+              default_ttl: host.default_ttl || '5m', max_ttl: host.max_ttl || '15m',
+              auto_approve: host.auto_approve || false,
+              force_command: '', host_key: '', host_key_fingerprint: '',
+              command_filter: false, command_deny: '', command_allow: '', auto_revoke_on_deny: false,
+            });
+            setLoading(false);
           });
-          setLoading(false);
+      } else {
+        // New host defaults
+        setConfig({
+          name: '', host: '', port: 22, vlan: 100, os: '', description: '',
+          user: '', auth_type: 'key', password: '', ssh_key: '',
+          allowed_roles: ['read'],
+          default_ttl: '5m', max_ttl: '10m',
+          auto_approve: true,
+          force_command: '', host_key: '', host_key_fingerprint: '',
+          command_filter: false, command_deny: '', command_allow: '', auto_revoke_on_deny: false,
         });
+        setLoading(false);
+        setError('');
+      }
     }
   }, [open, host, token]);
 
@@ -2456,30 +2540,145 @@ function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
   };
 
   const handleSave = async () => {
+    if (isNew && !config.name) {
+      setError('Name is required');
+      return;
+    }
+    if (!config.host) {
+      setError('Host (IP / hostname) is required');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
-      const payload = {...config, ssh_user: config.user, ssh_password: config.password !== "***" ? config.password : undefined}; await api('PUT', `/v1/dashboard/config/hosts/${encodeURIComponent(host.name)}`, payload, token);
+      const payload = {
+        ...config,
+        ssh_user: config.user,
+        ssh_password: config.password !== "***" ? config.password : undefined,
+        port: parseInt(config.port) || 22,
+        vlan: parseInt(config.vlan) || 0,
+      };
+      // Build command_deny and command_allow as arrays from newline-separated text
+      if (typeof payload.command_deny === 'string') {
+        payload.command_deny = payload.command_deny.split('\n').map(s => s.trim()).filter(Boolean);
+      }
+      if (typeof payload.command_allow === 'string') {
+        payload.command_allow = payload.command_allow.split('\n').map(s => s.trim()).filter(Boolean);
+      }
+      const name = isNew ? encodeURIComponent(config.name) : encodeURIComponent(host.name);
+      await api('PUT', `/v1/dashboard/config/hosts/${name}`, payload, token);
       if (onSave) onSave();
-      onClose();
+      if (isNew) {
+        setProvisioned(true);
+      } else {
+        onClose();
+      }
     } catch (err) {
       setError(err.message);
     }
     setSaving(false);
   };
 
-  if (!open) return null;
+  const handleDelete = async () => {
+    if (!host) return;
+    if (!confirm(`Delete host "${host.name}"? This will remove the host configuration.`)) return;
+    try {
+      await api('DELETE', `/v1/dashboard/config/hosts/${encodeURIComponent(host.name)}`, null, token);
+      if (onDelete) onDelete();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (!open || !config) return null;
+
+  const copyToClipboard = (text, btn) => {
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = 'COPIED';
+      btn.style.color = 'var(--green)';
+      btn.style.borderColor = 'var(--green)';
+      setTimeout(() => { btn.textContent = orig; btn.style.color = ''; btn.style.borderColor = ''; }, 1500);
+    }).catch(() => {});
+  };
+
+  const ProvisionCodeBlock = ({ code }) => (
+    <div className="provision-code-wrap">
+      <pre className="provision-code">{code}</pre>
+      <button className="provision-copy-btn" onClick={e => copyToClipboard(code, e.currentTarget)}>COPY</button>
+    </div>
+  );
+
+  const buildManualSetupCode = () => {
+    const selectedRoles = config.allowed_roles || ['read'];
+    const roleLines = selectedRoles.map(role => {
+      const principal = role === 'admin' ? 'agent-admin' : role === 'operator' ? 'agent-op' : 'agent-read';
+      const shell = role === 'read' ? '/bin/rbash' : '/bin/bash';
+      return 'useradd -m -s ' + shell + ' ' + principal + '\n' +
+             'mkdir -p /etc/ssh/auth_principals\n' +
+             'echo "' + principal + '" > /etc/ssh/auth_principals/' + principal;
+    });
+    return '# On ' + (config.host || 'TARGET_HOST') + ':\n\n' +
+           '# 1. Install CA key\n' +
+           'echo "$(cat /tmp/ca_key.pub)" > /etc/ssh/ephyr_ca.pub\n\n' +
+           '# 2. Configure sshd\n' +
+           'echo "TrustedUserCAKeys /etc/ssh/ephyr_ca.pub" >> /etc/ssh/sshd_config\n' +
+           'echo "AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u" >> /etc/ssh/sshd_config\n\n' +
+           '# 3. Create role accounts (customize names/shells as needed)\n' +
+           roleLines.join('\n\n') +
+           '\n\n# 4. Reload sshd\n' +
+           'systemctl reload sshd';
+  };
+
+  const showingProvision = provisioned || showProvisionCommands;
+
+  const ProvisioningGuide = () => (
+    <div style={{ padding: '0' }}>
+      <h3 style={{ color: 'var(--green)', marginBottom: '16px', fontFamily: 'var(--heading-font)', fontSize: '14px', letterSpacing: '1px' }}>
+        {provisioned ? 'Host added successfully' : 'Provisioning Commands'}
+      </h3>
+      <p style={{ color: 'var(--text-dim)', marginBottom: '16px', fontSize: '12px' }}>
+        Run these commands on <span style={{ color: 'var(--cyan)' }}>{config.host || 'the target host'}</span> to complete setup:
+      </p>
+
+      <div className="provision-step">
+        <div className="provision-step-title">Step 1: Copy CA key and provisioning script</div>
+        <ProvisionCodeBlock code={'scp /etc/ephyr/ca_key.pub /opt/ephyr/deploy/scripts/provision-target.sh root@' + (config.host || 'TARGET_HOST') + ':/tmp/'} />
+      </div>
+
+      <div className="provision-step">
+        <div className="provision-step-title">Step 2: Run provisioning script</div>
+        <ProvisionCodeBlock code={'ssh root@' + (config.host || 'TARGET_HOST') + ' "bash /tmp/provision-target.sh /tmp/ca_key.pub"'} />
+        <p style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+          This creates default role accounts: agent-read (rbash), agent-op (bash), agent-admin (bash)
+        </p>
+      </div>
+
+      <div className="provision-step">
+        <div className="provision-step-title">Or: Manual setup with custom users</div>
+        <ProvisionCodeBlock code={buildManualSetupCode()} />
+      </div>
+
+      <div className="provision-step">
+        <div className="provision-step-title">Step 3: Verify</div>
+        <ProvisionCodeBlock code={'ephyr exec ' + (config.name || 'TARGET') + ' --role read -- hostname'} />
+      </div>
+    </div>
+  );
 
   return (
     <>
       <div className={`slideout-overlay ${open ? 'open' : ''}`} onClick={onClose} />
       <div className={`slideout-panel ${open ? 'open' : ''}`}>
         <div className="slideout-header">
-          <h3>Configure: {host?.name}</h3>
+          <h3>{showingProvision ? (provisioned ? 'Provisioning: ' + (config.name || 'New Host') : 'Provisioning: ' + (host?.name || config.name)) : (isNew ? 'Add Host' : `Configure: ${host?.name}`)}</h3>
           <button className="slideout-close" onClick={onClose}>&times;</button>
         </div>
         <div className="slideout-body">
-          {loading ? (
+          {showingProvision ? (
+            <ProvisioningGuide />
+          ) : loading ? (
             <div className="loading">Loading config...</div>
           ) : config ? (
             <>
@@ -2489,17 +2688,22 @@ function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Name</label>
-                  <input className="form-input" value={config.name || ''} readOnly style={{ opacity: 0.5 }} />
+                  <input className="form-input" value={config.name || ''} readOnly={!isNew}
+                    style={isNew ? {} : { opacity: 0.5 }}
+                    onChange={e => handleFieldChange('name', e.target.value)}
+                    placeholder="e.g. webserver" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">VLAN</label>
-                  <input className="form-input" value={config.vlan || ''} onChange={e => handleFieldChange('vlan', e.target.value)} />
+                  <input className="form-input" type="number" value={config.vlan || ''} onChange={e => handleFieldChange('vlan', e.target.value)}
+                    placeholder="e.g. 100" />
                 </div>
               </div>
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">IP / Hostname</label>
-                  <input className="form-input" value={config.host || ''} onChange={e => handleFieldChange('host', e.target.value)} />
+                  <input className="form-input" value={config.host || ''} onChange={e => handleFieldChange('host', e.target.value)}
+                    placeholder="e.g. 192.168.100.50" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Port</label>
@@ -2508,11 +2712,13 @@ function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
               </div>
               <div className="form-group">
                 <label className="form-label">OS</label>
-                <input className="form-input" value={config.os || ''} onChange={e => handleFieldChange('os', e.target.value)} />
+                <input className="form-input" value={config.os || ''} onChange={e => handleFieldChange('os', e.target.value)}
+                  placeholder="e.g. Debian 12" />
               </div>
               <div className="form-group">
                 <label className="form-label">Description</label>
-                <input className="form-input" value={config.description || ''} onChange={e => handleFieldChange('description', e.target.value)} />
+                <input className="form-input" value={config.description || ''} onChange={e => handleFieldChange('description', e.target.value)}
+                  placeholder="Production web server" />
               </div>
 
               <div className="form-section-title">SSH Credentials</div>
@@ -2562,14 +2768,80 @@ function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
                   Auto-approve requests
                 </label>
               </div>
+
+              <div className="form-section-title">Access Control</div>
+              <div className="form-group">
+                <label className="form-label">Force Command (optional)</label>
+                <input className="form-input" value={config.force_command || ''} onChange={e => handleFieldChange('force_command', e.target.value)}
+                  placeholder="e.g. /usr/local/bin/restricted-shell" />
+              </div>
+              <div className="form-group" style={{ marginTop: '8px' }}>
+                <label className="form-checkbox">
+                  <input type="checkbox" checked={config.command_filter || false} onChange={e => handleFieldChange('command_filter', e.target.checked)} />
+                  Enable command filtering
+                </label>
+              </div>
+              {config.command_filter && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Command Deny Patterns (one per line)</label>
+                    <textarea className="form-input" rows={3} value={
+                      Array.isArray(config.command_deny) ? config.command_deny.join('\n') : (config.command_deny || '')
+                    } onChange={e => handleFieldChange('command_deny', e.target.value)}
+                      placeholder="rm -rf *&#10;dd if=&#10;mkfs" style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', resize: 'vertical' }} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Command Allow Patterns (one per line)</label>
+                    <textarea className="form-input" rows={3} value={
+                      Array.isArray(config.command_allow) ? config.command_allow.join('\n') : (config.command_allow || '')
+                    } onChange={e => handleFieldChange('command_allow', e.target.value)}
+                      placeholder="ls *&#10;cat *&#10;systemctl status *" style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', resize: 'vertical' }} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-checkbox">
+                      <input type="checkbox" checked={config.auto_revoke_on_deny || false} onChange={e => handleFieldChange('auto_revoke_on_deny', e.target.checked)} />
+                      Auto-revoke agent access on denied command
+                    </label>
+                  </div>
+                </>
+              )}
+
+              <div className="form-section-title">Host Key Verification</div>
+              <div className="form-group">
+                <label className="form-label">Host Key (SSH public key, optional)</label>
+                <textarea className="form-input" rows={2} value={config.host_key || ''} onChange={e => handleFieldChange('host_key', e.target.value)}
+                  placeholder="ssh-ed25519 AAAA..." style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', resize: 'vertical' }} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Host Key Fingerprint (SHA256, optional)</label>
+                <input className="form-input" value={config.host_key_fingerprint || ''} onChange={e => handleFieldChange('host_key_fingerprint', e.target.value)}
+                  placeholder="SHA256:abc123..." style={{ fontFamily: 'JetBrains Mono, monospace' }} />
+              </div>
             </>
           ) : null}
         </div>
         <div className="slideout-footer">
-          <button className="btn btn-amber" onClick={onClose}>CANCEL</button>
-          <button className="btn btn-green" onClick={handleSave} disabled={saving}>
-            {saving ? 'SAVING...' : 'SAVE'}
-          </button>
+          {showingProvision ? (
+            <>
+              {showProvisionCommands && !provisioned && (
+                <button className="btn btn-amber" onClick={() => setShowProvisionCommands(false)} style={{ marginRight: 'auto' }}>BACK</button>
+              )}
+              <button className="btn btn-green" onClick={() => { setProvisioned(false); setShowProvisionCommands(false); onClose(); }}>DONE</button>
+            </>
+          ) : (
+            <>
+              {!isNew && (
+                <button className="btn btn-revoke" onClick={handleDelete} style={{ marginRight: 'auto' }}>DELETE</button>
+              )}
+              {!isNew && (
+                <button className="btn btn-cyan" onClick={() => setShowProvisionCommands(true)}>PROVISIONING</button>
+              )}
+              <button className="btn btn-amber" onClick={onClose}>CANCEL</button>
+              <button className="btn btn-green" onClick={handleSave} disabled={saving}>
+                {saving ? 'SAVING...' : 'SAVE'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </>
@@ -2578,6 +2850,7 @@ function HostConfigPanel({ host, open, onClose, onSave, token, roles }) {
 
 function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
   const [configHost, setConfigHost] = useState(null);
+  const [showAddHost, setShowAddHost] = useState(false);
   const [roles, setRoles] = useState([]);
   const [permissions, setPermissions] = useState(null);
 
@@ -2616,6 +2889,11 @@ function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
 
   return (
     <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{(hosts || []).length} host{(hosts || []).length !== 1 ? 's' : ''} configured</span>
+        <button className="btn btn-green" onClick={() => setShowAddHost(true)}>+ ADD HOST</button>
+      </div>
+
       <div className="hosts-grid">
         {(hosts || []).length === 0 ? (
           <div className="empty-state" style={{ gridColumn: '1 / -1' }}>No hosts configured</div>
@@ -2682,10 +2960,11 @@ function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
         })}
       </div>
       <HostConfigPanel
-        host={configHost}
-        open={!!configHost}
-        onClose={() => setConfigHost(null)}
+        host={showAddHost ? null : configHost}
+        open={showAddHost || !!configHost}
+        onClose={() => { setConfigHost(null); setShowAddHost(false); }}
         onSave={onRefresh}
+        onDelete={onRefresh}
         token={token}
         roles={roles}
       />
@@ -5101,7 +5380,7 @@ function App() {
             <div className="loading">Connecting to broker...</div>
           ) : (
             <>
-              {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onToggleHost={handleToggleHost} onRevoke={handleRevoke} token={token} />}
+              {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onToggleHost={handleToggleHost} onRevoke={handleRevoke} token={token} onRefresh={fetchAll} />}
               {view === 'hosts' && <HostsView hosts={hosts} sessions={sessions} now={now} onToggleHost={handleToggleHost} token={token} onRefresh={fetchAll} />}
               {view === 'agents' && <AgentsView sessions={sessions} summary={summary} now={now} token={token} onViewActivity={(agentName) => { setActivityAgent(agentName); setView('activity'); }} />}
               {view === 'activity' && <ActivityView token={token} initialAgent={activityAgent} />}
