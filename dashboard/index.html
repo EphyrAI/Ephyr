@@ -2594,14 +2594,33 @@ function HostConfigPanel({ host, open, onClose, onSave, onDelete, token, roles }
   if (!open || !config) return null;
 
   const copyToClipboard = (text, btn) => {
-    navigator.clipboard.writeText(text).then(() => {
+    const doCopy = (t) => {
       const orig = btn.textContent;
       btn.textContent = 'COPIED';
       btn.style.color = 'var(--green)';
       btn.style.borderColor = 'var(--green)';
       setTimeout(() => { btn.textContent = orig; btn.style.color = ''; btn.style.borderColor = ''; }, 1500);
-    }).catch(() => {});
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => doCopy(text)).catch(() => {
+        // Fallback for non-HTTPS
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        doCopy(text);
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+      doCopy(text);
+    }
   };
+
+  // Broker IP derived from the dashboard URL (dashboard is served by the broker)
+  const brokerIP = window.location.hostname;
 
   const ProvisionCodeBlock = ({ code }) => (
     <div className="provision-code-wrap">
@@ -2639,22 +2658,14 @@ function HostConfigPanel({ host, open, onClose, onSave, onDelete, token, roles }
         {provisioned ? 'Host added successfully' : 'Provisioning Commands'}
       </h3>
       <p style={{ color: 'var(--text-dim)', marginBottom: '16px', fontSize: '12px' }}>
-        Run these commands on <span style={{ color: 'var(--cyan)' }}>{config.host || 'the target host'}</span> to complete setup:
+        Run these commands to set up <span style={{ color: 'var(--cyan)' }}>{config.host || 'the target host'}</span> to accept Ephyr SSH certificates.
       </p>
 
       <div className="provision-step">
-        <div className="provision-step-title">Option A: Run from the Ephyr broker host</div>
-        <ProvisionCodeBlock code={'scp /etc/ephyr/ca_key.pub /opt/ephyr/deploy/scripts/provision-target.sh root@' + (config.host || 'TARGET_HOST') + ':/tmp/\nssh root@' + (config.host || 'TARGET_HOST') + ' "bash /tmp/provision-target.sh /tmp/ca_key.pub"'} />
+        <div className="provision-step-title">Quick setup (run on the target host: {config.host || 'TARGET'})</div>
+        <ProvisionCodeBlock code={'# SSH into ' + (config.host || 'TARGET_HOST') + ' and run:\nscp root@' + brokerIP + ':/etc/ephyr/ca_key.pub /tmp/\nscp root@' + brokerIP + ':/opt/ephyr/deploy/scripts/provision-target.sh /tmp/\nbash /tmp/provision-target.sh /tmp/ca_key.pub'} />
         <p style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-          This creates default role accounts: agent-read (rbash), agent-op (bash), agent-admin (bash)
-        </p>
-      </div>
-
-      <div className="provision-step">
-        <div className="provision-step-title">Option B: Run from the target host itself</div>
-        <ProvisionCodeBlock code={'# On ' + (config.host || 'TARGET_HOST') + ':\nscp root@BROKER_HOST:/etc/ephyr/ca_key.pub /tmp/\nscp root@BROKER_HOST:/opt/ephyr/deploy/scripts/provision-target.sh /tmp/\nbash /tmp/provision-target.sh /tmp/ca_key.pub'} />
-        <p style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-          Replace BROKER_HOST with your Ephyr broker IP. Same result as Option A.
+          Creates default role accounts: agent-read (rbash), agent-op (bash), agent-admin (bash). Configures sshd to trust this broker's CA.
         </p>
       </div>
 
