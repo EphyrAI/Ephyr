@@ -1782,19 +1782,9 @@ Ordered by impact:
    potentially access broker memory or Unix sockets if it escalates
    privileges.
 
-2. **Enable host key verification.** The default SSH client uses
-   `InsecureIgnoreHostKey`. Until host key pinning is implemented in
-   policy, ensure the network path between the broker and all targets
-   is trusted (same VLAN, no untrusted L2 neighbors). This is the
-   highest-priority item to address. **These are prioritized for
-   immediate remediation and are the most likely blockers for
-   enterprise adoption.**
+2. **Enable host key verification (T6 — mitigated).** Per-target SSH host key pinning is available via `host_key` and `host_key_fingerprint` fields in policy.yaml. When configured, the broker verifies the target's host key on every connection and rejects mismatches with an ALERT-level audit event. Set `host_key_strict: true` globally to require pinning on all targets. Without pinning, the broker falls back to `InsecureIgnoreHostKey` with a logged warning.
 
-3. **Enable TLS verification for services.** The HTTP proxy uses
-   `InsecureSkipVerify: true`. Deploy proper TLS certificates or a
-   private CA for internal services. Place a TLS-terminating reverse
-   proxy in front of the dashboard and MCP ports. **Like T6 above,
-   this is prioritized for the next release cycle.**
+3. **Enable TLS verification for services (T7 — mitigated).** Per-service TLS certificate verification is available via `tls_verify`, `tls_ca`, `tls_ca_inline`, and `tls_fingerprint` fields in services.json and remotes.json. When enabled, the broker verifies backend TLS certificates against system CAs, custom CAs, or pinned fingerprints. Without configuration, the broker falls back to `InsecureSkipVerify` with a startup warning. Place a TLS-terminating reverse proxy in front of the dashboard and MCP ports for transport encryption to clients.
 
 **High:**
 
@@ -1992,14 +1982,9 @@ It cannot issue X.509 client certificates for mTLS workflows. Workloads
 requiring X.509 identity should use SPIFFE/SPIRE or a traditional PKI
 alongside Ephyr.
 
-**SSH host key verification disabled.** The broker's SSH client uses
-`InsecureIgnoreHostKey`, making SSH connections vulnerable to
-man-in-the-middle attacks. This is the most significant known security
-gap (see Threat T6 in the threat model).
+**SSH host key verification (T6 — mitigated, opt-in).** Per-target host key pinning is available via `host_key` and `host_key_fingerprint` fields in policy.yaml. When not configured, the broker falls back to `InsecureIgnoreHostKey` with a logged warning. Operators should pin host keys for all production targets and enable `host_key_strict: true` to prevent unpinned connections.
 
-**TLS certificate verification disabled.** The HTTP proxy and MCP
-federation client use `InsecureSkipVerify: true`, making HTTPS
-connections vulnerable to interception (see Threat T7).
+**TLS certificate verification (T7 — mitigated, opt-in).** Per-service and per-remote TLS verification is available via `tls_verify`, `tls_ca`, `tls_ca_inline`, and `tls_fingerprint` fields. When not configured, the broker falls back to `InsecureSkipVerify` with a startup warning. Operators should enable verification for all HTTPS services, especially those that carry injected credentials.
 
 **Credentials stored in plaintext.** Service credentials
 (`/var/lib/ephyr/services.json`) and federated MCP server credentials
@@ -2143,8 +2128,8 @@ at startup without it ever existing in a regular file.
 | T3 | Broker compromise | Critical | B2 | Mitigated (CA key isolated in signer); residual (service creds exposed) |
 | T4 | Signer compromise (CA key theft) | Critical | B1 | Mitigated (systemd sandbox, no network); residual (root host access) |
 | T5 | Target compromise via active session | Medium | B3 | Mitigated (5-min TTL); residual (no push revocation) |
-| T6 | SSH man-in-the-middle | Critical | B3 | **OPEN** -- `InsecureIgnoreHostKey` |
-| T7 | HTTPS man-in-the-middle | High | B4/B5 | **OPEN** -- `InsecureSkipVerify: true` |
+| T6 | SSH man-in-the-middle | Critical | B3 | **Mitigated** -- opt-in host key pinning via `host_key`/`host_key_fingerprint` |
+| T7 | HTTPS man-in-the-middle | High | B4/B5 | **Mitigated** -- opt-in TLS verification via `tls_verify`/`tls_ca`/`tls_fingerprint` |
 | T8 | Network bypass (agent direct access) | Medium | B0 | Mitigated (nftables UID rules for co-located agents) |
 | T9 | Dashboard token leakage | Medium | B5 | Partially mitigated (constant-time compare, privacy mode) |
 | T10 | Credential exposure at rest | High | -- | Partially mitigated (file permissions); residual (plaintext JSON) |
