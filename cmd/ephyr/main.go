@@ -30,7 +30,8 @@ Usage:
   ephyr whoami                      Show agent identity
   ephyr host-key --host HOST[:PORT] Scan and print SSH host key for policy pinning
   ephyr inspect [--token] [--json]  Inspect a macaroon token
-  ephyr monitor [logfile]           Live audit stream (default: /var/log/ephyr/audit.json)
+  ephyr monitor [--log path] [--severity WARN,ALERT] [--agent name] [--type exec,denied]
+                                    Live audit stream (default: /var/log/ephyr/audit.json)
   ephyr demo [--broker URL] [--key KEY]   Run full pipeline demo (macaroon + PoP)
 
 Global:

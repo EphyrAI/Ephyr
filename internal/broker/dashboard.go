@@ -91,6 +91,15 @@ type DashboardSummary struct {
 	CommandsDenied  int64  `json:"commands_denied"`
 	AutoRevocations int64  `json:"auto_revocations"`
 	MacaroonsMinted int64  `json:"macaroons_minted"`
+
+	// Operational health metrics
+	MacaroonsRejected  int64 `json:"macaroons_rejected"`
+	PopRejected        int64 `json:"pop_rejected"`
+	PopVerified        int64 `json:"pop_verified"`
+	ReducerInvocations int64 `json:"reducer_invocations"`
+	AuthCacheHits      int64 `json:"auth_cache_hits"`
+	AuthCacheMisses    int64 `json:"auth_cache_misses"`
+	LegacyRequests     int64 `json:"legacy_requests"`
 }
 
 // DashboardHost is a single host entry for GET /v1/dashboard/hosts.
@@ -106,6 +115,7 @@ type DashboardHost struct {
 	AllowedRoles   []string `json:"allowed_roles"`
 	Port           int      `json:"port"`
 	AutoApprove    bool     `json:"auto_approve"`
+	HostKeyStatus  string   `json:"host_key_status"`
 }
 
 // DashboardSession is a single session entry for GET /v1/dashboard/sessions.
@@ -352,6 +362,13 @@ func (bs *BrokerServer) handleDashboardSummary(w http.ResponseWriter, r *http.Re
 		resp.CommandsDenied = bs.metrics.CommandsDenied.Load()
 		resp.AutoRevocations = bs.metrics.AutoRevocations.Load()
 		resp.MacaroonsMinted = bs.metrics.MacaroonsMinted.Load()
+		resp.MacaroonsRejected = bs.metrics.MacaroonsRejected.Load()
+		resp.PopRejected = bs.metrics.PopRejected.Load()
+		resp.PopVerified = bs.metrics.PopVerified.Load()
+		resp.ReducerInvocations = bs.metrics.ReducerInvocations.Load()
+		resp.AuthCacheHits = bs.metrics.AuthCacheHits.Load()
+		resp.AuthCacheMisses = bs.metrics.AuthCacheMisses.Load()
+		resp.LegacyRequests = bs.metrics.LegacyRequests.Load()
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -360,6 +377,7 @@ func (bs *BrokerServer) handleDashboardSummary(w http.ResponseWriter, r *http.Re
 func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Request) {
 	bs.policyMu.RLock()
 	targets := bs.policyCfg.Raw.Targets
+	targetHostKeys := bs.policyCfg.TargetHostKeys
 	bs.policyMu.RUnlock()
 
 	activeCerts := bs.state.ListAllCerts()
@@ -376,6 +394,12 @@ func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Requ
 		if port == 0 {
 			port = 22
 		}
+		hostKeyStatus := "unpinned"
+		if targetHostKeys != nil {
+			if _, ok := targetHostKeys[name]; ok {
+				hostKeyStatus = "pinned"
+			}
+		}
 		hosts = append(hosts, DashboardHost{
 			Name:           name,
 			Host:           t.Host,
@@ -388,6 +412,7 @@ func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Requ
 			AllowedRoles:   t.AllowedRoles,
 			Port:           port,
 			AutoApprove:    t.AutoApprove,
+			HostKeyStatus:  hostKeyStatus,
 		})
 	}
 

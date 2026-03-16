@@ -318,22 +318,43 @@ func (p *ProxyEngine) Do(agentName string, req *ProxyRequest) (*ProxyResult, err
 	durationMs := time.Since(start).Milliseconds()
 
 	if err != nil {
-		details := map[string]string{
-			"url":         req.URL,
-			"method":      method,
-			"service":     serviceName(svc),
-			"error":       err.Error(),
-			"duration_ms": strconv.FormatInt(durationMs, 10),
-		}
+		reqURL := req.URL
 		if isTLSError(err) {
-			details["tls_error"] = "true"
+			p.broker.auditLog.LogEvent(audit.AuditEvent{
+				Severity:  audit.SeverityAlert,
+				EventType: "tls_verification_failed",
+				Agent:     agentName,
+				Details: map[string]string{
+					"service": serviceName(svc),
+					"url":     reqURL,
+					"method":  method,
+					"error":   err.Error(),
+				},
+			})
+			if p.broker.eventHub != nil {
+				p.broker.eventHub.Broadcast(Event{
+					Type: "tls_verification_failed",
+					Data: map[string]interface{}{
+						"service": serviceName(svc),
+						"agent":   agentName,
+						"error":   err.Error(),
+					},
+				})
+			}
+		} else {
+			p.broker.auditLog.LogEvent(audit.AuditEvent{
+				Severity:  audit.SeverityError,
+				EventType: "http_proxy",
+				Agent:     agentName,
+				Details: map[string]string{
+					"url":         reqURL,
+					"method":      method,
+					"service":     serviceName(svc),
+					"error":       err.Error(),
+					"duration_ms": strconv.FormatInt(durationMs, 10),
+				},
+			})
 		}
-		p.broker.auditLog.LogEvent(audit.AuditEvent{
-			Severity:  audit.SeverityError,
-			EventType: "http_proxy",
-			Agent:     agentName,
-			Details:   details,
-		})
 		return nil, fmt.Errorf("proxy: request failed: %w", err)
 	}
 	defer resp.Body.Close()

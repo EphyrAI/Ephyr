@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/EphyrAI/Ephyr/internal/audit"
 )
 
 // requestIDCounter is an atomically-incremented counter for JSON-RPC request IDs.
@@ -286,6 +288,29 @@ func (f *MCPFederator) sendJSONRPC(state *RemoteMCPState, method string, params 
 	// Execute the request.
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
+		if isTLSError(err) {
+			f.broker.auditLog.LogEvent(audit.AuditEvent{
+				Severity:  audit.SeverityAlert,
+				EventType: "tls_verification_failed",
+				Agent:     "federation",
+				Details: map[string]string{
+					"remote": cfg.Name,
+					"url":    cfg.URL,
+					"method": method,
+					"error":  err.Error(),
+				},
+			})
+			if f.broker.eventHub != nil {
+				f.broker.eventHub.Broadcast(Event{
+					Type: "tls_verification_failed",
+					Data: map[string]interface{}{
+						"remote": cfg.Name,
+						"url":    cfg.URL,
+						"error":  err.Error(),
+					},
+				})
+			}
+		}
 		return nil, fmt.Errorf("http request to %s: %w", cfg.URL, err)
 	}
 	defer httpResp.Body.Close()

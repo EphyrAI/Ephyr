@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -100,6 +101,9 @@ var eventIcons = map[string]string{
 	"session_reset":         "XSESN",
 	"rate_limited":          "RATE ",
 	"anomaly_detected":      "ANOM ",
+	"host_key_mismatch":       "HKEY ",
+	"host_key_unpinned":       "HKEY ",
+	"tls_verification_failed": "XTLS ",
 }
 
 // skipEvents are low-noise internal MCP events filtered out by default.
@@ -125,6 +129,10 @@ func getEventColor(evt string) string {
 	case strings.HasPrefix(evt, "task_") && !strings.Contains(evt, "revoke"):
 		return colorWhite + colorBold
 	case strings.Contains(evt, "revoke"):
+		return colorYellow
+	case evt == "host_key_mismatch" || evt == "tls_verification_failed":
+		return colorRed
+	case evt == "host_key_unpinned":
 		return colorYellow
 	case strings.Contains(evt, "denied") || evt == "auto_revoke":
 		return colorRed
@@ -690,6 +698,27 @@ func formatDetails(evt *AuditEvent) detailColumns {
 			detail: truncate(reason, colDetail),
 		}
 
+	case "host_key_mismatch":
+		return detailColumns{
+			target: get("target"),
+			detail: fmt.Sprintf("MISMATCH expected=%s got=%s",
+				truncate(resolveField(evt, "", "expected_fingerprint"), 20),
+				truncate(resolveField(evt, "", "presented_fingerprint"), 20)),
+		}
+
+	case "host_key_unpinned":
+		return detailColumns{
+			target: resolveField(evt, evt.Target, "target"),
+			detail: "no host key pinned — MITM possible",
+		}
+
+	case "tls_verification_failed":
+		return detailColumns{
+			target: get("service"),
+			role:   get("method"),
+			detail: truncate(get("error"), 50),
+		}
+
 	default:
 		return detailColumns{
 			detail: genericDetails(evt.Details),
@@ -714,9 +743,33 @@ func genericDetails(d map[string]string) string {
 // cmdMonitor implements the "ephyr monitor" subcommand.
 // It tails the audit log and renders events with color-coded, column-aligned output.
 func cmdMonitor(args []string) {
-	logPath := "/var/log/ephyr/audit.json"
-	if len(args) > 0 {
-		logPath = args[0]
+	fs := flag.NewFlagSet("monitor", flag.ExitOnError)
+	logPath := fs.String("log", "/var/log/ephyr/audit.json", "Audit log path")
+	severity := fs.String("severity", "", "Filter by severity (comma-separated: INFO,WARN,ERROR,ALERT)")
+	agent := fs.String("agent", "", "Filter by agent name")
+	eventType := fs.String("type", "", "Filter by event type (comma-separated)")
+	fs.Parse(args)
+
+	// If positional arg given and no --log flag, use positional.
+	if fs.NArg() > 0 && *logPath == "/var/log/ephyr/audit.json" {
+		*logPath = fs.Arg(0)
+	}
+
+	// Parse comma-separated filter values into maps.
+	var severityFilter map[string]bool
+	if *severity != "" {
+		severityFilter = make(map[string]bool)
+		for _, s := range strings.Split(*severity, ",") {
+			severityFilter[strings.ToUpper(strings.TrimSpace(s))] = true
+		}
+	}
+	agentFilter := *agent
+	var typeFilter map[string]bool
+	if *eventType != "" {
+		typeFilter = make(map[string]bool)
+		for _, t := range strings.Split(*eventType, ",") {
+			typeFilter[strings.TrimSpace(t)] = true
+		}
 	}
 
 	// Print header.
@@ -727,8 +780,22 @@ func cmdMonitor(args []string) {
 	fmt.Printf("%s%s====================================================%s\n", colorBold, colorCyan, colorReset)
 	fmt.Printf("%s%s  EPHYR LIVE MONITOR%s\n", colorBold, colorCyan, colorReset)
 	fmt.Printf("%s  Host:    %s%s%s\n", colorDim, colorReset+colorBold, hostname, colorReset)
-	fmt.Printf("%s  Log:     %s%s\n", colorDim, colorReset+logPath, "")
+	fmt.Printf("%s  Log:     %s%s\n", colorDim, colorReset+*logPath, "")
 	fmt.Printf("%s  Started: %s%s\n", colorDim, colorReset+now, "")
+	// Show active filters if any are set.
+	if severityFilter != nil || agentFilter != "" || typeFilter != nil {
+		var filters []string
+		if severityFilter != nil {
+			filters = append(filters, "severity="+*severity)
+		}
+		if agentFilter != "" {
+			filters = append(filters, "agent="+agentFilter)
+		}
+		if typeFilter != nil {
+			filters = append(filters, "type="+*eventType)
+		}
+		fmt.Printf("%s  Filters: %s%s%s\n", colorDim, colorReset+colorYellow, strings.Join(filters, "  "), colorReset)
+	}
 	fmt.Printf("%s%s====================================================%s\n", colorBold, colorCyan, colorReset)
 	fmt.Printf("  %sSSH%s = blue   %sHTTP%s = green   %sMCP%s = purple\n",
 		colorBlue+colorBold, colorReset, colorGreen+colorBold, colorReset, colorMagenta+colorBold, colorReset)
@@ -743,7 +810,7 @@ func cmdMonitor(args []string) {
 	fmt.Println()
 
 	// Open file.
-	f, err := os.Open(logPath)
+	f, err := os.Open(*logPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -786,6 +853,21 @@ func cmdMonitor(args []string) {
 			continue
 		}
 
+		// Apply filters.
+		sev := strings.ToUpper(evt.Severity)
+		if len(sev) > 4 {
+			sev = sev[:4]
+		}
+		if severityFilter != nil && !severityFilter[sev] {
+			continue
+		}
+		if agentFilter != "" && evt.Agent != agentFilter {
+			continue
+		}
+		if typeFilter != nil && !typeFilter[evt.EventType] {
+			continue
+		}
+
 		totalEvents++
 
 		// Parse timestamp.
@@ -803,13 +885,6 @@ func cmdMonitor(args []string) {
 			}
 			icon = strings.ToUpper(icon)
 		}
-
-		// Severity (4-char max, uppercase).
-		sev := evt.Severity
-		if len(sev) > 4 {
-			sev = sev[:4]
-		}
-		sev = strings.ToUpper(sev)
 
 		// Event color and severity color.
 		evtColor := getEventColor(evt.EventType)
