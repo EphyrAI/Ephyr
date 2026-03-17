@@ -1684,6 +1684,26 @@ set its own `Authorization` header -- the broker's injected value takes
 precedence. This prevents agents from redirecting credentials to
 unintended destinations.
 
+**Proxy hardening (RISK-3):** The proxy applies several transport-level
+protections to prevent credential leakage and request manipulation:
+
+- **Hop-by-hop header stripping** -- headers listed in RFC 2616 section 13.5.1
+  (`Connection`, `Keep-Alive`, `Proxy-Authenticate`, `Proxy-Authorization`,
+  `TE`, `Transfer-Encoding`, `Trailer`, `Upgrade`) are stripped before
+  forwarding. This prevents hop-by-hop header smuggling attacks.
+- **httpoxy mitigation** -- `HTTP_PROXY` and `http_proxy` environment
+  variables are unset at broker startup, preventing CVE-2016-5385-style
+  attacks where a malicious `Proxy` request header could redirect outbound
+  HTTP connections.
+- **Redirect following disabled** -- the proxy returns 3xx responses directly
+  to the agent rather than following them. This prevents credential leakage
+  to redirect targets that may be outside the network policy.
+- **Credential response header stripping** -- `Authorization`, `Set-Cookie`,
+  `Cookie`, and `Proxy-Authorization` headers are stripped from proxied
+  responses before returning them to agents.
+- **`X-Ephyr-Proxy: true` header** -- added to all proxied requests,
+  allowing backend services to identify broker-mediated traffic.
+
 **Redaction:** Credentials are masked in all API responses (`"***"`),
 audit logs, and dashboard displays. The only location where plaintext
 credentials exist is `/var/lib/ephyr/services.json` and the broker's
@@ -2014,6 +2034,12 @@ eliminate it. Specifically, bearer tokens do not provide:
 - TLS channel binding (not implemented)
 
 These limitations are addressed by Ephyr Bind (Section 7.6).
+
+**HTTP proxy credential leakage (RISK-3 -- partially mitigated).** The
+proxy now strips hop-by-hop headers, disables redirect following, sanitizes
+httpoxy environment variables, strips credential response headers, and
+adds `X-Ephyr-Proxy` to outbound requests. Remaining: no per-service
+redirect policy, no SSRF token on internal requests.
 
 ### 14.2 Planned Improvements
 

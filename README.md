@@ -90,9 +90,11 @@ graph LR
 
 </details>
 
-**ephyr-signer** holds the Ed25519 CA private key in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. Unix socket IPC only. The CA key never leaves this process, never touches the network.
+**ephyr signer** holds the Ed25519 CA private key in a systemd sandbox with `ProtectSystem=strict`, `MemoryDenyWriteExecute`, and zero capabilities. Unix socket IPC only. The CA key never leaves this process, never touches the network.
 
-**ephyr-broker** handles everything else: HMAC chain verification, caveat reduction, policy evaluation, SSH certificate requests via signer IPC, HTTP proxy with credential injection, MCP federation, task tree management, structured audit logging, and the admin dashboard.
+**ephyr broker** handles everything else: HMAC chain verification, caveat reduction, policy evaluation, SSH certificate requests via signer IPC, HTTP proxy with credential injection, MCP federation, task tree management, structured audit logging, and the admin dashboard.
+
+Both run as subcommands of the single `ephyr` binary. Legacy `ephyr-broker` and `ephyr-signer` binaries are still built for backward compatibility.
 
 ## Capability Tiers
 
@@ -305,6 +307,7 @@ Key operational controls: policy inspection, emergency certificate revocation, r
 - **Network isolation** -- nftables drops direct agent-to-backend traffic
 - **Delegation separation** -- Broker signs task tokens with a delegated key, not the CA key
 - **Epoch revocation** -- No per-token blocklists; watermark-based invalidation in O(depth)
+- **Proxy hardening** -- hop-by-hop header stripping (RFC 2616), `HTTP_PROXY`/`http_proxy` sanitized at startup (httpoxy mitigation), redirect following disabled (3xx returned to agent), credential headers (`Authorization`, `Set-Cookie`, `Cookie`) stripped from proxied responses, `X-Ephyr-Proxy: true` header on all proxied requests
 
 ### Request Filtering
 
@@ -383,14 +386,17 @@ Dashboard at `http://localhost:8553` (default port, token: `changeme`). Edit `ex
 
 ```bash
 git clone https://github.com/EphyrAI/Ephyr.git
-cd Ephyr
-
-# One command: build, install, create user, generate CA key, write
-# example policy, install systemd units, start services.
-sudo make setup
+cd Ephyr && go build -o /usr/local/bin/ephyr ./cmd/ephyr
+sudo ephyr init
 ```
 
-Requires Go 1.24+ and systemd. Customize with:
+`ephyr init` generates the CA key, writes an example policy, creates the system user and directories, installs systemd units, and starts both services. For development mode (relaxed defaults):
+
+```bash
+sudo ephyr init --dev
+```
+
+Requires Go 1.24+ and systemd. Alternatively, `sudo make setup` provides the same result with Makefile-based customization:
 ```bash
 sudo make setup DASHBOARD_TOKEN=mysecret MCP_PORT=9000 DASHBOARD_PORT=9001
 ```
@@ -520,9 +526,9 @@ No external databases. No message queues. No container runtime.
 ```
 ephyr/
 ├── cmd/
-│   ├── broker/         # ephyr-broker entry point
-│   ├── ephyr/          # CLI tool (includes `inspect` command)
-│   └── signer/         # ephyr-signer entry point
+│   ├── ephyr/          # Single binary: broker, signer, init, inspect, monitor, demo, version
+│   ├── broker/         # Legacy ephyr-broker entry point (backward compatibility)
+│   └── signer/         # Legacy ephyr-signer entry point (backward compatibility)
 ├── internal/
 │   ├── audit/          # Structured JSON-line audit
 │   ├── auth/           # Session manager, SO_PEERCRED
@@ -613,8 +619,10 @@ The broker can run on the same host as the agent (co-located), but deploying on 
 Contributions welcome. The codebase is ~24,000 lines of Go across ~64 files with no code generation and no frameworks -- the standard library plus three dependencies.
 
 ```bash
-make test    # Run tests
-make lint    # Run linter
+go build -o bin/ephyr ./cmd/ephyr   # Single binary (primary)
+make build                          # Builds single binary + legacy binaries
+make test                           # Run tests
+make lint                           # Run linter
 ```
 
 Please open an issue before starting work on large changes.

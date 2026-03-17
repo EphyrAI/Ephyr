@@ -106,6 +106,8 @@ The broker generates an ephemeral Ed25519 keypair in memory, requests a signed c
 
 The proxy engine resolves the target URL's DNS (2-second timeout), evaluates CIDR allow/deny policy, matches the URL against configured service prefixes, and injects stored credentials. Agent-supplied headers cannot override injected authentication headers. Network policy defaults to RFC 1918 private ranges only; external access requires explicit hostname allowlist entries.
 
+**Proxy hardening (RISK-3):** The proxy strips hop-by-hop headers per RFC 2616 before forwarding. Redirect following is disabled -- 3xx responses are returned directly to the agent, preventing credential leakage to redirect targets. `HTTP_PROXY` and `http_proxy` environment variables are unset at broker startup to mitigate httpoxy (CVE-2016-5385). Credential-bearing response headers (`Authorization`, `Set-Cookie`, `Cookie`, `Proxy-Authorization`) are stripped from proxied responses. All proxied requests include an `X-Ephyr-Proxy: true` header for backend-side identification.
+
 ### B4: Broker to Remote MCP Servers
 
 The broker proxies JSON-RPC 2.0 tool calls to federated MCP servers, injecting any configured credentials. Remote tools are auto-discovered via the MCP handshake (`initialize` then `tools/list`) with periodic background refresh and exponential backoff on failures. Each remote server's tools are namespaced to prevent collision.
@@ -364,6 +366,7 @@ The following table provides a consolidated view of the most significant residua
 | 14 | Bind deadline window (30s unbound period) | **Low** | B0r | Accepted -- TLS protects transit; deadline is configurable; unbound tokens expire |
 | 15 | Body tampering without Bind | **Low** | B3 | Mitigated -- TLS provides integrity; PoP body binding enforced for holder-bound tokens via `body_hash` in `_pop` |
 | 16 | Target host misconfiguration widens blast radius | **High** | B2 | Operational -- deployer responsibility; provisioning script and docs provided |
+| 17 | HTTP proxy credential leakage via redirects or response headers | **Medium** | B3 | Partially mitigated -- redirect following disabled, hop-by-hop headers stripped, credential response headers stripped, httpoxy sanitized at startup, `X-Ephyr-Proxy` header added. Remaining: no per-service redirect policy, no SSRF token on internal requests. |
 
 ### T18: Target Host Misconfiguration
 
@@ -397,3 +400,4 @@ The following table provides a consolidated view of the most significant residua
 |------|--------|-------------|
 | 2026-03-12 | Initial | Initial threat model based on architecture review |
 | 2026-03-14 | Update | Added T14-T16: bearer token replay, bind deadline window, body tampering; renumbered delegation key compromise to T17 |
+| 2026-03-17 | Update | Added weakness #17: HTTP proxy credential leakage; updated B3 boundary description with proxy hardening details (RISK-3) |

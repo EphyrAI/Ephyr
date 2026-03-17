@@ -151,6 +151,21 @@ Federated tools are namespaced as `{server}.{tool}`. Example: a remote named "ut
 | `ephyr://tools` | Tool reference with parameters and usage examples |
 | `ephyr://remotes` | Federated MCP servers with tools and status |
 
+## CLI Commands
+
+The `ephyr` binary is a single unified tool for both administration and agent operations:
+
+| Command | Description |
+|---------|-------------|
+| `ephyr init` | One-command setup wizard (CA key, policy, systemd units, start services) |
+| `ephyr broker` | Run the broker process (policy engine, MCP server, dashboard) |
+| `ephyr signer` | Run the signer process (CA key custody, certificate signing) |
+| `ephyr exec` | Execute a command on a target via ephemeral SSH certificate |
+| `ephyr inspect` | Inspect a macaroon token's caveats and effective envelope |
+| `ephyr monitor` | Live monitoring of broker activity |
+| `ephyr demo` | Demonstration mode |
+| `ephyr version` | Print version and build information |
+
 ## Key Behaviors
 
 - **Ephemeral access** -- SSH certificates have short TTLs (default 5 min). Service and MCP grants auto-expire. Access disappears when the task is done.

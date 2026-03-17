@@ -64,21 +64,43 @@ For production deployments, a dedicated host provides the strongest isolation. C
 
 ---
 
+## Quick Setup with `ephyr init`
+
+The fastest way to get a native install running:
+
+```bash
+git clone https://github.com/EphyrAI/Ephyr.git
+cd Ephyr && go build -o /usr/local/bin/ephyr ./cmd/ephyr
+sudo ephyr init
+```
+
+`ephyr init` handles the full setup: creates the system user and directories, generates the CA key, writes an example policy, installs systemd units, and starts both services. For development (relaxed defaults, localhost-only listeners):
+
+```bash
+sudo ephyr init --dev
+```
+
+After init completes, the output shows the dashboard URL, MCP endpoint, and demo API key. Edit `/etc/ephyr/policy.yaml` to add your targets.
+
+---
+
 ## Building from Source
 
-Clone the repository and build all three binaries:
+Clone the repository and build:
 
 ```bash
 git clone https://github.com/EphyrAI/Ephyr.git
 cd ephyr
 
-# Build all binaries
+# Single binary (primary -- includes broker, signer, init, and all CLI tools)
+go build -o bin/ephyr ./cmd/ephyr
+
+# Legacy separate binaries (backward compatibility)
 go build -o bin/ephyr-broker ./cmd/broker
 go build -o bin/ephyr-signer ./cmd/signer
-go build -o bin/ephyr         ./cmd/ephyr
 
 # Optional: set version at build time
-go build -ldflags "-X main.version=1.0.0" -o bin/ephyr-broker ./cmd/broker
+go build -ldflags "-X main.version=1.0.0" -o bin/ephyr ./cmd/ephyr
 ```
 
 The project has minimal dependencies (see go.mod):
@@ -89,7 +111,7 @@ The project has minimal dependencies (see go.mod):
 Verify the build:
 
 ```bash
-./bin/ephyr-broker -version
+./bin/ephyr version
 ./bin/ephyr help
 ```
 
@@ -146,9 +168,11 @@ mkdir -p /opt/ephyr/dashboard
 ### 3. Install Binaries
 
 ```bash
+install -m 755 bin/ephyr /usr/local/bin/
+
+# Optional: legacy separate binaries for backward compatibility
 install -m 755 bin/ephyr-broker /usr/local/bin/
 install -m 755 bin/ephyr-signer /usr/local/bin/
-install -m 755 bin/ephyr        /usr/local/bin/
 ```
 
 ---
@@ -252,7 +276,7 @@ StartLimitIntervalSec=60
 Type=simple
 User=ephyr-broker
 Group=ephyr-broker
-ExecStart=/usr/local/bin/ephyr-signer \
+ExecStart=/usr/local/bin/ephyr signer \
     --ca-key /etc/ephyr/ca_key \
     --socket /run/ephyr/signer.sock
 Restart=on-failure
@@ -287,6 +311,8 @@ WantedBy=multi-user.target
 Note: Set EPHYR_BROKER_UID to the actual UID of the ephyr-broker user.
 Find it with: `id -u ephyr-broker`
 
+The ExecStart paths above use the single `ephyr` binary with subcommands (`ephyr signer`, `ephyr broker`). The legacy standalone binaries (`ephyr-signer`, `ephyr-broker`) are also built by `make build` and work identically if you prefer separate binaries.
+
 ### Broker Service
 
 Create /etc/systemd/system/ephyr-broker.service:
@@ -304,7 +330,7 @@ StartLimitIntervalSec=60
 Type=simple
 User=ephyr-broker
 Group=ephyr-broker
-ExecStart=/usr/local/bin/ephyr-broker \
+ExecStart=/usr/local/bin/ephyr broker \
     --policy /etc/ephyr/policy.yaml \
     --signer-socket /run/ephyr/signer.sock \
     --listen /run/ephyr/broker.sock \
@@ -562,10 +588,12 @@ For Claude Code, add to your MCP settings (typically in
 Reload the policy to pick up the new API key hash:
 
 ```bash
-systemctl reload ephyr-broker
+systemctl reload ephyr-broker    # hot-reload policy
 # Or, for a full restart:
-systemctl restart ephyr-broker
+systemctl restart ephyr-broker   # full restart
 ```
+
+Note: the systemd unit names remain `ephyr-signer` and `ephyr-broker` regardless of whether the underlying binary is the single `ephyr` binary or the legacy standalone binaries.
 
 ### Step 6: Test with curl
 

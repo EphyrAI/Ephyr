@@ -13,11 +13,13 @@ DASHBOARD_PORT ?= 8553
 
 # ── Build ───────────────────────────────────────────────────────────
 
-# Primary binary (includes broker, signer, and all CLI tools)
+# Single binary (includes broker, signer, init, inspect, monitor, demo, version)
+# The legacy ephyr-broker and ephyr-signer binaries are built for backward
+# compatibility -- they are thin wrappers and can be used interchangeably
+# with `ephyr broker` and `ephyr signer`.
 build:
 	@mkdir -p $(BINDIR)
 	go build $(GOFLAGS) -o $(BINDIR)/ephyr ./cmd/ephyr
-	# Legacy separate binaries (backward compatibility)
 	go build $(GOFLAGS) -o $(BINDIR)/ephyr-broker ./cmd/broker
 	go build $(GOFLAGS) -o $(BINDIR)/ephyr-signer ./cmd/signer
 	@echo "Built: $(BINDIR)/ephyr  $(BINDIR)/ephyr-broker  $(BINDIR)/ephyr-signer"

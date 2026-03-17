@@ -9,10 +9,11 @@ Thanks for your interest in contributing to Ephyr! This document covers the basi
 git clone https://github.com/EphyrAI/Ephyr.git
 cd ephyr
 
-# Build all binaries
-go build -o bin/ephyr-broker ./cmd/broker
-go build -o bin/ephyr-signer ./cmd/signer
+# Build the single binary (includes broker, signer, init, and all CLI tools)
 go build -o bin/ephyr ./cmd/ephyr
+
+# Or build everything including legacy binaries
+make build
 
 # Run tests
 go test ./...
@@ -23,7 +24,7 @@ go test ./...
 ## Project Structure
 
 ```
-cmd/           Entry points for the three binaries
+cmd/           Entry points (cmd/ephyr/ is the single binary; cmd/broker/ and cmd/signer/ are legacy)
 internal/      Core packages (not importable externally)
   audit/       Structured JSON audit logging
   auth/        Session management, Unix peer credentials

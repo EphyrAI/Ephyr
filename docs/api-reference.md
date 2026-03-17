@@ -791,6 +791,13 @@ Create or update an HTTP proxy service configuration.
 
 Persisted atomically to `/var/lib/ephyr/services.json`.
 
+**Proxy hardening notes:**
+
+- Proxied responses have credential-bearing headers stripped before returning to agents (`Authorization`, `Set-Cookie`, `Cookie`, `Proxy-Authorization`).
+- All proxied requests include an `X-Ephyr-Proxy: true` header for backend-side identification.
+- Redirect following is disabled. The broker returns 3xx responses directly to the agent rather than following them, preventing credential leakage to redirect targets.
+- Hop-by-hop headers are stripped per RFC 2616 before forwarding.
+
 ---
 
 ### DELETE /v1/dashboard/services/{name}

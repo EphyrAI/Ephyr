@@ -15,6 +15,11 @@ broker process (or running `systemctl reload ephyr-broker`).
 
 Default path: `/etc/ephyr/policy.yaml`
 
+**Initial generation:** Run `sudo ephyr init` to generate a working policy.yaml
+with example agents, roles, and targets. The init wizard creates all required
+directories, the CA key, and systemd units in one step. Use `--dev` for
+development defaults.
+
 ### Full Annotated Example
 
 ```yaml
@@ -397,7 +402,7 @@ In this example:
 All environment variables have corresponding CLI flags. The flag takes
 precedence if both are set.
 
-### Broker (ephyr-broker)
+### Broker (ephyr broker / ephyr-broker)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -414,7 +419,7 @@ precedence if both are set.
 | EPHYR_AUTH_CACHE_TTL | 60s | TTL for the MCP API key authentication cache. Accepts Go duration strings (e.g., `"30s"`, `"2m"`, `"0"`). Set to `"0"` to disable caching entirely -- every MCP request will perform a full bcrypt comparison. The cache avoids repeated bcrypt work for the same API key within the TTL window. |
 | EPHYR_POP_CLOCK_SKEW | 30s | Maximum allowed clock skew for proof-of-possession timestamp validation (Ephyr Bind). Accepts Go duration strings. PoP proofs with timestamps outside `now +/- skew` are rejected. Increase if agents and broker clocks are loosely synchronized. |
 
-### Signer (ephyr-signer)
+### Signer (ephyr signer / ephyr-signer)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -439,7 +444,7 @@ agents are added or removed from the policy.
 
 ## CLI Flags
 
-### ephyr-broker
+### ephyr broker
 
 ```
   -policy PATH             Policy YAML file (env: EPHYR_POLICY)
@@ -459,16 +464,20 @@ agents are added or removed from the policy.
 
 The -admin-uid flag can be repeated to allow multiple admin UIDs:
 ```bash
-ephyr-broker -admin-uid 0 -admin-uid 1000
+ephyr broker -admin-uid 0 -admin-uid 1000
 ```
 
-### ephyr-signer
+The legacy `ephyr-broker` binary accepts the same flags and is functionally identical.
+
+### ephyr signer
 
 ```
   -ca-key PATH             CA private key file (env: EPHYR_CA_KEY)
   -socket PATH             IPC Unix socket (env: EPHYR_SOCKET)
   -broker-uid UID          Allowed caller UID (env: EPHYR_BROKER_UID)
 ```
+
+The legacy `ephyr-signer` binary accepts the same flags and is functionally identical.
 
 ### ephyr (Agent CLI)
 
