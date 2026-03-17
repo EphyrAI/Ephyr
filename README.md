@@ -599,13 +599,14 @@ The broker can run on the same host as the agent (co-located), but deploying on 
 | Document | Description |
 |----------|-------------|
 | [Target Setup](docs/target-setup.md) | Configure SSH targets: roles, principals, sudoers |
-| [Architecture](docs/internal/architecture.md) | Trust model, delegation chain, validation flow |
-| [Security](docs/internal/security.md) | Security boundaries, hardening guide |
 | [Configuration](docs/configuration.md) | Full policy reference and RBAC setup |
 | [Deployment](docs/deployment.md) | Local, dedicated host, and production scenarios |
 | [API Reference](docs/api-reference.md) | Complete REST and MCP API documentation |
 | [MCP Integration](docs/mcp-integration.md) | Client setup for Claude Code, Desktop, Cursor, Cline |
-| [Threat Model](docs/THREAT_MODEL.md) | 14 enumerated threats with mitigations |
+| [Threat Model](docs/THREAT_MODEL.md) | Enumerated threats with mitigations |
+| [Architecture Whitepaper](docs/whitepapers/architecture.md) | Complete architectural specification |
+| [Security Whitepaper](docs/whitepapers/security.md) | Security analysis and cryptographic choices |
+| [Task Identity Whitepaper](docs/whitepapers/task-identity.md) | Task-scoped identity and delegation model |
 
 ## Contributing
 
