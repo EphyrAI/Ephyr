@@ -434,7 +434,7 @@ ephyr inspect <token>
 
 The child token's HMAC chain cryptographically proves the caveats accumulated. The reducer guarantees the child's effective authority is strictly narrower than the parent's.
 
-> For the full architecture — tiered trust, macaroon caveat chains, epoch watermark revocation, and holder-bound tokens — see [docs/architecture.md](docs/architecture.md).
+> For the full architecture — tiered trust, macaroon caveat chains, epoch watermark revocation, and holder-bound tokens — see [docs/internal/architecture.md](docs/internal/architecture.md).
 
 ## MCP Integration
 
@@ -599,8 +599,8 @@ The broker can run on the same host as the agent (co-located), but deploying on 
 | Document | Description |
 |----------|-------------|
 | [Target Setup](docs/target-setup.md) | Configure SSH targets: roles, principals, sudoers |
-| [Architecture](docs/architecture.md) | Trust model, delegation chain, validation flow |
-| [Security](docs/security.md) | Security boundaries, hardening guide |
+| [Architecture](docs/internal/architecture.md) | Trust model, delegation chain, validation flow |
+| [Security](docs/internal/security.md) | Security boundaries, hardening guide |
 | [Configuration](docs/configuration.md) | Full policy reference and RBAC setup |
 | [Deployment](docs/deployment.md) | Local, dedicated host, and production scenarios |
 | [API Reference](docs/api-reference.md) | Complete REST and MCP API documentation |

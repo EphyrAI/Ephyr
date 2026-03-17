@@ -4,7 +4,7 @@ All notable changes to Ephyr are documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.2b] -- 2026-03-14
+## [0.2b]
 
 Macaroon-based task tokens (**Ephyr Delegation**). Replaces JWT-based CTT-E/CTT-D tokens with HMAC-chained macaroons and introduces the effective envelope reducer.
 
@@ -30,7 +30,7 @@ Macaroon-based task tokens (**Ephyr Delegation**). Replaces JWT-based CTT-E/CTT-
 - Task tokens are bearer tokens by default. A leaked macaroon can be used by anyone until TTL expiry or epoch watermark revocation. This is mitigated by short TTLs (default 30 minutes, max 1 hour) and watermark revocation. Holder binding is available via Ephyr Bind (v0.3) for tasks that opt in.
 - The HMAC chain proves caveat accumulation (caveats cannot be removed). The reducer derives semantic narrowing (set intersection, minimum, boolean AND). These are distinct guarantees -- do not conflate them.
 
-## [0.3.0] -- 2026-03-13
+## [0.3.0]
 
 > **Note:** This release and all earlier releases were developed under the name "Clauth" (now renamed to Ephyr).
 
@@ -57,7 +57,7 @@ Delegation with attenuation: parent tasks can spawn scoped child tasks with mono
 - `authenticateWithCTTE()` now calls `Validate()` instead of `ValidateCTTE()`, accepting both CTT-E and CTT-D tokens for MCP authentication
 - MCP tool count increased from 14 to 16 (9 core + 6 task + federated)
 
-## [0.2.0] -- 2026-03-13
+## [0.2.0]
 
 > **Note:** Released under the name "Clauth" (now renamed to Ephyr).
 
@@ -100,7 +100,7 @@ Task-scoped portable identity, auth caching, Prometheus metrics, and integration
 - **Token signing**: <1ms via local Ed25519 signing with delegated key (no IPC per token)
 - **Token validation**: <1ms for signature + envelope + watermark check
 
-## [0.1.0] -- 2026-03-13
+## [0.1.0]
 
 > **Note:** Released under the name "Clauth" (now renamed to Ephyr).
 
