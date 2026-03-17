@@ -164,9 +164,9 @@ func cmdExec(args []string) {
 	os.Exit(exitCode)
 }
 
-// cmdStatus handles: ephyr status
-func cmdStatus(args []string) {
-	fs := flag.NewFlagSet("status", flag.ExitOnError)
+// cmdCerts handles: ephyr certs (list active certificates)
+func cmdCerts(args []string) {
+	fs := flag.NewFlagSet("certs", flag.ExitOnError)
 	socket := fs.String("socket", defaultSocket, "Broker socket path")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
 	_ = fs.Parse(args)

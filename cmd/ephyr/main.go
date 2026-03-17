@@ -32,7 +32,8 @@ Usage:
   ephyr request -t HOST -r ROLE   Request a certificate
   ephyr ssh -t HOST -r ROLE       Request cert + open SSH session
   ephyr exec -t HOST -r ROLE -- CMD  Request cert + run remote command
-  ephyr status                    List active certificates
+  ephyr status [--restart]        Health check (verify services, sockets, endpoints)
+  ephyr certs                     List active certificates
   ephyr targets                   List available SSH targets
   ephyr services                  List HTTP proxy services
   ephyr remotes                   List federated MCP servers
@@ -73,7 +74,9 @@ func main() {
 	case "exec":
 		cmdExec(os.Args[2:])
 	case "status":
-		cmdStatus(os.Args[2:])
+		cmdHealthStatus(os.Args[2:])
+	case "certs":
+		cmdCerts(os.Args[2:])
 	case "targets":
 		cmdTargets(os.Args[2:])
 	case "services":
