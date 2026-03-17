@@ -9,7 +9,7 @@ Type=simple
 User={{ ephyr_user }}
 Group={{ ephyr_group }}
 
-ExecStart=/usr/local/bin/ephyr-broker --policy {{ ephyr_config_dir }}/policy.yaml
+ExecStart=/usr/local/bin/ephyr broker --policy {{ ephyr_config_dir }}/policy.yaml
 Environment=EPHYR_DASHBOARD_LISTEN=:{{ ephyr_dashboard_port }}
 Environment=EPHYR_DASHBOARD_TOKEN={{ ephyr_dashboard_token }}
 Environment=EPHYR_DASHBOARD_DIR={{ ephyr_install_dir }}/dashboard

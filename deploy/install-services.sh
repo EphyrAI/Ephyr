@@ -18,7 +18,7 @@ Before=ephyr-broker.service
 Type=simple
 User=ephyr-broker
 Group=ephyr-agents
-ExecStart=/usr/local/bin/ephyr-signer --ca-key /etc/ephyr/ca_key --socket /run/ephyr/signer.sock
+ExecStart=/usr/local/bin/ephyr signer --ca-key /etc/ephyr/ca_key --socket /run/ephyr/signer.sock
 
 StandardOutput=journal
 StandardError=journal
@@ -62,7 +62,7 @@ Wants=ephyr-signer.service
 Type=simple
 User=ephyr-broker
 Group=ephyr-agents
-ExecStart=/usr/local/bin/ephyr-broker --policy /etc/ephyr/policy.yaml
+ExecStart=/usr/local/bin/ephyr broker --policy /etc/ephyr/policy.yaml
 ExecReload=/bin/kill -HUP \$MAINPID
 
 Environment=EPHYR_SIGNER_SOCKET=/run/ephyr/signer.sock

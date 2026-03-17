@@ -9,7 +9,7 @@ Type=simple
 User=ephyr-broker
 Group=ephyr-agents
 
-ExecStart=/usr/local/bin/ephyr-broker --policy /etc/ephyr/policy.yaml
+ExecStart=/usr/local/bin/ephyr broker --policy /etc/ephyr/policy.yaml
 ExecReload=/bin/kill -HUP $MAINPID
 
 # Port and token configuration (defaults shown).

@@ -9,7 +9,7 @@ Type=simple
 User=ephyr-broker
 Group=ephyr-agents
 
-ExecStart=/usr/local/bin/ephyr-signer --ca-key /etc/ephyr/ca_key --socket /run/ephyr/signer.sock
+ExecStart=/usr/local/bin/ephyr signer --ca-key /etc/ephyr/ca_key --socket /run/ephyr/signer.sock
 
 StandardOutput=journal
 StandardError=journal

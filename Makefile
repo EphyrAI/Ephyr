@@ -13,12 +13,14 @@ DASHBOARD_PORT ?= 8553
 
 # ── Build ───────────────────────────────────────────────────────────
 
+# Primary binary (includes broker, signer, and all CLI tools)
 build:
 	@mkdir -p $(BINDIR)
+	go build $(GOFLAGS) -o $(BINDIR)/ephyr ./cmd/ephyr
+	# Legacy separate binaries (backward compatibility)
 	go build $(GOFLAGS) -o $(BINDIR)/ephyr-broker ./cmd/broker
 	go build $(GOFLAGS) -o $(BINDIR)/ephyr-signer ./cmd/signer
-	go build $(GOFLAGS) -o $(BINDIR)/ephyr ./cmd/ephyr
-	@echo "Built: $(BINDIR)/ephyr-broker  $(BINDIR)/ephyr-signer  $(BINDIR)/ephyr"
+	@echo "Built: $(BINDIR)/ephyr  $(BINDIR)/ephyr-broker  $(BINDIR)/ephyr-signer"
 
 test:
 	go test -race -coverprofile=coverage.out ./...

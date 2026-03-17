@@ -118,11 +118,63 @@ func init() {
 	}
 }
 
+// hopByHopHeaders are headers that apply to a single transport-level connection
+// and must not be forwarded by proxies (RFC 2616 §13.5.1).
+var hopByHopHeaders = []string{
+	"Connection",
+	"Keep-Alive",
+	"Proxy-Authenticate",
+	"Proxy-Authorization",
+	"TE",
+	"Trailer",
+	"Transfer-Encoding",
+	"Upgrade",
+}
+
+// sensitiveResponseHeaders are credential-bearing headers that must be stripped
+// from backend responses before returning them to the agent.
+var sensitiveResponseHeaders = []string{
+	"Authorization",
+	"Proxy-Authorization",
+	"WWW-Authenticate",
+	"Set-Cookie",
+	"Cookie",
+}
+
+// stripHopByHopHeaders removes hop-by-hop headers from an http.Header.
+func stripHopByHopHeaders(h http.Header) {
+	for _, hdr := range hopByHopHeaders {
+		h.Del(hdr)
+	}
+}
+
+// stripSensitiveResponseHeaders removes credential-bearing headers from an http.Header.
+func stripSensitiveResponseHeaders(h http.Header) {
+	for _, hdr := range sensitiveResponseHeaders {
+		h.Del(hdr)
+	}
+}
+
+// clearProxyEnv removes HTTP_PROXY/HTTPS_PROXY environment variables to prevent
+// the httpoxy attack (CVE-2016-5386) where a malicious env var could redirect
+// the broker's outbound requests through an attacker-controlled proxy.
+func clearProxyEnv() {
+	for _, env := range []string{
+		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+		"http_proxy", "https_proxy", "no_proxy",
+	} {
+		os.Unsetenv(env)
+	}
+}
+
 // NewProxyEngine creates a proxy engine with service configs loaded from disk.
 func NewProxyEngine(broker *BrokerServer, filePath string, pol *NetworkPolicy) *ProxyEngine {
 	if pol == nil {
 		pol = DefaultNetworkPolicy
 	}
+
+	// Prevent httpoxy attacks (CVE-2016-5386).
+	clearProxyEnv()
 
 	p := &ProxyEngine{
 		services:       make(map[string]*ServiceConfig),
@@ -287,6 +339,12 @@ func (p *ProxyEngine) Do(agentName string, req *ProxyRequest) (*ProxyResult, err
 		}
 	}
 
+	// 7a. Strip hop-by-hop headers from the outbound request.
+	stripHopByHopHeaders(httpReq.Header)
+
+	// 7b. Tag outbound requests so downstream services can identify broker-mediated traffic.
+	httpReq.Header.Set("X-Ephyr-Proxy", "true")
+
 	// 8. Determine timeout.
 	timeout := defaultTimeoutSeconds
 	if svc != nil && svc.Timeout > 0 {
@@ -387,7 +445,10 @@ func (p *ProxyEngine) Do(agentName string, req *ProxyRequest) (*ProxyResult, err
 		}
 	}
 
-	// 11. Build ProxyResult.
+	// 11. Strip hop-by-hop and sensitive headers from the response before returning.
+	stripHopByHopHeaders(resp.Header)
+	stripSensitiveResponseHeaders(resp.Header)
+
 	respHeaders := make(map[string]string, len(resp.Header))
 	for k := range resp.Header {
 		respHeaders[k] = resp.Header.Get(k)

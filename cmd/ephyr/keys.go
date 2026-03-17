@@ -13,8 +13,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// cmdInit generates an Ed25519 keypair at ~/.ephyr/id_ed25519{,.pub}.
-func cmdInit(args []string) {
+// cmdKeygen generates an Ed25519 keypair at ~/.ephyr/id_ed25519{,.pub}.
+func cmdKeygen(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	force := fs.Bool("force", false, "Overwrite existing keypair")
 	configDir := fs.String("config-dir", defaultConfigDir(), "Config directory")
@@ -137,7 +137,7 @@ func readPublicKey(configDir string) (string, error) {
 	pubPath := filepath.Join(configDir, "id_ed25519.pub")
 	data, err := os.ReadFile(pubPath)
 	if err != nil {
-		return "", fmt.Errorf("read public key %s: %w (run 'ephyr init' first)", pubPath, err)
+		return "", fmt.Errorf("read public key %s: %w (run 'ephyr keygen' first)", pubPath, err)
 	}
 	return string(data), nil
 }

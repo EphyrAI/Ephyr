@@ -1,14 +1,17 @@
-// Package main implements the ephyr agent CLI.
+// Package main implements the unified ephyr binary.
 //
-// Usage:
+// It combines the broker, signer, and CLI tools into a single binary
+// with subcommands:
 //
-//	ephyr init [--force]
-//	ephyr request --target <host> --role <role> [--duration <dur>]
-//	ephyr ssh --target <host> --role <role> [--duration <dur>]
-//	ephyr exec --target <host> --role <role> [--duration <dur>] -- <command...>
-//	ephyr status
-//	ephyr targets
-//	ephyr whoami
+//	ephyr broker [flags]          Start the broker server
+//	ephyr signer [flags]          Start the signer server
+//	ephyr init [--dev]            Setup wizard
+//	ephyr keygen [--force]        Generate Ed25519 agent keypair
+//	ephyr inspect [--token TOKEN] Inspect macaroon token
+//	ephyr monitor [--log path]    Live audit stream
+//	ephyr demo [--broker URL]     Run pipeline demo
+//	ephyr host-key [--host HOST]  Scan SSH host key
+//	ephyr version                 Show version
 package main
 
 import (
@@ -16,23 +19,30 @@ import (
 	"os"
 )
 
-const usage = `ephyr — SSH certificate agent CLI
+// version is set at build time via -ldflags.
+var version = "dev"
+
+const usage = `ephyr — Ephyr SSH certificate broker and agent CLI
 
 Usage:
-  ephyr init [--force]              Generate Ed25519 keypair
-  ephyr request -t HOST -r ROLE     Request a certificate
-  ephyr ssh -t HOST -r ROLE         Request cert + open SSH session
-  ephyr exec -t HOST -r ROLE -- CMD Request cert + run remote command
-  ephyr status                      List active certificates
-  ephyr targets                     List available SSH targets
-  ephyr services                    List HTTP proxy services
-  ephyr remotes                     List federated MCP servers
-  ephyr whoami                      Show agent identity
-  ephyr host-key --host HOST[:PORT] Scan and print SSH host key for policy pinning
-  ephyr inspect [--token] [--json]  Inspect a macaroon token
+  ephyr broker [flags]            Start the Ephyr broker server
+  ephyr signer [flags]            Start the Ephyr signer server
+  ephyr init [--dev] [--non-interactive]  Setup wizard (install Ephyr from scratch)
+  ephyr keygen [--force]          Generate Ed25519 agent keypair
+  ephyr request -t HOST -r ROLE   Request a certificate
+  ephyr ssh -t HOST -r ROLE       Request cert + open SSH session
+  ephyr exec -t HOST -r ROLE -- CMD  Request cert + run remote command
+  ephyr status                    List active certificates
+  ephyr targets                   List available SSH targets
+  ephyr services                  List HTTP proxy services
+  ephyr remotes                   List federated MCP servers
+  ephyr whoami                    Show agent identity
+  ephyr host-key --host HOST[:PORT]  Scan and print SSH host key
+  ephyr inspect [--token] [--json]   Inspect a macaroon token
   ephyr monitor [--log path] [--severity WARN,ALERT] [--agent name] [--type exec,denied]
-                                    Live audit stream (default: /var/log/ephyr/audit.json)
-  ephyr demo [--broker URL] [--key KEY]   Run full pipeline demo (macaroon + PoP)
+                                  Live audit stream (default: /var/log/ephyr/audit.json)
+  ephyr demo [--broker URL] [--key KEY]  Run full pipeline demo (macaroon + PoP)
+  ephyr version                   Show version
 
 Global:
   --socket PATH    Broker socket (default: /run/ephyr/broker.sock)
@@ -48,8 +58,14 @@ func main() {
 	subcmd := os.Args[1]
 
 	switch subcmd {
+	case "broker":
+		cmdBroker(os.Args[2:])
+	case "signer":
+		cmdSigner(os.Args[2:])
 	case "init":
-		cmdInit(os.Args[2:])
+		cmdSetupInit(os.Args[2:])
+	case "keygen":
+		cmdKeygen(os.Args[2:])
 	case "request":
 		cmdRequest(os.Args[2:])
 	case "ssh":
@@ -74,6 +90,8 @@ func main() {
 		cmdHostKey(os.Args[2:])
 	case "demo":
 		cmdDemo(os.Args[2:])
+	case "version", "--version", "-v":
+		fmt.Printf("ephyr %s\n", version)
 	case "help", "--help", "-h":
 		fmt.Fprint(os.Stdout, usage)
 	default:
@@ -81,4 +99,12 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)
 	}
+}
+
+// envOrDefault returns the environment variable value if set, otherwise the default.
+func envOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
 }
