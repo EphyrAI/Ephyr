@@ -557,6 +557,73 @@ func (e *TaskEnvelope) IsSubsetOf(parent *TaskEnvelope) bool {
 	return te.IsSubsetOf(&pe)
 }
 
+// intersectEnvelopes returns a new TaskEnvelope containing only the items
+// present in BOTH envelopes. For each field (targets, roles, services,
+// remotes, methods) the result is the set intersection. A wildcard "*" in
+// either side is treated as "all", so it effectively defers to the other
+// side's list. This is used to enforce monotonic attenuation: a delegated
+// token can never create a task with MORE permissions than it currently has.
+func intersectEnvelopes(a, b *TaskEnvelope) TaskEnvelope {
+	return TaskEnvelope{
+		Targets:  intersectSlices(a.Targets, b.Targets),
+		Roles:    intersectSlices(a.Roles, b.Roles),
+		Services: intersectSlices(a.Services, b.Services),
+		Remotes:  intersectSlices(a.Remotes, b.Remotes),
+		Methods:  intersectSlices(a.Methods, b.Methods),
+	}
+}
+
+// intersectSlices returns elements present in both slices.
+// A wildcard "*" in either slice means that slice matches everything,
+// so the intersection degrades to the other slice's contents.
+// If both contain "*", the result also contains "*".
+func intersectSlices(a, b []string) []string {
+	aHasWild := sliceContainsWild(a)
+	bHasWild := sliceContainsWild(b)
+
+	// Both wildcards: result is wildcard.
+	if aHasWild && bHasWild {
+		return []string{"*"}
+	}
+	// One side wildcard: result is the other side.
+	if aHasWild {
+		result := make([]string, len(b))
+		copy(result, b)
+		return result
+	}
+	if bHasWild {
+		result := make([]string, len(a))
+		copy(result, a)
+		return result
+	}
+
+	// Neither wildcard: compute set intersection.
+	set := make(map[string]bool, len(b))
+	for _, s := range b {
+		set[s] = true
+	}
+	var result []string
+	for _, s := range a {
+		if set[s] {
+			result = append(result, s)
+		}
+	}
+	if result == nil {
+		result = []string{}
+	}
+	return result
+}
+
+// sliceContainsWild returns true if the slice contains the wildcard "*".
+func sliceContainsWild(s []string) bool {
+	for _, v := range s {
+		if v == "*" {
+			return true
+		}
+	}
+	return false
+}
+
 // CreateChildTask creates a delegated child task under an existing parent task.
 // The child inherits the parent's agent, has attenuated (or inherited) envelope,
 // and its TTL cannot exceed the parent's remaining lifetime.

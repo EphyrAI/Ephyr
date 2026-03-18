@@ -155,6 +155,17 @@ func stripSensitiveResponseHeaders(h http.Header) {
 	}
 }
 
+// failingTransport is an http.RoundTripper that always returns an error.
+// Used when TLS configuration is broken but tls_verify=true, so the service
+// fails closed instead of silently falling back to insecure.
+type failingTransport struct {
+	err error
+}
+
+func (t *failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, t.err
+}
+
 // clearProxyEnv removes HTTP_PROXY/HTTPS_PROXY environment variables to prevent
 // the httpoxy attack (CVE-2016-5386) where a malicious env var could redirect
 // the broker's outbound requests through an attacker-controlled proxy.
@@ -228,8 +239,9 @@ func (p *ProxyEngine) Do(agentName string, req *ProxyRequest) (*ProxyResult, err
 		method = "GET"
 	}
 
-	// 2-3. Evaluate network policy.
-	if err := p.evaluatePolicy(req.URL); err != nil {
+	// 2-3. Evaluate network policy and resolve DNS (returns pinned IP).
+	resolvedIP, err := p.evaluatePolicy(req.URL)
+	if err != nil {
 		p.broker.auditLog.LogEvent(audit.AuditEvent{
 			Severity:  audit.SeverityWarn,
 			EventType: "http_proxy_denied",
@@ -307,15 +319,35 @@ func (p *ProxyEngine) Do(agentName string, req *ProxyRequest) (*ProxyResult, err
 		}
 	}
 
-	// 5. Build http.Request.
+	// 5. Build http.Request with DNS-pinned URL.
+	// To prevent DNS rebinding (TOCTOU between policy check and connection),
+	// rewrite the URL to use the resolved IP and preserve the original Host header.
 	var bodyReader io.Reader
 	if req.Body != "" {
 		bodyReader = strings.NewReader(req.Body)
 	}
 
-	httpReq, err := http.NewRequest(method, req.URL, bodyReader)
+	pinnedURL := req.URL
+	originalHost := parsed.Hostname()
+	if resolvedIP != "" && resolvedIP != originalHost {
+		// Replace hostname with resolved IP in the URL to pin the connection.
+		port := parsed.Port()
+		if port != "" {
+			parsed.Host = net.JoinHostPort(resolvedIP, port)
+		} else {
+			parsed.Host = resolvedIP
+		}
+		pinnedURL = parsed.String()
+	}
+
+	httpReq, err := http.NewRequest(method, pinnedURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("proxy: build request: %w", err)
+	}
+
+	// Preserve original Host header for virtual hosting when URL was rewritten.
+	if resolvedIP != "" && resolvedIP != originalHost {
+		httpReq.Host = originalHost
 	}
 
 	// 6. Inject credentials if a service matched.
@@ -499,6 +531,24 @@ func (p *ProxyEngine) Do(agentName string, req *ProxyRequest) (*ProxyResult, err
 	return result, nil
 }
 
+// matchesServiceURL checks whether rawURL safely matches a service URL prefix.
+// After verifying the prefix, it ensures the match ends at a path boundary
+// (/, ?, #, :) or is an exact match. This prevents credential injection into
+// lookalike hostnames (e.g. "http://evil.com.attacker.com" must NOT match
+// service prefix "http://evil.com").
+func matchesServiceURL(rawURL, prefix string) bool {
+	if !strings.HasPrefix(rawURL, prefix) {
+		return false
+	}
+	// Exact match is always safe.
+	if len(rawURL) == len(prefix) {
+		return true
+	}
+	// The character immediately after the prefix must be a path boundary.
+	next := rawURL[len(prefix)]
+	return next == '/' || next == '?' || next == '#' || next == ':'
+}
+
 // matchService finds the service config whose URLPrefix matches the request URL.
 // Returns nil if no service matches (request goes through as direct proxy).
 // Longest prefix match wins if multiple services match.
@@ -509,7 +559,7 @@ func (p *ProxyEngine) matchService(rawURL string) *ServiceConfig {
 	var best *ServiceConfig
 	bestLen := 0
 	for _, svc := range p.services {
-		if strings.HasPrefix(rawURL, svc.URLPrefix) && len(svc.URLPrefix) > bestLen {
+		if matchesServiceURL(rawURL, svc.URLPrefix) && len(svc.URLPrefix) > bestLen {
 			best = svc
 			bestLen = len(svc.URLPrefix)
 		}
@@ -518,11 +568,14 @@ func (p *ProxyEngine) matchService(rawURL string) *ServiceConfig {
 }
 
 // evaluatePolicy checks if the request URL is allowed by network policy.
-// Returns nil if allowed, error with reason if denied.
-func (p *ProxyEngine) evaluatePolicy(rawURL string) error {
+// Returns the first resolved IP (for DNS pinning) and nil error if allowed,
+// or empty string and an error if denied.
+// The returned IP should be used for the actual connection to prevent DNS
+// rebinding attacks (TOCTOU between policy check and connection).
+func (p *ProxyEngine) evaluatePolicy(rawURL string) (string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("invalid url: %w", err)
+		return "", fmt.Errorf("invalid url: %w", err)
 	}
 
 	hostname := parsed.Hostname()
@@ -530,20 +583,21 @@ func (p *ProxyEngine) evaluatePolicy(rawURL string) error {
 	// Resolve hostname to IP(s).
 	ips, err := resolveHost(hostname)
 	if err != nil {
-		return fmt.Errorf("dns resolution failed for %s: %w", hostname, err)
+		return "", fmt.Errorf("dns resolution failed for %s: %w", hostname, err)
 	}
 	if len(ips) == 0 {
-		return fmt.Errorf("no IP addresses found for %s", hostname)
+		return "", fmt.Errorf("no IP addresses found for %s", hostname)
 	}
 
 	// We check all resolved IPs; all must pass policy.
 	for _, ip := range ips {
 		if err := p.evaluateIPPolicy(ip, hostname); err != nil {
-			return err
+			return "", err
 		}
 	}
 
-	return nil
+	// Return the first resolved IP for DNS pinning.
+	return ips[0].String(), nil
 }
 
 // evaluateIPPolicy checks a single IP against the network policy.
@@ -712,8 +766,10 @@ func (p *ProxyEngine) ListServices() []*ServiceConfig {
 }
 
 // buildServiceClient creates an HTTP client configured with the TLS settings
-// for a specific service. If TLS configuration fails, it falls back to
-// InsecureSkipVerify with a warning.
+// for a specific service. When tls_verify=true and the TLS config is broken
+// (bad CA file, invalid PEM), the service fails closed with a failingTransport
+// that rejects all requests. When tls_verify=false (default), a broken config
+// falls back to InsecureSkipVerify since insecure was the intent.
 func (p *ProxyEngine) buildServiceClient(svc *ServiceConfig) *http.Client {
 	tlsCfg, err := buildTLSConfig(TLSSettings{
 		TLSVerify:      svc.TLSVerify,
@@ -721,14 +777,26 @@ func (p *ProxyEngine) buildServiceClient(svc *ServiceConfig) *http.Client {
 		TLSCAInline:    svc.TLSCAInline,
 		TLSFingerprint: svc.TLSFingerprint,
 	})
-	if err != nil {
-		log.Printf("[proxy] TLS config error for %s: %v (insecure fallback)", svc.Name, err)
-		tlsCfg = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // fallback on config error
-	}
 
 	timeout := time.Duration(svc.Timeout) * time.Second
 	if timeout <= 0 {
 		timeout = time.Duration(defaultTimeoutSeconds) * time.Second
+	}
+
+	if err != nil {
+		if svc.TLSVerify {
+			// Explicit TLS verification requested but config is broken — fail closed.
+			log.Printf("[proxy] CRITICAL: TLS config error for service %s with tls_verify=true: %v (service DISABLED)", svc.Name, err)
+			return &http.Client{
+				Timeout: timeout,
+				Transport: &failingTransport{
+					err: fmt.Errorf("TLS configuration error for service %s: %w (service disabled because tls_verify=true)", svc.Name, err),
+				},
+			}
+		}
+		// tls_verify=false (default) — insecure is intentional, just log info.
+		log.Printf("[proxy] TLS config note for service %s: %v (tls_verify=false, using insecure)", svc.Name, err)
+		tlsCfg = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // tls_verify=false, insecure is intentional
 	}
 
 	return &http.Client{

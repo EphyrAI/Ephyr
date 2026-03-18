@@ -11,6 +11,30 @@ import (
 	"github.com/EphyrAI/Ephyr/internal/token"
 )
 
+// isAncestor checks whether ancestorID appears in the given lineage slice.
+// Lineage is ordered [root, ..., self], so an ancestor is any element in the
+// lineage that is not the task itself.
+func isAncestor(ancestorID string, lineage []string) bool {
+	for _, id := range lineage {
+		if id == ancestorID {
+			return true
+		}
+	}
+	return false
+}
+
+// filterToSubtree returns only the tasks whose lineage contains callerTaskID,
+// or whose ID equals callerTaskID (i.e. the caller's own task and its descendants).
+func filterToSubtree(tasks []*Task, callerTaskID string) []*Task {
+	filtered := make([]*Task, 0, len(tasks))
+	for _, t := range tasks {
+		if t.ID == callerTaskID || isAncestor(callerTaskID, t.Lineage) {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
 // decodeHolderPubKey extracts and base64url-decodes the holder_pub_key argument.
 // Returns nil if the argument is absent or empty.
 func decodeHolderPubKey(args map[string]interface{}) ([]byte, error) {
@@ -59,6 +83,21 @@ func (s *MCPServer) toolTaskCreate(ctx context.Context, agent *MCPAgent, args ma
 	s.broker.policyMu.RLock()
 	envelope := BuildEnvelopeFromPolicy(agent.Name, s.broker.policyCfg)
 	s.broker.policyMu.RUnlock()
+
+	// P1 fix: if the agent authenticated with a task token (delegated macaroon
+	// or JWT), constrain the new task's envelope to the INTERSECTION of the
+	// policy-derived envelope and the presenting token's envelope. This prevents
+	// a narrowly-scoped delegated token from minting a fresh full-scope token.
+	if agent.TaskClaims != nil {
+		presentingEnvelope := &TaskEnvelope{
+			Targets:  agent.TaskClaims.Envelope.Targets,
+			Roles:    agent.TaskClaims.Envelope.Roles,
+			Services: agent.TaskClaims.Envelope.Services,
+			Remotes:  agent.TaskClaims.Envelope.Remotes,
+			Methods:  agent.TaskClaims.Envelope.Methods,
+		}
+		envelope = intersectEnvelopes(&envelope, presentingEnvelope)
+	}
 
 	// Extract optional can_delegate flag.
 	canDelegate := getBoolArg(args, "can_delegate", false)
@@ -282,14 +321,31 @@ func (s *MCPServer) toolTaskRevoke(ctx context.Context, agent *MCPAgent, args ma
 		return errorResult("access denied: task belongs to another agent"), nil
 	}
 
+	// P1-3 fix: If authenticated via task token, can only revoke own task or descendants.
+	// This prevents a child token from revoking its parent or sibling tasks.
+	if agent.TaskClaims != nil {
+		callerTaskID := agent.TaskClaims.Task.ID
+		if taskID != callerTaskID {
+			// Check if taskID is in the caller's subtree (caller is an ancestor)
+			targetTask := s.broker.taskMgr.GetTask(taskID)
+			if targetTask == nil || !isAncestor(callerTaskID, targetTask.Lineage) {
+				return errorResult("access denied: can only revoke own task or descendants"), nil
+			}
+		}
+	}
+
 	// Set watermark for cascading revocation.
 	s.broker.revocation.Revoke(taskID)
 	s.broker.metrics.WatermarkRevocations.Add(1)
 
-	// Also delete the root key from the key store to invalidate all
-	// macaroons in this task tree immediately.
-	if s.broker.rootKeyStore != nil {
-		s.broker.rootKeyStore.Delete(task.RootID)
+	// P1-4 fix: Only delete root key when revoking the ROOT task itself.
+	// For non-root tasks, epoch watermarks handle revocation correctly.
+	// Deleting the shared root key for a child revocation would invalidate
+	// the parent, siblings, and all other descendants in the tree.
+	if taskID == task.RootID {
+		if s.broker.rootKeyStore != nil {
+			s.broker.rootKeyStore.Delete(task.RootID)
+		}
 	}
 
 	// Remove from task manager — also cascade to all children in the tree.
@@ -457,6 +513,33 @@ func (s *MCPServer) toolTaskDelegate(ctx context.Context, agent *MCPAgent, args 
 	}
 
 	canDelegate := getBoolArg(args, "can_delegate", false)
+
+	// P1-3 fix: If authenticated via task token, can only delegate from own task.
+	// This prevents a child token from delegating from a sibling or parent task
+	// that it shouldn't have access to.
+	if agent.TaskClaims != nil {
+		callerTaskID := agent.TaskClaims.Task.ID
+		if parentTaskID != callerTaskID {
+			return errorResult("access denied: can only delegate from your own task"), nil
+		}
+	}
+
+	// P1 fix: if the agent authenticated with a task token, constrain the
+	// requested child envelope to the presenting token's effective envelope.
+	// The macaroon caveat reducer may have narrowed the envelope below the
+	// parent task's stored envelope, so we must enforce attenuation against
+	// what the presenting token actually permits, not just the parent task.
+	if envelope != nil && agent.TaskClaims != nil {
+		presentingEnvelope := &TaskEnvelope{
+			Targets:  agent.TaskClaims.Envelope.Targets,
+			Roles:    agent.TaskClaims.Envelope.Roles,
+			Services: agent.TaskClaims.Envelope.Services,
+			Remotes:  agent.TaskClaims.Envelope.Remotes,
+			Methods:  agent.TaskClaims.Envelope.Methods,
+		}
+		constrained := intersectEnvelopes(envelope, presentingEnvelope)
+		envelope = &constrained
+	}
 
 	// Create child task in the task manager (validates depth, TTL, envelope subset).
 	child, err := s.broker.taskMgr.CreateChildTask(CreateChildTaskParams{
@@ -723,6 +806,13 @@ func (s *MCPServer) toolTaskList(ctx context.Context, agent *MCPAgent, args map[
 	}
 
 	tasks := s.broker.taskMgr.ListTasksByAgent(agent.Name)
+
+	// P1-3 fix: If authenticated via task token, only show own task and descendants.
+	// This prevents a child token from enumerating sibling or parent tasks.
+	if agent.TaskClaims != nil {
+		callerTaskID := agent.TaskClaims.Task.ID
+		tasks = filterToSubtree(tasks, callerTaskID)
+	}
 
 	type taskSummary struct {
 		ID          string `json:"id"`

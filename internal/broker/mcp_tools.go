@@ -1068,12 +1068,25 @@ func (s *MCPServer) toolHTTPRequest(ctx context.Context, agent *MCPAgent, args m
 }
 
 // toolListServices returns the list of configured proxy services.
+// Filtered by the agent's RBAC permissions so agents only see services they can access.
 func (s *MCPServer) toolListServices(ctx context.Context, agent *MCPAgent) (*MCPToolsCallResult, error) {
 	if s.proxyEngine == nil {
 		return errorResult("HTTP proxy is not available"), nil
 	}
 
 	services := s.proxyEngine.ListServices()
+
+	// Filter services by agent's RBAC permissions.
+	perms := s.getAgentPerms(agent)
+	if !perms.LegacyMode {
+		var filtered []*ServiceConfig
+		for _, svc := range services {
+			if perms.CanAccessService(svc.Name, "") {
+				filtered = append(filtered, svc)
+			}
+		}
+		services = filtered
+	}
 
 	// Build a simple view for the agent
 	type serviceInfo struct {
@@ -1104,12 +1117,26 @@ func (s *MCPServer) toolListServices(ctx context.Context, agent *MCPAgent) (*MCP
 
 // toolListRemotes returns the list of federated remote MCP servers with their
 // connection status, tool counts, and descriptions.
+// Filtered by the agent's RBAC permissions so agents only see remotes they can access.
 func (s *MCPServer) toolListRemotes(ctx context.Context, agent *MCPAgent) (*MCPToolsCallResult, error) {
 	if s.federator == nil {
 		return errorResult("MCP federation is not configured"), nil
 	}
 
 	states := s.federator.ListRemoteStates()
+
+	// Filter remotes by agent's RBAC permissions.
+	perms := s.getAgentPerms(agent)
+	if !perms.LegacyMode {
+		var filtered []RemoteStateInfo
+		for _, remote := range states {
+			if perms.CanAccessRemote(remote.Name, "") {
+				filtered = append(filtered, remote)
+			}
+		}
+		states = filtered
+	}
+
 	if len(states) == 0 {
 		return textResult("No remote MCP servers configured."), nil
 	}

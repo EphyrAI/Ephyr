@@ -526,6 +526,8 @@ func (f *MCPFederator) backoffDuration(errorCount int) time.Duration {
 
 // buildHTTPClient creates an http.Client configured for the given remote,
 // with the specified timeout and TLS configuration from the remote's settings.
+// When tls_verify=true and the TLS config is broken, the remote fails closed
+// with a failingTransport that rejects all requests.
 func (f *MCPFederator) buildHTTPClient(cfg *RemoteMCPConfig) *http.Client {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -539,8 +541,19 @@ func (f *MCPFederator) buildHTTPClient(cfg *RemoteMCPConfig) *http.Client {
 		TLSFingerprint: cfg.TLSFingerprint,
 	})
 	if err != nil {
-		log.Printf("[federation] TLS config error for %s: %v (insecure fallback)", cfg.Name, err)
-		tlsCfg = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // fallback on config error
+		if cfg.TLSVerify {
+			// Explicit TLS verification requested but config is broken — fail closed.
+			log.Printf("[federation] CRITICAL: TLS config error for remote %s with tls_verify=true: %v (remote DISABLED)", cfg.Name, err)
+			return &http.Client{
+				Timeout: time.Duration(timeout) * time.Second,
+				Transport: &failingTransport{
+					err: fmt.Errorf("TLS configuration error for remote %s: %w (remote disabled because tls_verify=true)", cfg.Name, err),
+				},
+			}
+		}
+		// tls_verify=false (default) — insecure is intentional, just log info.
+		log.Printf("[federation] TLS config note for remote %s: %v (tls_verify=false, using insecure)", cfg.Name, err)
+		tlsCfg = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // tls_verify=false, insecure is intentional
 	}
 
 	return &http.Client{

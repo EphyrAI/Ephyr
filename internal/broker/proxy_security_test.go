@@ -90,6 +90,66 @@ func TestProxyNoRedirectFollow(t *testing.T) {
 	}
 }
 
+// --- matchesServiceURL tests (P1-1: prevent credential leak via lookalike hostnames) ---
+
+func TestMatchesServiceURL_ExactMatch(t *testing.T) {
+	if !matchesServiceURL("http://evil.com", "http://evil.com") {
+		t.Error("exact match should return true")
+	}
+	if !matchesServiceURL("https://api.github.com", "https://api.github.com") {
+		t.Error("exact HTTPS match should return true")
+	}
+}
+
+func TestMatchesServiceURL_PathMatch(t *testing.T) {
+	if !matchesServiceURL("http://evil.com/api", "http://evil.com") {
+		t.Error("path after prefix should match")
+	}
+	if !matchesServiceURL("http://evil.com/api/v1/repos", "http://evil.com") {
+		t.Error("deep path after prefix should match")
+	}
+	if !matchesServiceURL("https://api.github.com/repos/owner/repo", "https://api.github.com") {
+		t.Error("GitHub API path should match")
+	}
+}
+
+func TestMatchesServiceURL_LookalikeRejected(t *testing.T) {
+	// This is the core security check: a lookalike hostname must NOT match.
+	if matchesServiceURL("http://evil.com.attacker.com", "http://evil.com") {
+		t.Error("lookalike hostname http://evil.com.attacker.com must NOT match http://evil.com")
+	}
+	if matchesServiceURL("http://evil.com.attacker.com/path", "http://evil.com") {
+		t.Error("lookalike with path must NOT match")
+	}
+	if matchesServiceURL("https://api.github.com.evil.com/repos", "https://api.github.com") {
+		t.Error("GitHub API lookalike must NOT match")
+	}
+	if matchesServiceURL("http://evil.comedy", "http://evil.com") {
+		t.Error("hostname extension must NOT match")
+	}
+}
+
+func TestMatchesServiceURL_SubpathMatch(t *testing.T) {
+	if !matchesServiceURL("http://host.com:3000/api/v1", "http://host.com:3000") {
+		t.Error("URL with port and path should match prefix with port")
+	}
+	if !matchesServiceURL("http://host.com:3000?query=1", "http://host.com:3000") {
+		t.Error("query string after prefix should match")
+	}
+	if !matchesServiceURL("http://host.com:3000#fragment", "http://host.com:3000") {
+		t.Error("fragment after prefix should match")
+	}
+}
+
+func TestMatchesServiceURL_NoMatch(t *testing.T) {
+	if matchesServiceURL("http://other.com/api", "http://evil.com") {
+		t.Error("completely different host should not match")
+	}
+	if matchesServiceURL("http://evil.co", "http://evil.com") {
+		t.Error("shorter host should not match")
+	}
+}
+
 func TestClearProxyEnv(t *testing.T) {
 	envVars := []string{
 		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
