@@ -622,7 +622,7 @@ The broker can run on the same host as the agent (co-located), but deploying on 
 
 ## Contributing
 
-Contributions welcome. The codebase is ~24,000 lines of Go across ~64 files with no code generation and no frameworks -- the standard library plus three dependencies.
+Contributions welcome. No code generation, no frameworks -- the standard library plus three dependencies.
 
 ```bash
 go build -o bin/ephyr ./cmd/ephyr   # Single binary (primary)
@@ -639,4 +639,4 @@ Apache License 2.0. See [LICENSE](LICENSE) for details.
 
 ---
 
-`~24,000 lines of Go | 64 source files | 253+ tests | 3 dependencies | Zero external databases`
+`3 dependencies | Zero external databases | Pure stdlib macaroon engine`
