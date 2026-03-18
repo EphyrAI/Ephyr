@@ -45,12 +45,26 @@ roles:
   read:
     principal: "agent-read"  # SSH principal (maps to target user account)
     description: "Read-only filesystem access"
+    shell: "/bin/rbash"      # Restricted shell for read-only roles
+    sudo: false              # No sudo access
   operator:
     principal: "agent-op"
     description: "Service management access"
+    shell: "/bin/bash"
+    sudo:                    # List of allowed sudo commands
+      - "/usr/bin/systemctl status *"
+      - "/usr/bin/systemctl restart *"
+      - "/usr/bin/journalctl *"
+      - "/usr/bin/docker ps *"
+      - "/usr/bin/docker logs *"
   admin:
     principal: "agent-admin"
     description: "Full administrative access"
+    shell: "/bin/bash"
+    sudo:
+      - "/usr/bin/systemctl *"
+      - "/usr/bin/docker *"
+      - "/usr/bin/journalctl *"
 
 targets:
   webserver:
@@ -110,12 +124,18 @@ Role names are referenced by targets in their allowed_roles lists.
 
 | Field | Type | Default | Required | Description |
 |-------|------|---------|----------|-------------|
-| principal | string | (none) | **Yes** | SSH principal name embedded in the certificate. This maps to a user account on the target host via AuthorizedPrincipalsFile. Example: "agent-read" maps to the agent-read system user. |
+| principal | string | (none) | **Yes** | SSH principal name embedded in the certificate. This maps to a user account on the target host via AuthorizedPrincipalsFile. Example: "agent-read" maps to the agent-read system user. Must be a valid Linux username: 1-32 characters, lowercase alphanumeric, hyphens, and underscores, starting with a lowercase letter or underscore. |
 | description | string | "" | No | Human-readable description of what this role can do. |
+| shell | string | "/bin/bash" | No | Login shell for the role's user account on target hosts. Use `/bin/rbash` for restricted (read-only) roles. Must be an absolute path (starts with `/`). The provisioning script uses this value when creating role accounts. |
+| sudo | bool or list of strings | (none) | No | Sudoers configuration for the role account. `false` or omitted means no sudo access. `true` grants unrestricted sudo (`ALL`) — a warning is logged at startup. A list of strings specifies allowed commands (e.g., `["/usr/bin/systemctl status *", "/usr/bin/docker ps *"]`). Empty strings in the list are rejected. |
+| system | bool | true | No | Whether to create the role as a system user (useradd --system). Set to `false` for regular user accounts. |
 
 **Validation rules:**
 - Every role referenced in a target's allowed_roles must be defined here.
-- principal must not be empty.
+- principal must not be empty and must be a valid Linux username.
+- shell (if set) must be an absolute path starting with `/`.
+- sudo entries must not be empty strings.
+- `sudo: true` triggers a startup warning (wide-open sudo).
 
 ### targets Section
 
@@ -324,12 +344,23 @@ roles:
   read:
     principal: "agent-read"
     description: "Read-only access"
+    shell: "/bin/rbash"
+    sudo: false
   operator:
     principal: "agent-op"
     description: "Operational commands"
+    sudo:
+      - "/usr/bin/systemctl status *"
+      - "/usr/bin/systemctl restart *"
+      - "/usr/bin/docker ps *"
+      - "/usr/bin/docker logs *"
   admin:
     principal: "agent-admin"
     description: "Administrative access"
+    sudo:
+      - "/usr/bin/systemctl *"
+      - "/usr/bin/docker *"
+      - "/usr/bin/journalctl *"
 
 targets:
   web-server:

@@ -42,6 +42,8 @@ Usage:
   ephyr inspect [--token] [--json]   Inspect a macaroon token
   ephyr monitor [--log path] [--severity WARN,ALERT] [--agent name] [--type exec,denied]
                                   Live audit stream (default: /var/log/ephyr/audit.json)
+  ephyr policy validate [--policy path] [--strict] [--json]
+                                  Validate policy configuration
   ephyr demo [--broker URL] [--key KEY]  Run full pipeline demo (macaroon + PoP)
   ephyr version                   Show version
 
@@ -91,6 +93,8 @@ func main() {
 		cmdMonitor(os.Args[2:])
 	case "host-key":
 		cmdHostKey(os.Args[2:])
+	case "policy":
+		cmdPolicy(os.Args[2:])
 	case "demo":
 		cmdDemo(os.Args[2:])
 	case "version", "--version", "-v":

@@ -92,8 +92,22 @@ type TargetPolicy struct {
 
 // RoleDefinition maps a logical role name to an SSH principal.
 type RoleDefinition struct {
-	Principal   string `yaml:"principal"`   // SSH principal name, e.g. "agent-read"
-	Description string `yaml:"description"`
+	Principal   string      `yaml:"principal"`             // SSH principal name, e.g. "agent-read"
+	Description string      `yaml:"description,omitempty"`
+	Shell       string      `yaml:"shell,omitempty"`       // default: /bin/bash, use /bin/rbash for read-only
+	Sudo        interface{} `yaml:"sudo,omitempty"`        // false (no sudo), true (ALL), or []string (specific commands)
+	System      *bool       `yaml:"system,omitempty"`      // create as system user (default: true)
+}
+
+// ResolvedRole holds a role definition with all defaults applied and the
+// sudo field resolved from the flexible interface{} type into a concrete
+// string slice.
+type ResolvedRole struct {
+	Name      string
+	Principal string
+	Shell     string   // resolved with default /bin/bash
+	SudoRules []string // empty = no sudo, resolved from interface{}
+	System    bool     // resolved with default true
 }
 
 // ResolvedConfig holds the parsed Config alongside pre-resolved durations
@@ -104,7 +118,8 @@ type ResolvedConfig struct {
 	GlobalMaxTTL     time.Duration
 	TargetMaxTTLs    map[string]time.Duration // target name -> parsed max_ttl
 	AgentPerms       map[string]*ResolvedAgentPerms
-	TargetHostKeys   map[string]ssh.PublicKey // target name -> parsed host key (T6)
+	TargetHostKeys   map[string]ssh.PublicKey  // target name -> parsed host key (T6)
+	ResolvedRoles    map[string]*ResolvedRole  // role name -> resolved role with defaults
 }
 
 // DashboardLevel represents the dashboard access level for an agent.

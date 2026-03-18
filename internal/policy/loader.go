@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +14,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 )
+
+// principalRe matches valid Linux usernames: alphanumeric, hyphen, underscore, 1-32 chars.
+var principalRe = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 
 // Loader manages loading and hot-reloading policy configuration from a YAML file.
 type Loader struct {
@@ -188,11 +193,40 @@ func validate(cfg *Config) (*ResolvedConfig, error) {
 		}
 	}
 
-	// Validate role definitions have principals.
+	// Validate role definitions have principals and valid fields.
 	for name, role := range cfg.Roles {
 		if role.Principal == "" {
 			return nil, fmt.Errorf("role %q has empty principal", name)
 		}
+		if !principalRe.MatchString(role.Principal) {
+			return nil, fmt.Errorf("role %q has invalid principal %q: must be 1-32 chars, alphanumeric/hyphen/underscore, starting with lowercase letter or underscore", name, role.Principal)
+		}
+		if role.Shell != "" && !strings.HasPrefix(role.Shell, "/") {
+			return nil, fmt.Errorf("role %q has invalid shell %q: must be an absolute path starting with /", name, role.Shell)
+		}
+		// Validate sudo field type.
+		switch v := role.Sudo.(type) {
+		case nil, bool:
+			// ok
+		case []interface{}:
+			for i, item := range v {
+				s, ok := item.(string)
+				if !ok {
+					return nil, fmt.Errorf("role %q sudo[%d]: expected string, got %T", name, i, item)
+				}
+				if s == "" {
+					return nil, fmt.Errorf("role %q sudo[%d]: empty string not allowed", name, i)
+				}
+			}
+		default:
+			return nil, fmt.Errorf("role %q has invalid sudo type %T: must be bool or list of strings", name, v)
+		}
+	}
+
+	// Resolve roles with defaults applied.
+	resolvedRoles, err := resolveRoles(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("resolving roles: %w", err)
 	}
 
 	// Parse and validate host keys for targets (T6).
@@ -238,10 +272,56 @@ func validate(cfg *Config) (*ResolvedConfig, error) {
 		GlobalMaxTTL:     globalMaxTTL,
 		TargetMaxTTLs:    targetMaxTTLs,
 		TargetHostKeys:   targetHostKeys,
+		ResolvedRoles:    resolvedRoles,
 	}
 
 	// Resolve RBAC permissions for all agents.
 	rc.AgentPerms = ResolveAgentPerms(cfg)
 
 	return rc, nil
+}
+
+// resolveRoles converts raw RoleDefinitions into ResolvedRoles with all
+// defaults applied and the flexible sudo field resolved into a string slice.
+func resolveRoles(cfg *Config) (map[string]*ResolvedRole, error) {
+	resolved := make(map[string]*ResolvedRole, len(cfg.Roles))
+	for name, def := range cfg.Roles {
+		r := &ResolvedRole{
+			Name:      name,
+			Principal: def.Principal,
+			Shell:     def.Shell,
+			System:    true,
+		}
+
+		// Default shell.
+		if r.Shell == "" {
+			r.Shell = "/bin/bash"
+		}
+
+		// Default system user.
+		if def.System != nil {
+			r.System = *def.System
+		}
+
+		// Resolve sudo.
+		switch v := def.Sudo.(type) {
+		case nil:
+			r.SudoRules = nil // no sudo
+		case bool:
+			if v {
+				r.SudoRules = []string{"ALL"}
+				log.Printf("[WARN] role %q has sudo: true — this grants unrestricted sudo access", name)
+			}
+			// false => no sudo (nil)
+		case []interface{}:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					r.SudoRules = append(r.SudoRules, s)
+				}
+			}
+		}
+
+		resolved[name] = r
+	}
+	return resolved, nil
 }
