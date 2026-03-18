@@ -12,6 +12,12 @@ The first open-source implementation of the Delegation Capability Token (DCT) ar
 
 ---
 
+## Demo
+
+<p align="center">
+  <img src="https://github.com/EphyrAI/Ephyr/releases/download/v0.3.1/ephyr-demo.gif" alt="Ephyr Demo" width="800">
+</p>
+
 ## The Problem
 
 MCP gives AI agents access to tools. It does not govern what happens when agents delegate to sub-agents, when permissions need to attenuate across delegation chains, or when every action needs to be correlated back to the task that initiated it. Static credentials -- SSH keys, API tokens, service accounts -- don't expire, can't be scoped per-task, and persist after the agent session ends.
