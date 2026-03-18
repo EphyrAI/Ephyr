@@ -248,18 +248,15 @@ Delegation Tree (envelope shrinks at each level):
 
 </details>
 
-## Ephyr: Holder Binding (Two-Phase Key Exchange)
+## **EPHYR: Holder Binding (Two-Phase Key Exchange)**
 
 ```mermaid
 sequenceDiagram
-    title Ephyr: Holder Binding (Two-Phase Key Exchange)
-
     participant P as Parent Agent
     participant B as Broker
     participant S as Signer (CA)
     participant C as Child Agent
 
-    rect rgb(30, 41, 59)
     Note over P,B: Phase 1: Delegation
     P->>B: task_delegate(parent_token, child_envelope)
     B->>B: Verify parent macaroon (HMAC chain)
@@ -267,11 +264,9 @@ sequenceDiagram
     B->>B: Mint child macaroon (append narrowing caveats)
     B->>B: Set HolderBound=false, BindDeadline=30s
     B-->>P: Child macaroon (unbound, unusable until bound)
-    end
 
     P->>C: Pass macaroon (out of band)
 
-    rect rgb(30, 41, 59)
     Note over C,B: Phase 2: Key Binding
     C->>C: Generate ephemeral Ed25519 keypair
     C->>B: task_bind(macaroon, public_key)
@@ -279,10 +274,8 @@ sequenceDiagram
     B->>B: Check BindDeadline not expired
     B->>B: Store HolderPubKey, set HolderBound=true
     B-->>C: Bound confirmation
-    end
 
-    rect rgb(30, 41, 59)
-    Note over C,S: Bound Request (e.g., SSH exec)
+    Note over C,S: Phase 3: Bound Request (e.g., SSH exec)
     C->>B: exec(target, role, command) + _pop{sig, body_hash, nonce, ts}
     B->>B: Verify macaroon HMAC chain
     B->>B: Reduce caveats to effective envelope
@@ -293,7 +286,6 @@ sequenceDiagram
     S-->>B: Signed certificate (never on network)
     B->>B: SSH dial with cert to target
     B-->>C: Command output
-    end
 
     Note over P,C: Parent's key cannot present child's token
     Note over P,C: Child's key cannot present parent's token
