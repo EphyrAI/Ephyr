@@ -50,6 +50,7 @@ Usage:
                                   Verify target connectivity and role accounts
   ephyr policy validate [--policy path] [--strict] [--json]
                                   Validate policy configuration
+  ephyr doctor [--policy path] [--json]   Comprehensive system health check
   ephyr demo [--broker URL] [--key KEY]  Run full pipeline demo (macaroon + PoP)
   ephyr version                   Show version
 
@@ -103,6 +104,8 @@ func main() {
 		cmdTarget(os.Args[2:])
 	case "policy":
 		cmdPolicy(os.Args[2:])
+	case "doctor":
+		cmdDoctor(os.Args[2:])
 	case "demo":
 		cmdDemo(os.Args[2:])
 	case "version", "--version", "-v":
