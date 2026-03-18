@@ -248,70 +248,99 @@ Delegation Tree (envelope shrinks at each level):
 
 </details>
 
-## Holder Binding (Two-Phase Key Exchange)
+## Ephyr: Holder Binding (Two-Phase Key Exchange)
 
 ```mermaid
 sequenceDiagram
+    title Ephyr: Holder Binding (Two-Phase Key Exchange)
+
     participant P as Parent Agent
     participant B as Broker
+    participant S as Signer (CA)
     participant C as Child Agent
 
+    rect rgb(30, 41, 59)
+    Note over P,B: Phase 1: Delegation
     P->>B: task_delegate(parent_token, child_envelope)
-    B->>B: Verify parent macaroon
-    B->>B: Reduce + validate subset
-    B->>B: Mint child macaroon (HMAC chain)
+    B->>B: Verify parent macaroon (HMAC chain)
+    B->>B: Reduce caveats + validate subset
+    B->>B: Mint child macaroon (append narrowing caveats)
     B->>B: Set HolderBound=false, BindDeadline=30s
-    B-->>P: Child macaroon (unbound)
+    B-->>P: Child macaroon (unbound, unusable until bound)
+    end
 
     P->>C: Pass macaroon (out of band)
 
-    C->>C: Generate Ed25519 keypair
+    rect rgb(30, 41, 59)
+    Note over C,B: Phase 2: Key Binding
+    C->>C: Generate ephemeral Ed25519 keypair
     C->>B: task_bind(macaroon, public_key)
-    B->>B: Verify macaroon (only task_bind allowed)
+    B->>B: Verify macaroon (only task_bind allowed for unbound tokens)
     B->>B: Check BindDeadline not expired
     B->>B: Store HolderPubKey, set HolderBound=true
     B-->>C: Bound confirmation
+    end
 
-    Note over C,B: All subsequent requests require PoP proof
-
-    C->>B: tool call + _pop{sig, body_hash, nonce, ts}
-    B->>B: Verify Ed25519 sig against HolderPubKey
-    B->>B: Check body_hash, mac_digest, nonce, timestamp
-    B-->>C: Authorized response
+    rect rgb(30, 41, 59)
+    Note over C,S: Bound Request (e.g., SSH exec)
+    C->>B: exec(target, role, command) + _pop{sig, body_hash, nonce, ts}
+    B->>B: Verify macaroon HMAC chain
+    B->>B: Reduce caveats to effective envelope
+    B->>B: Verify PoP: Ed25519 sig, body_hash, mac_digest, nonce, timestamp
+    B->>B: RBAC + envelope authorization
+    B->>S: Sign SSH certificate (Unix socket IPC)
+    S->>S: Ed25519 CA signs ephemeral cert
+    S-->>B: Signed certificate (never on network)
+    B->>B: SSH dial with cert to target
+    B-->>C: Command output
+    end
 
     Note over P,C: Parent's key cannot present child's token
     Note over P,C: Child's key cannot present parent's token
+    Note over S,S: CA key never leaves signer process
 ```
 
 <details>
 <summary>View as text</summary>
 
 ```
-Two-Phase Holder Binding:
+Ephyr: Holder Binding (Two-Phase Key Exchange)
 
-  Parent                    Broker                     Child
-    |                         |                          |
-    |-- task_delegate ------->|                          |
-    |                         |-- verify parent          |
-    |                         |-- mint child macaroon    |
-    |                         |-- HolderBound=false      |
-    |                         |-- BindDeadline=30s       |
-    |<-- child macaroon ------|                          |
-    |                         |                          |
-    |-- pass token (out of band) ---------------------->|
-    |                         |                          |
-    |                         |    generate Ed25519 key  |
-    |                         |<-- task_bind(mac, pubkey)|
-    |                         |-- verify mac             |
-    |                         |-- check deadline         |
-    |                         |-- store key, bind=true   |
-    |                         |-- confirm --------------->|
-    |                         |                          |
-    |                         |    Every request now:    |
-    |                         |<-- tool call + _pop -----|
-    |                         |-- verify Ed25519 sig     |
-    |                         |-- check body/mac/nonce   |
-    |                         |-- authorized ----------->|
+  Parent              Broker                Signer (CA)       Child
+    |                   |                       |                |
+    |                   |    PHASE 1: DELEGATION                 |
+    |-- task_delegate ->|                       |                |
+    |                   |-- verify parent mac    |                |
+    |                   |-- reduce + subset     |                |
+    |                   |-- mint child mac      |                |
+    |                   |-- HolderBound=false   |                |
+    |                   |-- BindDeadline=30s    |                |
+    |<- child macaroon -|                       |                |
+    |                   |                       |                |
+    |-- pass token (out of band) ------------------------------>|
+    |                   |                       |                |
+    |                   |    PHASE 2: KEY BINDING                |
+    |                   |                       |  generate key  |
+    |                   |<--- task_bind(mac, pubkey) ------------|
+    |                   |-- verify mac          |                |
+    |                   |-- check deadline      |                |
+    |                   |-- store key, bind=true|                |
+    |                   |-- confirm ---------------------------->|
+    |                   |                       |                |
+    |                   |    BOUND REQUEST (e.g., SSH exec)      |
+    |                   |<--- exec + _pop{sig, body_hash} ------|
+    |                   |-- verify macaroon     |                |
+    |                   |-- verify PoP (sig,    |                |
+    |                   |   body, nonce, ts)    |                |
+    |                   |-- RBAC + envelope     |                |
+    |                   |-- sign cert --------->|                |
+    |                   |                       |-- CA signs     |
+    |                   |<-- signed cert -------|                |
+    |                   |-- SSH dial + exec     |                |
+    |                   |-- response --------------------------->|
+    |                   |                       |                |
+    |   Parent key != child key (independent keypairs)          |
+    |   CA key never leaves signer process                      |
 ```
 
 </details>
