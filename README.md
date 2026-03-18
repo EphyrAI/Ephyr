@@ -509,9 +509,39 @@ agents:
 
 Implementation scope: add `RequirePoP` to the agent policy struct, check it in `toolTaskCreate`, reject unbound task creation when set.
 
-#### SSH Host Key Verification and TLS Certificate Verification
+#### Policy Tooling
 
-Both T6 (SSH host key pinning) and T7 (TLS certificate verification) have been implemented and are available as opt-in configuration. See [T6](docs/THREAT_MODEL.md) and [T7](docs/THREAT_MODEL.md) in the Threat Model, and [Configuration](docs/configuration.md) for setup details.
+`ephyr policy validate` and `ephyr policy diff` commands for preflight config validation, schema versioning, and safe migration between policy versions. Prevents trial-and-error upgrades.
+
+#### Admin Dashboard Authorization
+
+Replace the shared static dashboard token with identity-bound admin authentication. Dashboard operations (viewer/operator/admin) tied to agent identity and RBAC policy. Admin actions recorded with actor identity in audit events.
+
+#### API/Protocol Compatibility Policy
+
+Publish explicit MCP protocol version support windows and deprecation process. Add protocol negotiation in the MCP handshake. Contract tests across supported client and federated server versions.
+
+### Future Architecture
+
+#### Runtime State Durability
+
+Current design: all runtime state (tasks, watermarks, nonce cache, rate limits) is in-memory. Broker restart invalidates all active tokens (Invariant 7). This is intentional for short-lived task tokens with 5-minute default TTL. For deployments requiring restart continuity, a `StateStore` abstraction with optional persistence (SQLite/embedded) is planned. Architecture Decision Record pending.
+
+#### High Availability
+
+Current design: single-tenant, single-broker. The signer must remain single-instance (CA key cannot be replicated without HSM). For HA, an active-passive broker pair with shared state via embedded storage is the planned topology. Leader election, split-brain prevention, and cross-node revocation semantics require dedicated design work. Architecture Decision Record pending.
+
+#### Reliability Engineering
+
+Load testing, soak testing, and chaos scenarios (signer unavailable, federation flaps, disk latency) for capacity planning and SLO validation. Not yet implemented — requires real deployment scale to be meaningful.
+
+### Scope Boundaries (what Ephyr will NOT do)
+
+- **Multi-tenant SaaS platform.** Ephyr is single-tenant by design. Tenant isolation requires separate broker instances. This is a permanent architectural decision, not a gap.
+- **External identity provider (OIDC/SAML) in the near term.** Agent identity is managed by Ephyr's own policy. OIDC federation is on the long-term roadmap (v0.7+) but not a current priority.
+- **Container/Kubernetes orchestration.** Ephyr manages SSH/HTTP/MCP access, not container lifecycles. K8s operator support is future work (v0.8+).
+- **Session recording or command replay.** Audit logs capture metadata (who, what, when, outcome). Full I/O recording is a future enterprise feature.
+- **Certificate management for non-SSH protocols.** Ephyr issues SSH certificates only. X.509/TLS cert management for services is out of scope.
 
 ## Dependencies
 
