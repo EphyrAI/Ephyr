@@ -104,18 +104,22 @@ type DashboardSummary struct {
 
 // DashboardHost is a single host entry for GET /v1/dashboard/hosts.
 type DashboardHost struct {
-	Name           string   `json:"name"`
-	Host           string   `json:"host"`
-	VLAN           int      `json:"vlan,omitempty"`
-	Status         string   `json:"status"`
-	Role           string   `json:"role"`
-	AccessEnabled  bool     `json:"access_enabled"`
-	ActiveSessions int      `json:"active_sessions"`
-	Description    string   `json:"description"`
-	AllowedRoles   []string `json:"allowed_roles"`
-	Port           int      `json:"port"`
-	AutoApprove    bool     `json:"auto_approve"`
-	HostKeyStatus  string   `json:"host_key_status"`
+	Name             string   `json:"name"`
+	Host             string   `json:"host"`
+	VLAN             int      `json:"vlan,omitempty"`
+	Status           string   `json:"status"`
+	Role             string   `json:"role"`
+	AccessEnabled    bool     `json:"access_enabled"`
+	ActiveSessions   int      `json:"active_sessions"`
+	Description      string   `json:"description"`
+	AllowedRoles     []string `json:"allowed_roles"`
+	Port             int      `json:"port"`
+	AutoApprove      bool     `json:"auto_approve"`
+	HostKeyStatus    string   `json:"host_key_status"`
+	CommandFilter    bool     `json:"command_filter"`
+	CommandDeny      []string `json:"command_deny,omitempty"`
+	CommandAllow     []string `json:"command_allow,omitempty"`
+	AutoRevokeOnDeny bool     `json:"auto_revoke_on_deny"`
 }
 
 // DashboardSession is a single session entry for GET /v1/dashboard/sessions.
@@ -266,6 +270,7 @@ func (bs *BrokerServer) dashboardRoutes() *http.ServeMux {
 
 	// --- Metrics ---
 	mux.HandleFunc("GET /v1/metrics", bs.handleMetrics)
+	mux.HandleFunc("GET /v1/dashboard/metrics", bs.handleDashboardMetrics)
 
 	// --- Static file serving for the React dashboard ---
 	if bs.cfg.DashboardDir != "" {
@@ -404,7 +409,7 @@ func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Requ
 				hostKeyStatus = "pinned"
 			}
 		}
-		hosts = append(hosts, DashboardHost{
+		dh := DashboardHost{
 			Name:           name,
 			Host:           t.Host,
 			VLAN:           t.VLAN,
@@ -417,7 +422,14 @@ func (bs *BrokerServer) handleDashboardHosts(w http.ResponseWriter, r *http.Requ
 			Port:           port,
 			AutoApprove:    t.AutoApprove,
 			HostKeyStatus:  hostKeyStatus,
-		})
+		}
+		if t.CommandFilter {
+			dh.CommandFilter = true
+			dh.CommandDeny = t.CommandDeny
+			dh.CommandAllow = t.CommandAllow
+			dh.AutoRevokeOnDeny = t.AutoRevokeOnDeny
+		}
+		hosts = append(hosts, dh)
 	}
 
 	// Merge in dynamic hosts from config manager (hosts.json).
@@ -1568,4 +1580,111 @@ func (bs *BrokerServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		bs.metrics.AuthCacheMisses.Store(misses)
 	}
 	bs.metrics.ServePrometheus(w, r)
+}
+
+// DashboardMetrics is the JSON response for GET /v1/dashboard/metrics.
+type DashboardMetrics struct {
+	Latency  map[string]LatencyStats `json:"latency"`
+	Counters map[string]int64        `json:"counters"`
+	Gauges   map[string]int64        `json:"gauges"`
+}
+
+// LatencyStats holds computed percentile and mean values for a histogram.
+type LatencyStats struct {
+	P50   float64 `json:"p50_us"`
+	P95   float64 `json:"p95_us"`
+	P99   float64 `json:"p99_us"`
+	Mean  float64 `json:"mean_us"`
+	Count int64   `json:"count"`
+}
+
+// handleDashboardMetrics serves GET /v1/dashboard/metrics.
+// Returns all latency histograms, counters, and gauges as JSON.
+func (bs *BrokerServer) handleDashboardMetrics(w http.ResponseWriter, r *http.Request) {
+	if bs.metrics == nil {
+		writeJSON(w, http.StatusOK, DashboardMetrics{
+			Latency:  map[string]LatencyStats{},
+			Counters: map[string]int64{},
+			Gauges:   map[string]int64{},
+		})
+		return
+	}
+
+	// Sync auth cache stats before reading.
+	if bs.mcpServer != nil && bs.mcpServer.auth != nil {
+		hits, misses := bs.mcpServer.auth.CacheStats()
+		bs.metrics.AuthCacheHits.Store(hits)
+		bs.metrics.AuthCacheMisses.Store(misses)
+	}
+
+	m := bs.metrics
+
+	// Build latency map from all histograms.
+	type histEntry struct {
+		name string
+		hist *LatencyHistogram
+	}
+	histograms := []histEntry{
+		{"token_sign", &m.TokenSignLatency},
+		{"token_validate", &m.TokenValidateLatency},
+		{"watermark_check", &m.WatermarkCheckLatency},
+		{"envelope_check", &m.EnvelopeCheckLatency},
+		{"policy_eval", &m.PolicyEvalLatency},
+		{"ssh_cert", &m.SSHCertLatency},
+		{"delegation_ipc", &m.DelegationIPCLatency},
+		{"exec_e2e", &m.ExecE2ELatency},
+		{"macaroon_mint", &m.MacaroonMintLatency},
+		{"macaroon_verify", &m.MacaroonVerifyLatency},
+	}
+
+	latency := make(map[string]LatencyStats, len(histograms))
+	for _, h := range histograms {
+		p50, p95, p99 := h.hist.Percentiles()
+		latency[h.name] = LatencyStats{
+			P50:   p50,
+			P95:   p95,
+			P99:   p99,
+			Mean:  h.hist.Mean(),
+			Count: h.hist.Count(),
+		}
+	}
+
+	// Build counters map.
+	counters := map[string]int64{
+		"tasks_created":        m.TasksCreated.Load(),
+		"tasks_active":         m.TasksActive.Load(),
+		"tokens_signed":        m.TokensSigned.Load(),
+		"tokens_delegated":     m.TokensDelegated.Load(),
+		"tokens_validated":     m.TokensValidated.Load(),
+		"tokens_rejected":      m.TokensRejected.Load(),
+		"watermark_revocations": m.WatermarkRevocations.Load(),
+		"delegation_rotations": m.DelegationRotations.Load(),
+		"legacy_requests":      m.LegacyRequests.Load(),
+		"auth_cache_hits":      m.AuthCacheHits.Load(),
+		"auth_cache_misses":    m.AuthCacheMisses.Load(),
+		"macaroons_minted":     m.MacaroonsMinted.Load(),
+		"macaroons_verified":   m.MacaroonsVerified.Load(),
+		"macaroons_rejected":   m.MacaroonsRejected.Load(),
+		"reducer_invocations":  m.ReducerInvocations.Load(),
+		"token_size_warnings":  m.TokenSizeWarnings.Load(),
+		"pop_verified":         m.PopVerified.Load(),
+		"pop_rejected":         m.PopRejected.Load(),
+		"bind_deadline_expired": m.BindDeadlineExpired.Load(),
+		"commands_filtered":    m.CommandsFiltered.Load(),
+		"commands_denied":      m.CommandsDenied.Load(),
+		"auto_revocations":     m.AutoRevocations.Load(),
+	}
+
+	// Build gauges map.
+	gauges := map[string]int64{
+		"active_watermarks":     m.ActiveWatermarks.Load(),
+		"delegation_cert_age":   m.DelegationCertAge.Load(),
+		"delegation_certs_held": m.DelegationCertsHeld.Load(),
+	}
+
+	writeJSON(w, http.StatusOK, DashboardMetrics{
+		Latency:  latency,
+		Counters: counters,
+		Gauges:   gauges,
+	})
 }

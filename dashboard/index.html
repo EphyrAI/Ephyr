@@ -1325,11 +1325,11 @@
 
   /* Task tree view */
   .task-tree { padding: 0; }
-  .task-tree-node { position: relative; padding: 10px 12px 10px 24px; margin-left: 0; border-left: 2px solid var(--border); }
+  .task-tree-node { position: relative; padding: 10px 12px 10px 28px; margin-left: 0; border-left: 2px solid var(--border); transition: background 0.3s, border-left-color 0.3s, opacity 0.3s; }
   .task-tree-node:last-child { border-left-color: transparent; }
-  .task-tree-node::before { content: ''; position: absolute; left: -2px; top: 0; width: 20px; height: 22px; border-left: 2px solid var(--border); border-bottom: 2px solid var(--border); border-bottom-left-radius: 8px; }
+  .task-tree-node::before { content: ''; position: absolute; left: -2px; top: 0; width: 24px; height: 20px; border-left: 2px solid var(--border); border-bottom: 2px solid var(--border); border-bottom-left-radius: 6px; }
   .task-tree-node:last-child::before { border-left: 2px solid var(--border); }
-  .task-tree-root { border-left: 3px solid var(--green); padding: 12px 16px; margin-bottom: 4px; border-radius: 4px; background: rgba(34,197,94,0.05); }
+  .task-tree-root { border-left: 3px solid var(--green); padding: 12px 16px; margin-bottom: 4px; border-radius: 4px; background: rgba(34,197,94,0.05); transition: background 0.3s, border-left-color 0.3s, opacity 0.3s; }
   .task-tree-root::before { display: none; }
   .task-tree-root.tree-revoked { opacity: 0.5; border-left-color: var(--red); background: rgba(239,68,68,0.03); }
   .task-tree-node.tree-revoked { opacity: 0.5; border-left-color: var(--red); }
@@ -1358,6 +1358,41 @@
   .cascade-warning-title { color: var(--red); font-weight: 600; margin-bottom: 4px; }
   .cascade-warning-list { font-size: 13px; color: var(--text-dim); margin-top: 8px; }
   .cascade-warning-list li { margin-bottom: 2px; }
+
+  /* Cascade highlight for tree nodes during revoke preview */
+  .cascade-highlight {
+    background: rgba(239,68,68,0.1);
+    border-left-color: var(--red) !important;
+    animation: cascade-pulse 1s infinite;
+  }
+  @keyframes cascade-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  /* Activity graph */
+  .activity-graph-section {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px 16px; margin-bottom: 16px;
+    box-shadow: var(--card-shadow);
+  }
+  .activity-graph-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .activity-graph-title {
+    font-family: var(--heading-font); font-size: 11px; font-weight: 600;
+    color: var(--text-bright); letter-spacing: 1px; text-transform: uppercase;
+  }
+  .activity-graph-legend {
+    display: flex; gap: 12px; font-size: 10px; color: var(--text-dim);
+  }
+  .activity-graph-legend-item {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .activity-graph-legend-dot {
+    width: 8px; height: 8px; border-radius: 2px;
+  }
 
   /* Revoke confirmation inline */
   .revoke-confirm { display: flex; align-items: center; gap: 8px; }
@@ -1391,6 +1426,34 @@
   .badge-tls-insecure { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
   .badge-key-pinned { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
   .badge-key-unpinned { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
+  .badge-filtered { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
+  .badge-auto-revoke { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+  .badge-deny-mode { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+  .badge-allow-mode { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+
+  /* Token Inspector */
+  .inspector-textarea {
+    width: 100%; min-height: 80px; padding: 12px; border-radius: 6px;
+    background: var(--input-bg); color: var(--text-bright); border: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; resize: vertical; outline: none;
+  }
+  .inspector-textarea:focus { border-color: var(--cyan); }
+  .inspector-result { margin-top: 16px; }
+  .inspector-section { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+  .inspector-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 8px; font-weight: 600; }
+  .inspector-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 12px; }
+  .inspector-row-label { color: var(--text-dim); }
+  .inspector-row-value { color: var(--text-bright); font-family: 'JetBrains Mono', monospace; font-size: 11px; text-align: right; max-width: 70%; word-break: break-all; }
+  .inspector-caveat-list { list-style: none; padding: 0; max-height: 200px; overflow-y: auto; }
+  .inspector-caveat-list li { padding: 4px 8px; margin-bottom: 4px; background: var(--input-bg); border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text); display: flex; gap: 8px; }
+  .inspector-caveat-num { color: var(--text-dim); min-width: 20px; text-align: right; }
+  .inspector-envelope-tag { display: inline-block; padding: 2px 6px; margin: 2px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .inspector-error { color: var(--red); background: var(--red-dim); padding: 12px; border-radius: 6px; font-size: 12px; }
+  .inspector-note { font-size: 10px; color: var(--text-dim); font-style: italic; margin-top: 8px; text-align: center; }
+
+  /* Command filter detail panel */
+  .cmd-filter-detail { padding: 8px 0; font-size: 11px; }
+  .cmd-filter-pattern { padding: 3px 8px; margin: 2px 0; background: var(--input-bg); border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text); }
 
   /* Responsive breakpoints */
   @media (max-width: 1400px) {
@@ -1682,6 +1745,49 @@
     .content { padding: 6px; }
     .stat-value { font-size: 20px; }
     .mobile-menu-btn { width: 36px; height: 36px; font-size: 18px; }
+  }
+
+  /* ── Metrics view ── */
+  .metrics-section { margin-bottom: 24px; }
+  .metrics-section-title {
+    font-family: var(--heading-font); font-size: 11px; font-weight: 600;
+    color: var(--text-bright); letter-spacing: 2px; text-transform: uppercase;
+    margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .metrics-grid-wide { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .metrics-card {
+    background: var(--bg-card); border-radius: 6px; padding: 12px 16px;
+    border: 1px solid var(--border); box-shadow: var(--card-shadow);
+    transition: border-color 0.2s;
+  }
+  .metrics-card:hover { border-color: var(--border-bright); }
+  .metrics-card-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-dim); margin-bottom: 8px;
+  }
+  .metrics-percentiles { display: flex; gap: 16px; }
+  .metrics-percentile { text-align: center; flex: 1; }
+  .metrics-percentile-value { font-size: 18px; font-weight: 600; font-family: var(--heading-font); }
+  .metrics-percentile-label { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+  .metrics-counter-value {
+    font-size: 24px; font-weight: 700; font-family: var(--heading-font);
+  }
+  .metrics-counter-label { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+  .metrics-sparkline-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .metrics-sparkline-card {
+    background: var(--bg-card); border-radius: 6px; padding: 12px 16px;
+    border: 1px solid var(--border); box-shadow: var(--card-shadow);
+  }
+  .metrics-sparkline-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+  }
+  .metrics-sparkline-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim);
+  }
+  .metrics-sparkline-current { font-size: 14px; font-weight: 600; font-family: var(--heading-font); }
+  .metrics-card-mean {
+    font-size: 10px; color: var(--text-dim); margin-top: 6px; text-align: center;
   }
 </style>
 </head>
@@ -2015,6 +2121,77 @@ function SidebarStats({ summary }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ACTIVITY GRAPH COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function ActivityGraph({ events, now }) {
+  const buckets = useMemo(() => {
+    const result = Array.from({length: 30}, () => ({ssh: 0, http: 0, mcp: 0, denied: 0}));
+    const windowStart = now - 300000; // 5 minutes ago
+
+    (events || []).forEach(e => {
+      const ts = new Date(e.timestamp || e.ts).getTime();
+      if (ts < windowStart || isNaN(ts)) return;
+      const idx = Math.floor((ts - windowStart) / 10000);
+      if (idx < 0 || idx >= 30) return;
+      const type = (e.type || e.event_type || e.action_type || '').toLowerCase();
+      if (type.includes('exec') || type.includes('cert') || type.includes('session')) result[idx].ssh++;
+      else if (type.includes('http') || type.includes('proxy')) result[idx].http++;
+      else if (type.includes('mcp') || type.includes('federation')) result[idx].mcp++;
+      if (type.includes('denied') || type.includes('revoke')) result[idx].denied++;
+    });
+    return result;
+  }, [events, now]);
+
+  const maxTotal = Math.max(...buckets.map(b => b.ssh + b.http + b.mcp), 1);
+
+  return (
+    <div className="activity-graph-section">
+      <div className="activity-graph-header">
+        <span className="activity-graph-title">Activity (5 min)</span>
+        <div className="activity-graph-legend">
+          <span className="activity-graph-legend-item">
+            <span className="activity-graph-legend-dot" style={{background:'var(--cyan)'}} />
+            SSH
+          </span>
+          <span className="activity-graph-legend-item">
+            <span className="activity-graph-legend-dot" style={{background:'var(--green)'}} />
+            HTTP
+          </span>
+          <span className="activity-graph-legend-item">
+            <span className="activity-graph-legend-dot" style={{background:'var(--purple)'}} />
+            MCP
+          </span>
+          <span className="activity-graph-legend-item">
+            <span className="activity-graph-legend-dot" style={{background:'var(--red)'}} />
+            Denied
+          </span>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '60px', padding: '0' }}>
+        {buckets.map((b, i) => {
+          const total = b.ssh + b.http + b.mcp;
+          return (
+            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '56px' }}>
+              {b.denied > 0 && <div style={{ height: Math.max((b.denied/maxTotal)*56, 2), background: 'var(--red)', borderRadius: '1px 1px 0 0' }} />}
+              {b.mcp > 0 && <div style={{ height: Math.max((b.mcp/maxTotal)*56, 2), background: 'var(--purple)' }} />}
+              {b.http > 0 && <div style={{ height: Math.max((b.http/maxTotal)*56, 2), background: 'var(--green)' }} />}
+              {b.ssh > 0 && <div style={{ height: Math.max((b.ssh/maxTotal)*56, 2), background: 'var(--cyan)', borderRadius: '0 0 1px 1px' }} />}
+              {total === 0 && b.denied === 0 && <div style={{ height: 0 }} />}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '9px', color: 'var(--text-dim)' }}>
+        <span>-5m</span>
+        <span>-2.5m</span>
+        <span>now</span>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 1. OVERVIEW VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2179,6 +2356,9 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         </div>
       </div>
 
+      {/* Real-time Activity Graph */}
+      <ActivityGraph events={events} now={now} />
+
       {/* 3 management panels: Hosts | Services | MCP Servers */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
         {/* Hosts panel */}
@@ -2217,6 +2397,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                     ? <span className="badge badge-key-pinned" style={{ fontSize: '8px', padding: '1px 5px' }} title="Host key pinned">PINNED</span>
                     : <span className="badge badge-key-unpinned" style={{ fontSize: '8px', padding: '1px 5px' }} title="No host key pinned">UNPINNED</span>
                   }
+                  {h.command_filter && <span className="badge badge-filtered" style={{ fontSize: '8px', padding: '1px 5px' }} title="Command filter active">FILTERED</span>}
                   <ToggleSwitch checked={h.access_enabled} onChange={() => onToggleHost(h.name)} />
                 </div>
               </div>
@@ -2949,7 +3130,34 @@ function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
                   ? <span className="badge badge-key-pinned" title="Host key pinned">KEY PINNED</span>
                   : <span className="badge badge-key-unpinned" title="No host key -- MITM possible">KEY UNPINNED</span>
                 }</span>
+                {h.command_filter && <span className="badge badge-filtered" title="Command filtering enabled">FILTERED</span>}
+                {h.command_filter && h.command_deny && h.command_deny.length > 0 && <span className="badge badge-deny-mode" title={'Deny: ' + h.command_deny.join(', ')}>DENY ({h.command_deny.length})</span>}
+                {h.command_filter && h.command_allow && h.command_allow.length > 0 && <span className="badge badge-allow-mode" title={'Allow: ' + h.command_allow.join(', ')}>ALLOW ({h.command_allow.length})</span>}
+                {h.auto_revoke_on_deny && <span className="badge badge-auto-revoke" title="Agent auto-revoked on denied command">AUTO-REVOKE</span>}
               </div>
+              {/* Command Filter Details */}
+              {h.command_filter && (
+                <div className="cmd-filter-detail" style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+                    Command Filter: <span style={{ color: 'var(--amber)' }}>ENABLED</span>
+                  </div>
+                  {h.command_deny && h.command_deny.length > 0 && (
+                    <div style={{ marginBottom: '4px' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--red)' }}>DENY ({h.command_deny.length} patterns):</span>
+                      {h.command_deny.map((p, i) => <div key={i} className="cmd-filter-pattern">{p}</div>)}
+                    </div>
+                  )}
+                  {h.command_allow && h.command_allow.length > 0 && (
+                    <div style={{ marginBottom: '4px' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--green)' }}>ALLOW ({h.command_allow.length} patterns):</span>
+                      {h.command_allow.map((p, i) => <div key={i} className="cmd-filter-pattern">{p}</div>)}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '10px' }}>
+                    Auto-revoke: <span style={{ color: h.auto_revoke_on_deny ? 'var(--red)' : 'var(--text-dim)' }}>{h.auto_revoke_on_deny ? 'YES' : 'NO'}</span>
+                  </div>
+                </div>
+              )}
               <div className="host-card-sessions">
                 <div className="sessions-label">{hostSessions.length} Active Session{hostSessions.length !== 1 ? 's' : ''}</div>
                 {hostSessions.map(s => {
@@ -4393,10 +4601,38 @@ function TasksView({ token, now }) {
     return groups;
   }, [filtered]);
 
+  // Compute set of task IDs affected by cascade revoke (descendants of revokeTarget)
+  const cascadeAffectedIds = useMemo(() => {
+    if (!revokeTarget) return new Set();
+    const targetId = revokeTarget.task.id;
+    const affected = new Set([targetId]);
+    // Walk parent_id chains to find all descendants
+    let changed = true;
+    while (changed) {
+      changed = false;
+      tasks.forEach(t => {
+        if (!affected.has(t.id) && t.parent_id && affected.has(t.parent_id)) {
+          affected.add(t.id);
+          changed = true;
+        }
+      });
+    }
+    return affected;
+  }, [revokeTarget, tasks]);
+
+  const depthColors = ['var(--green)', 'var(--cyan)', 'var(--amber)', 'var(--purple)', 'var(--red)'];
+
   const renderTreeNode = (task, allTasks) => {
     const children = allTasks.filter(t => t.parent_id === task.id);
+    const isCascadeTarget = revokeTarget && cascadeAffectedIds.has(task.id);
+    const depthColor = depthColors[Math.min(task.depth, depthColors.length - 1)];
+    const baseClass = task.depth === 0 ? 'task-tree-root' : 'task-tree-node';
+    const revokedClass = task.status === 'revoked' ? ' tree-revoked' : '';
+    const cascadeClass = isCascadeTarget ? ' cascade-highlight' : '';
+    const borderStyle = task.depth > 0 ? { borderLeftColor: depthColor } : {};
+
     return (
-      <div key={task.id} className={`${task.depth === 0 ? 'task-tree-root' : 'task-tree-node'}${task.status === 'revoked' ? ' tree-revoked' : ''}`}>
+      <div key={task.id} className={`${baseClass}${revokedClass}${cascadeClass}`} style={borderStyle}>
         <div className="task-node-header">
           <span className={`task-status-dot ${task.status}`} />
           <span className={`badge ${task.depth === 0 ? 'badge-root' : 'badge-delegated'}`}>{task.depth === 0 ? 'ROOT' : `D${task.depth}`}</span>
@@ -4406,6 +4642,12 @@ function TasksView({ token, now }) {
           {task.holder_bound === false && task.bind_deadline && <span className="badge" style={{border:'1px solid var(--amber)',color:'var(--amber)',background:'rgba(245,158,11,0.10)',animation:'pulse 2s infinite'}}>UNBOUND</span>}
           {task.token_type === 'macaroon' ? <span className="badge" style={{border:'1px solid var(--cyan)',color:'var(--cyan)',background:'rgba(6,182,212,0.10)'}}>MAC</span> : <span className="badge" style={{border:'1px solid #666',color:'#999',background:'rgba(128,128,128,0.10)'}}>JWT</span>}
           <span className="task-node-desc">{task.description || task.id.slice(0, 12)}</span>
+          {task.envelope && (
+            <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginLeft: '4px' }}>
+              {(task.envelope.targets || []).length} target{(task.envelope.targets || []).length !== 1 ? 's' : ''}{', '}
+              {(task.envelope.services || []).length} service{(task.envelope.services || []).length !== 1 ? 's' : ''}
+            </span>
+          )}
           <div className="task-node-actions">
             {task.status === 'active' && <button className="btn btn-revoke" style={{fontSize:'11px',padding:'2px 8px'}} onClick={(e) => { e.stopPropagation(); handleRevoke(task); }}>Revoke</button>}
             {task.status === 'revoked' && <span className="session-revoked-label">REVOKED</span>}
@@ -4414,7 +4656,9 @@ function TasksView({ token, now }) {
         </div>
         <div className="task-node-meta">
           <span>{task.agent_name}</span>
-          <span>TTL: {Math.max(0, Math.round(task.remaining_ttl_seconds))}s</span>
+          <div style={{minWidth:'120px'}}>
+            <TTLBar remaining={task.remaining_ttl_seconds} maxTTL={task.max_ttl_seconds || 1} />
+          </div>
           {task.child_count > 0 && <span>{task.child_count} children</span>}
         </div>
         {children.length > 0 && (
@@ -4811,7 +5055,509 @@ function TerminalView({ hosts, token }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 7. SETTINGS VIEW
+// 7a. TOKEN INSPECTOR VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function decodeMacaroon(b64url) {
+  const raw = b64url.startsWith('mac_') ? b64url.slice(4) : b64url;
+  const padded = raw.replace(/-/g, '+').replace(/_/g, '/');
+  const bytes = Uint8Array.from(atob(padded), c => c.charCodeAt(0));
+
+  let offset = 0;
+  if (bytes.length < 1) throw new Error('Token too short');
+  const version = bytes[offset++];
+  if (version !== 0x02) throw new Error('Unknown token version: 0x' + version.toString(16));
+
+  const readU32 = () => {
+    if (offset + 4 > bytes.length) throw new Error('Unexpected end of token');
+    const v = (bytes[offset] << 24) | (bytes[offset+1] << 16) | (bytes[offset+2] << 8) | bytes[offset+3];
+    offset += 4;
+    return v >>> 0;
+  };
+  const readBytes = (n) => {
+    if (offset + n > bytes.length) throw new Error('Unexpected end of token');
+    const s = bytes.slice(offset, offset + n);
+    offset += n;
+    return s;
+  };
+  const readString = (n) => new TextDecoder().decode(readBytes(n));
+
+  const idLen = readU32();
+  const id = readString(idLen);
+  const locLen = readU32();
+  const location = readString(locLen);
+  const numCaveats = readU32();
+  const caveats = [];
+  for (let i = 0; i < numCaveats; i++) {
+    const cLen = readU32();
+    caveats.push(readString(cLen));
+  }
+  if (offset + 32 > bytes.length) throw new Error('Missing signature');
+  const signature = Array.from(readBytes(32)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+  if (offset !== bytes.length) throw new Error('Trailing bytes after signature');
+
+  return { version, id, location, caveats, signature, size: bytes.length };
+}
+
+function reduceCaveats(caveats) {
+  const envelope = {
+    targets: null, roles: null, services: null, remotes: null, methods: null,
+    canDelegate: true, delegationDepth: null, expiresAt: null
+  };
+  const metadata = { agent: '', initiatedBy: '' };
+
+  for (const c of caveats) {
+    const inIdx = c.indexOf(' IN [');
+    const leIdx = c.indexOf(' <= ');
+    const eqIdx = c.indexOf(' = ');
+
+    if (inIdx !== -1) {
+      const key = c.slice(0, inIdx);
+      const valsStr = c.slice(inIdx + 5, c.length - 1);
+      const vals = valsStr.split(',').map(v => v.trim()).filter(v => v);
+      const fieldMap = { target: 'targets', role: 'roles', service: 'services', remote: 'remotes', method: 'methods' };
+      const field = fieldMap[key];
+      if (field) {
+        if (envelope[field] === null) {
+          envelope[field] = vals;
+        } else {
+          envelope[field] = envelope[field].filter(v => vals.includes(v));
+        }
+      }
+    } else if (leIdx !== -1) {
+      const key = c.slice(0, leIdx);
+      const val = parseInt(c.slice(leIdx + 4));
+      if (key === 'delegation_depth' && !isNaN(val)) {
+        if (envelope.delegationDepth === null || val < envelope.delegationDepth) {
+          envelope.delegationDepth = val;
+        }
+      }
+    } else if (eqIdx !== -1) {
+      const key = c.slice(0, eqIdx);
+      const val = c.slice(eqIdx + 3);
+      if (key === 'expires_before') envelope.expiresAt = val;
+      else if (key === 'can_delegate') envelope.canDelegate = envelope.canDelegate && (val === 'true');
+      else if (key === 'agent' && !metadata.agent) metadata.agent = val;
+      else if (key === 'initiated_by' && !metadata.initiatedBy) metadata.initiatedBy = val;
+    }
+  }
+  return { envelope, metadata };
+}
+
+function TokenInspectorView() {
+  const [input, setInput] = useState('');
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  const handleDecode = () => {
+    setResult(null);
+    setError('');
+    const trimmed = input.trim();
+    if (!trimmed) { setError('Paste a macaroon token to decode.'); return; }
+    try {
+      const mac = decodeMacaroon(trimmed);
+      const reduced = reduceCaveats(mac.caveats);
+      setResult({ mac, reduced });
+    } catch (e) {
+      setError('Decode failed: ' + e.message);
+    }
+  };
+
+  const handleClear = () => { setInput(''); setResult(null); setError(''); };
+
+  const EnvelopeList = ({ label, items, color }) => {
+    if (!items || items.length === 0) return (
+      <div className="inspector-row">
+        <span className="inspector-row-label">{label}</span>
+        <span className="inspector-row-value" style={{ color: 'var(--text-dim)' }}>unconstrained</span>
+      </div>
+    );
+    return (
+      <div style={{ padding: '4px 0' }}>
+        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>{label}</div>
+        <div>{items.map((v, i) => (
+          <span key={i} className="inspector-envelope-tag" style={{ background: color + '22', color: color, border: '1px solid ' + color + '44' }}>{v}</span>
+        ))}</div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{ marginBottom: '16px' }}>
+        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+          Paste a mac_ token to decode its structure and effective envelope
+        </div>
+        <textarea
+          className="inspector-textarea"
+          placeholder="mac_AgJOZXBo... or base64url encoded token"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) handleDecode(); }}
+        />
+        <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+          <button className="btn btn-cyan" onClick={handleDecode}>DECODE</button>
+          <button className="btn" style={{ background: 'var(--input-bg)', color: 'var(--text-dim)', border: '1px solid var(--border)' }} onClick={handleClear}>CLEAR</button>
+        </div>
+      </div>
+
+      {error && <div className="inspector-error">{error}</div>}
+
+      {result && (
+        <div className="inspector-result">
+          {/* Token Structure */}
+          <div className="inspector-section">
+            <div className="inspector-section-title">Token Structure</div>
+            <div className="inspector-row">
+              <span className="inspector-row-label">Version</span>
+              <span className="inspector-row-value">0x{result.mac.version.toString(16).padStart(2, '0')}</span>
+            </div>
+            <div className="inspector-row">
+              <span className="inspector-row-label">Root Task ID</span>
+              <span className="inspector-row-value" style={{ color: 'var(--cyan)' }}>{result.mac.id}</span>
+            </div>
+            <div className="inspector-row">
+              <span className="inspector-row-label">Location</span>
+              <span className="inspector-row-value">{result.mac.location || '(empty)'}</span>
+            </div>
+            <div className="inspector-row">
+              <span className="inspector-row-label">Caveats</span>
+              <span className="inspector-row-value">{result.mac.caveats.length}</span>
+            </div>
+            <div className="inspector-row">
+              <span className="inspector-row-label">Signature</span>
+              <span className="inspector-row-value" style={{ fontSize: '10px', color: 'var(--purple)' }}>{result.mac.signature.slice(0, 16)}...{result.mac.signature.slice(-16)}</span>
+            </div>
+            <div className="inspector-row">
+              <span className="inspector-row-label">Token Size</span>
+              <span className="inspector-row-value">{result.mac.size} bytes</span>
+            </div>
+          </div>
+
+          {/* Caveats */}
+          <div className="inspector-section">
+            <div className="inspector-section-title">Caveats ({result.mac.caveats.length})</div>
+            {result.mac.caveats.length === 0 ? (
+              <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>No caveats (unconstrained token)</div>
+            ) : (
+              <ol className="inspector-caveat-list">
+                {result.mac.caveats.map((c, i) => (
+                  <li key={i}>
+                    <span className="inspector-caveat-num">{i + 1}.</span>
+                    <span>{c}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+
+          {/* Effective Envelope */}
+          <div className="inspector-section">
+            <div className="inspector-section-title">Effective Envelope (reduced)</div>
+            <EnvelopeList label="Targets" items={result.reduced.envelope.targets} color="var(--amber)" />
+            <EnvelopeList label="Roles" items={result.reduced.envelope.roles} color="var(--purple)" />
+            <EnvelopeList label="Services" items={result.reduced.envelope.services} color="var(--cyan)" />
+            <EnvelopeList label="Remotes" items={result.reduced.envelope.remotes} color="var(--green)" />
+            <EnvelopeList label="Methods" items={result.reduced.envelope.methods} color="var(--text-bright)" />
+            <div className="inspector-row">
+              <span className="inspector-row-label">Can Delegate</span>
+              <span className="inspector-row-value" style={{ color: result.reduced.envelope.canDelegate ? 'var(--green)' : 'var(--red)' }}>
+                {result.reduced.envelope.canDelegate ? 'YES' : 'NO'}
+              </span>
+            </div>
+            <div className="inspector-row">
+              <span className="inspector-row-label">Delegation Depth</span>
+              <span className="inspector-row-value">{result.reduced.envelope.delegationDepth !== null ? result.reduced.envelope.delegationDepth : 'unconstrained'}</span>
+            </div>
+            <div className="inspector-row">
+              <span className="inspector-row-label">Expires At</span>
+              <span className="inspector-row-value" style={{ color: result.reduced.envelope.expiresAt ? 'var(--amber)' : 'var(--text-dim)' }}>
+                {result.reduced.envelope.expiresAt || 'unconstrained'}
+              </span>
+            </div>
+          </div>
+
+          {/* Metadata */}
+          {(result.reduced.metadata.agent || result.reduced.metadata.initiatedBy) && (
+            <div className="inspector-section">
+              <div className="inspector-section-title">Metadata</div>
+              {result.reduced.metadata.agent && (
+                <div className="inspector-row">
+                  <span className="inspector-row-label">Agent</span>
+                  <span className="inspector-row-value" style={{ color: 'var(--green)' }}>{result.reduced.metadata.agent}</span>
+                </div>
+              )}
+              {result.reduced.metadata.initiatedBy && (
+                <div className="inspector-row">
+                  <span className="inspector-row-label">Initiated By</span>
+                  <span className="inspector-row-value">{result.reduced.metadata.initiatedBy}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="inspector-note">Signature not verified (decode only -- verification requires the root key)</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7b. METRICS VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function Sparkline({ data, color, width, height }) {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, width, height);
+    if (!data || data.length === 0) return;
+    const max = Math.max(...data, 1);
+    const step = width / (data.length - 1 || 1);
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    data.forEach((v, i) => {
+      const x = i * step;
+      const y = height - (v / max) * (height - 4);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.lineTo((data.length - 1) * step, height);
+    ctx.lineTo(0, height);
+    ctx.closePath();
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+  }, [data, color, width, height]);
+  return React.createElement('canvas', { ref: canvasRef, width, height, style: { display: 'block' } });
+}
+
+function formatLatency(us) {
+  if (us === 0) return '0';
+  if (us < 1000) return us.toFixed(0) + ' us';
+  if (us < 1000000) return (us / 1000).toFixed(1) + ' ms';
+  return (us / 1000000).toFixed(2) + ' s';
+}
+
+function latencyColor(us) {
+  if (us === 0) return 'var(--text-dim)';
+  if (us < 1000) return 'var(--green)';
+  if (us < 10000) return 'var(--amber)';
+  return 'var(--red)';
+}
+
+const latencyLabels = {
+  token_sign: 'Token Sign',
+  token_validate: 'Token Validate',
+  watermark_check: 'Watermark Check',
+  envelope_check: 'Envelope Check',
+  policy_eval: 'Policy Eval',
+  ssh_cert: 'SSH Cert Sign',
+  delegation_ipc: 'Delegation IPC',
+  exec_e2e: 'SSH Exec E2E',
+  macaroon_mint: 'Macaroon Mint',
+  macaroon_verify: 'Macaroon Verify',
+};
+
+function MetricsView({ token }) {
+  const [metrics, setMetrics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const execLatencyBuf = useRef([]);
+  const tokenOpsBuf = useRef([]);
+  const errorBuf = useRef([]);
+  const prevCounters = useRef(null);
+
+  const fetchMetrics = useCallback(async () => {
+    try {
+      const data = await api('GET', '/v1/dashboard/metrics', null, token);
+      setMetrics(data);
+      if (data.latency && data.latency.exec_e2e) {
+        const buf = execLatencyBuf.current;
+        buf.push(data.latency.exec_e2e.p50_us);
+        if (buf.length > 60) buf.shift();
+      }
+      const curTokenOps = (data.counters.tokens_signed || 0) +
+        (data.counters.tokens_validated || 0) +
+        (data.counters.macaroons_minted || 0) +
+        (data.counters.macaroons_verified || 0);
+      const curErrors = (data.counters.tokens_rejected || 0) +
+        (data.counters.macaroons_rejected || 0) +
+        (data.counters.pop_rejected || 0) +
+        (data.counters.commands_denied || 0);
+      if (prevCounters.current !== null) {
+        const tBuf = tokenOpsBuf.current;
+        tBuf.push(Math.max(0, curTokenOps - prevCounters.current.tokenOps));
+        if (tBuf.length > 60) tBuf.shift();
+        const eBuf = errorBuf.current;
+        eBuf.push(Math.max(0, curErrors - prevCounters.current.errors));
+        if (eBuf.length > 60) eBuf.shift();
+      }
+      prevCounters.current = { tokenOps: curTokenOps, errors: curErrors };
+    } catch(e) { console.error('fetch metrics:', e); }
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => {
+    fetchMetrics();
+    const iv = setInterval(fetchMetrics, 5000);
+    return () => clearInterval(iv);
+  }, [fetchMetrics]);
+
+  if (loading || !metrics) return React.createElement('div', { className: 'loading' }, 'Loading metrics...');
+
+  const lat = metrics.latency || {};
+  const ctr = metrics.counters || {};
+  const gau = metrics.gauges || {};
+
+  const counterGroups = [
+    { title: 'Token Operations', items: [
+      { label: 'Signed', key: 'tokens_signed', color: 'var(--green)' },
+      { label: 'Delegated', key: 'tokens_delegated', color: 'var(--cyan)' },
+      { label: 'Validated', key: 'tokens_validated', color: 'var(--green)' },
+      { label: 'Rejected', key: 'tokens_rejected', color: 'var(--red)' },
+    ]},
+    { title: 'Macaroon Operations', items: [
+      { label: 'Minted', key: 'macaroons_minted', color: 'var(--green)' },
+      { label: 'Verified', key: 'macaroons_verified', color: 'var(--green)' },
+      { label: 'Rejected', key: 'macaroons_rejected', color: 'var(--red)' },
+      { label: 'Reducer Calls', key: 'reducer_invocations', color: 'var(--cyan)' },
+    ]},
+    { title: 'Security', items: [
+      { label: 'PoP Verified', key: 'pop_verified', color: 'var(--green)' },
+      { label: 'PoP Rejected', key: 'pop_rejected', color: 'var(--red)' },
+      { label: 'Cmds Denied', key: 'commands_denied', color: 'var(--red)' },
+      { label: 'Cmds Filtered', key: 'commands_filtered', color: 'var(--amber)' },
+      { label: 'Auto-Revocations', key: 'auto_revocations', color: 'var(--red)' },
+      { label: 'Bind Expired', key: 'bind_deadline_expired', color: 'var(--amber)' },
+    ]},
+    { title: 'Cache', items: [
+      { label: 'Hits', key: 'auth_cache_hits', color: 'var(--green)' },
+      { label: 'Misses', key: 'auth_cache_misses', color: 'var(--amber)' },
+      { label: 'Hit Rate', computed: true },
+    ]},
+    { title: 'System', items: [
+      { label: 'Legacy Requests', key: 'legacy_requests', color: 'var(--text-dim)' },
+      { label: 'Deleg. Rotations', key: 'delegation_rotations', color: 'var(--cyan)' },
+      { label: 'Watermark Revoc.', key: 'watermark_revocations', color: 'var(--amber)' },
+      { label: 'Size Warnings', key: 'token_size_warnings', color: 'var(--amber)' },
+      { label: 'Tasks Created', key: 'tasks_created', color: 'var(--green)' },
+      { label: 'Tasks Active', key: 'tasks_active', color: 'var(--cyan)' },
+    ]},
+  ];
+
+  const cacheHits = ctr.auth_cache_hits || 0;
+  const cacheMisses = ctr.auth_cache_misses || 0;
+  const cacheTotal = cacheHits + cacheMisses;
+  const cacheHitRate = cacheTotal > 0 ? ((cacheHits / cacheTotal) * 100).toFixed(1) : '0.0';
+  const latencyKeys = Object.keys(lat).sort((a, b) => (lat[b].count - lat[a].count));
+
+  return React.createElement('div', null,
+    React.createElement('div', { className: 'metrics-section' },
+      React.createElement('div', { className: 'metrics-section-title' }, 'Latency Percentiles'),
+      React.createElement('div', { className: 'metrics-grid-wide' },
+        latencyKeys.map(key =>
+          React.createElement('div', { className: 'metrics-card', key },
+            React.createElement('div', { className: 'metrics-card-title' }, latencyLabels[key] || key),
+            React.createElement('div', { className: 'metrics-percentiles' },
+              ['p50_us', 'p95_us', 'p99_us'].map(pKey => {
+                const val = lat[key][pKey] || 0;
+                const label = pKey.replace('_us', '').toUpperCase();
+                return React.createElement('div', { className: 'metrics-percentile', key: pKey },
+                  React.createElement('div', {
+                    className: 'metrics-percentile-value',
+                    style: { color: latencyColor(val) }
+                  }, formatLatency(val)),
+                  React.createElement('div', { className: 'metrics-percentile-label' }, label)
+                );
+              })
+            ),
+            React.createElement('div', { className: 'metrics-card-mean' },
+              'Mean: ', formatLatency(lat[key].mean_us || 0), ' // ', (lat[key].count || 0).toLocaleString(), ' obs'
+            )
+          )
+        )
+      )
+    ),
+    React.createElement('div', { className: 'metrics-section' },
+      React.createElement('div', { className: 'metrics-section-title' }, 'Counters'),
+      counterGroups.map(group =>
+        React.createElement('div', { key: group.title, style: { marginBottom: '16px' } },
+          React.createElement('div', {
+            style: { fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px', paddingLeft: '2px' }
+          }, group.title),
+          React.createElement('div', { className: 'metrics-grid' },
+            group.items.map(item => {
+              if (item.computed) {
+                return React.createElement('div', { className: 'metrics-card', key: 'hit-rate' },
+                  React.createElement('div', { className: 'metrics-card-title' }, item.label),
+                  React.createElement('div', {
+                    className: 'metrics-counter-value',
+                    style: { color: parseFloat(cacheHitRate) > 80 ? 'var(--green)' : parseFloat(cacheHitRate) > 50 ? 'var(--amber)' : 'var(--red)' }
+                  }, cacheHitRate + '%')
+                );
+              }
+              const val = ctr[item.key] || 0;
+              return React.createElement('div', { className: 'metrics-card', key: item.key },
+                React.createElement('div', { className: 'metrics-card-title' }, item.label),
+                React.createElement('div', {
+                  className: 'metrics-counter-value',
+                  style: { color: item.color }
+                }, val.toLocaleString())
+              );
+            })
+          )
+        )
+      )
+    ),
+    React.createElement('div', { className: 'metrics-section' },
+      React.createElement('div', { className: 'metrics-section-title' }, 'Gauges'),
+      React.createElement('div', { className: 'metrics-grid' },
+        [
+          { label: 'Active Watermarks', key: 'active_watermarks', color: 'var(--cyan)' },
+          { label: 'Deleg. Cert Age (s)', key: 'delegation_cert_age', color: 'var(--amber)' },
+          { label: 'Deleg. Certs Held', key: 'delegation_certs_held', color: 'var(--cyan)' },
+        ].map(item =>
+          React.createElement('div', { className: 'metrics-card', key: item.key },
+            React.createElement('div', { className: 'metrics-card-title' }, item.label),
+            React.createElement('div', {
+              className: 'metrics-counter-value',
+              style: { color: item.color }
+            }, (gau[item.key] || 0).toLocaleString())
+          )
+        )
+      )
+    ),
+    React.createElement('div', { className: 'metrics-section' },
+      React.createElement('div', { className: 'metrics-section-title' }, 'Trends (5 min rolling)'),
+      React.createElement('div', { className: 'metrics-sparkline-row' },
+        [
+          { title: 'Exec Latency (P50)', buf: execLatencyBuf, color: 'var(--cyan)', fmt: v => formatLatency(v) },
+          { title: 'Token Ops / Interval', buf: tokenOpsBuf, color: 'var(--green)', fmt: v => v.toFixed(0) },
+          { title: 'Errors / Interval', buf: errorBuf, color: 'var(--red)', fmt: v => v.toFixed(0) },
+        ].map(s => {
+          const data = s.buf.current;
+          const current = data.length > 0 ? data[data.length - 1] : 0;
+          return React.createElement('div', { className: 'metrics-sparkline-card', key: s.title },
+            React.createElement('div', { className: 'metrics-sparkline-header' },
+              React.createElement('div', { className: 'metrics-sparkline-title' }, s.title),
+              React.createElement('div', { className: 'metrics-sparkline-current', style: { color: s.color } }, s.fmt(current))
+            ),
+            React.createElement(Sparkline, { data: [...data], color: s.color, width: 280, height: 48 })
+          );
+        })
+      )
+    )
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7c. SETTINGS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function SettingsView({ summary, token, wsStatus }) {
@@ -5325,7 +6071,9 @@ function App() {
     { id: 'sessions', label: 'Sessions', icon: '\u27d0', group: 'MONITOR' },
     { id: 'audit', label: 'Audit Log', icon: '\u25a4', group: 'MONITOR' },
     { id: 'tasks', label: 'Tasks', icon: '\u29C9', group: 'MONITOR' },
+    { id: 'metrics', label: 'Metrics', icon: '\u2237', group: 'MONITOR' },
     { id: 'terminal', label: 'Terminal', icon: '\u2318', group: 'TOOLS' },
+    { id: 'token-inspector', label: 'Token Inspector', icon: '\u2387', group: 'TOOLS' },
     { id: 'settings', label: 'Settings', icon: '\u2699', group: 'TOOLS' },
   ];
 
@@ -5337,7 +6085,9 @@ function App() {
     sessions: 'Session Control',
     audit: 'Audit Log',
     tasks: 'Task Management',
+    metrics: 'Metrics',
     terminal: 'Terminal Access',
+    'token-inspector': 'Token Inspector',
     services: 'Service Configuration',
     'mcp-servers': 'MCP Servers',
     settings: 'Settings',
@@ -5415,7 +6165,9 @@ function App() {
               {view === 'sessions' && <SessionsView sessions={sessions} now={now} onRevoke={handleRevoke} />}
               {view === 'audit' && <AuditView token={token} events={events} />}
               {view === 'tasks' && <TasksView token={token} now={now} />}
+              {view === 'metrics' && <MetricsView token={token} />}
               {view === 'terminal' && <TerminalView hosts={hosts} token={token} />}
+              {view === 'token-inspector' && <TokenInspectorView />}
               {view === 'services' && <ServicesView token={token} />}
               {view === 'mcp-servers' && <MCPServersView token={token} />}
               {view === 'settings' && <SettingsView summary={summary} token={token} wsStatus={wsStatus} />}
