@@ -2260,7 +2260,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
   };
 
   // Determine overall system health
-  const systemHealthy = (summary.broker_status === 'running' || summary.broker_status === 'ok') && summary.signer_ok;
+  const systemHealthy = (summary.broker_status === 'running' || summary.broker_status === 'ok' || summary.broker_status === 'healthy') && summary.signer_ok;
   const healthLabel = systemHealthy ? 'HEALTHY' : 'DEGRADED';
   const healthColor = systemHealthy ? 'var(--green)' : 'var(--red)';
 
@@ -2298,7 +2298,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
         </span>
         <span style={{ color: 'var(--border-bright)' }}>|</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: (summary.broker_status === 'running' || summary.broker_status === 'ok') ? 'var(--green)' : 'var(--red)', display: 'inline-block', flexShrink: 0 }} />
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: (summary.broker_status === 'running' || summary.broker_status === 'ok' || summary.broker_status === 'healthy') ? 'var(--green)' : 'var(--red)', display: 'inline-block', flexShrink: 0 }} />
           <span style={{ color: 'var(--text-dim)' }}>Broker</span>
         </span>
         <span style={{ color: 'var(--border-bright)' }}>|</span>
