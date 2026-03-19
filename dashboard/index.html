@@ -1789,6 +1789,36 @@
   .metrics-card-mean {
     font-size: 10px; color: var(--text-dim); margin-top: 6px; text-align: center;
   }
+  .audit-search-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .audit-search-input { background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; color: var(--text); font-size: 11px; font-family: 'JetBrains Mono', monospace; flex: 1; min-width: 150px; }
+  .audit-search-input:focus { outline: none; border-color: var(--cyan); }
+  .audit-select { background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; color: var(--text); font-size: 11px; font-family: 'JetBrains Mono', monospace; min-width: 100px; }
+  .audit-date-input { background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; color: var(--text); font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+  .audit-result-count { font-size: 10px; color: var(--text-dim); margin-bottom: 8px; }
+  .btn-export { background: var(--purple); color: var(--bg); border: none; border-radius: 4px; padding: 4px 10px; font-size: 10px; font-weight: 600; cursor: pointer; font-family: 'JetBrains Mono', monospace; }
+  .btn-export:hover { opacity: 0.85; }
+  .timeline-container { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+  .timeline-legend { display: flex; gap: 16px; margin-bottom: 16px; font-size: 10px; color: var(--text-dim); }
+  .timeline-legend-item { display: flex; align-items: center; gap: 4px; }
+  .timeline-legend-bar { width: 20px; height: 8px; border-radius: 2px; }
+  .timeline-header { display: flex; border-bottom: 1px solid var(--border); padding-bottom: 4px; margin-bottom: 4px; }
+  .timeline-agent-label { width: 120px; flex-shrink: 0; font-size: 10px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; }
+  .timeline-axis { flex: 1; display: flex; justify-content: space-between; font-size: 9px; color: var(--text-dim); position: relative; }
+  .timeline-tick { position: absolute; top: 0; bottom: -4px; border-left: 1px solid var(--border); }
+  .timeline-row { display: flex; align-items: center; min-height: 28px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .timeline-row:hover { background: rgba(255,255,255,0.02); }
+  .timeline-agent-name { width: 120px; flex-shrink: 0; font-size: 11px; color: var(--green); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
+  .timeline-track { flex: 1; position: relative; height: 20px; }
+  .timeline-bar { position: absolute; height: 16px; top: 2px; border-radius: 3px; display: flex; align-items: center; padding: 0 4px; font-size: 9px; color: var(--bg); font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; min-width: 2px; transition: opacity 0.2s; }
+  .timeline-bar:hover { opacity: 0.85 !important; z-index: 10; }
+  .timeline-bar.active { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .timeline-bar.suspended { background: var(--amber); animation: pulse-amber 2s infinite; }
+  .timeline-bar.expired { background: var(--text-dim); opacity: 0.4; }
+  .timeline-bar.error { background: var(--red); }
+  .timeline-now-line { position: absolute; right: 0; top: 0; bottom: 0; border-right: 2px dashed var(--cyan); opacity: 0.5; }
+  .timeline-tooltip { position: fixed; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 8px 12px; font-size: 10px; color: var(--text); z-index: 1000; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); font-family: 'JetBrains Mono', monospace; }
+  .timeline-tooltip-row { display: flex; gap: 8px; margin-bottom: 2px; }
+  .timeline-tooltip-label { color: var(--text-dim); min-width: 50px; }
 </style>
 </head>
 <body>
@@ -2310,6 +2340,8 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
         <span style={{ color: 'var(--border-bright)' }}>|</span>
         <span style={{ color: 'var(--text-dim)' }}>{summary.tasks_active || 0} tasks</span>
       </div>
+
+      <ActivityGraph events={events} now={now} />
 
       {/* Three-column grid: Hosts / Services / MCP Remotes */}
       <div style={{
@@ -3452,6 +3484,11 @@ function AuditView({ token, events }) {
   const [filter, setFilter] = useState('ALL');
   const [audit, setAudit] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchText, setSearchText] = useState('');
+  const [agentFilter, setAgentFilter] = useState('');
+  const [targetFilter, setTargetFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const fetchAudit = useCallback(async () => {
     try {
@@ -3469,6 +3506,98 @@ function AuditView({ token, events }) {
 
   const filters = ['ALL', 'exec', 'http', 'mcp', 'task', 'denied', 'cert', 'toggle', 'session'];
 
+  // Helper to extract target/detail from an audit entry
+  const getTarget = (e) => {
+    const det = e.details || {};
+    return e.target || det.target || det.service || det.remote || (det.task_id ? 'task:' + det.task_id.slice(0,12) : '-');
+  };
+  const getDetail = (e) => {
+    const det = e.details || {};
+    return e.reason || det.description || det.command || e.serial || det.error || '-';
+  };
+
+  // Sort audit entries by timestamp descending
+  const sorted = useMemo(() => [...audit].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)), [audit]);
+
+  // Extract unique agents and targets from raw audit data for dropdowns
+  const uniqueAgents = useMemo(() => {
+    const s = new Set();
+    audit.forEach(e => { if (e.agent) s.add(e.agent); });
+    return [...s].sort();
+  }, [audit]);
+
+  const uniqueTargets = useMemo(() => {
+    const s = new Set();
+    audit.forEach(e => { const t = getTarget(e); if (t && t !== '-') s.add(t); });
+    return [...s].sort();
+  }, [audit]);
+
+  // Apply all client-side filters
+  const filtered = useMemo(() => {
+    const search = searchText.toLowerCase();
+    const fromTs = dateFrom ? new Date(dateFrom).getTime() : null;
+    const toTs = dateTo ? new Date(dateTo).getTime() : null;
+
+    return sorted.filter(e => {
+      // Agent dropdown filter
+      if (agentFilter && (e.agent || '') !== agentFilter) return false;
+
+      // Target dropdown filter
+      if (targetFilter && getTarget(e) !== targetFilter) return false;
+
+      // Date range filter
+      if (fromTs || toTs) {
+        const ts = new Date(e.timestamp || 0).getTime();
+        if (fromTs && ts < fromTs) return false;
+        if (toTs && ts > toTs) return false;
+      }
+
+      // Text search filter
+      if (search) {
+        const agent = (e.agent || '').toLowerCase();
+        const target = getTarget(e).toLowerCase();
+        const detail = getDetail(e).toLowerCase();
+        const role = (e.role || '').toLowerCase();
+        if (!agent.includes(search) && !target.includes(search) && !detail.includes(search) && !role.includes(search)) return false;
+      }
+
+      return true;
+    });
+  }, [sorted, searchText, agentFilter, targetFilter, dateFrom, dateTo]);
+
+  // CSV export
+  const exportCSV = () => {
+    const escapeCSV = (val) => {
+      const s = String(val || '');
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+    const header = 'Time,Type,Agent,Target,Role,Duration,Detail';
+    const rows = filtered.map(e => {
+      const det = e.details || {};
+      const dur = e.duration_ms || (det.duration_ms && parseInt(det.duration_ms));
+      return [
+        e.timestamp || '',
+        e.event_type || '',
+        e.agent || '',
+        getTarget(e),
+        e.role || '',
+        dur ? dur + 'ms' : '',
+        getDetail(e)
+      ].map(escapeCSV).join(',');
+    });
+    const csv = header + '\n' + rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'audit-export-' + new Date().toISOString().slice(0,19).replace(/:/g, '-') + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <div className="audit-filters">
@@ -3477,6 +3606,26 @@ function AuditView({ token, events }) {
             {f}
           </button>
         ))}
+      </div>
+      <div className="audit-search-row">
+        <input type="text" className="audit-search-input" placeholder="Search agent, target, detail, role..."
+          value={searchText} onChange={e => setSearchText(e.target.value)} />
+        <select className="audit-select" value={agentFilter} onChange={e => setAgentFilter(e.target.value)}>
+          <option value="">All Agents</option>
+          {uniqueAgents.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select className="audit-select" value={targetFilter} onChange={e => setTargetFilter(e.target.value)}>
+          <option value="">All Targets</option>
+          {uniqueTargets.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <input type="datetime-local" className="audit-date-input" value={dateFrom}
+          onChange={e => setDateFrom(e.target.value)} title="From date" />
+        <input type="datetime-local" className="audit-date-input" value={dateTo}
+          onChange={e => setDateTo(e.target.value)} title="To date" />
+        <button className="btn-export" onClick={exportCSV} title="Export filtered results as CSV">Export CSV</button>
+      </div>
+      <div className="audit-result-count">
+        Showing {filtered.length} of {audit.length} entries
       </div>
       {loading ? (
         <div className="loading">Loading audit log...</div>
@@ -3494,12 +3643,12 @@ function AuditView({ token, events }) {
             </tr>
           </thead>
           <tbody>
-            {audit.length === 0 ? (
+            {filtered.length === 0 ? (
               <tr><td colSpan="7" className="empty-state">No audit entries</td></tr>
-            ) : [...audit].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)).map((e, i) => {
+            ) : filtered.map((e, i) => {
               const det = e.details || {};
-              const target = e.target || det.target || det.service || det.remote || (det.task_id ? 'task:' + det.task_id.slice(0,12) : '-');
-              const detail = e.reason || det.description || det.command || e.serial || det.error || '-';
+              const target = getTarget(e);
+              const detail = getDetail(e);
               return (
               <tr key={i}>
                 <td style={{ color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{relativeTime(e.timestamp)}</td>
@@ -5425,6 +5574,160 @@ function MetricsView({ token }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 7c-pre. TIMELINE VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function TimelineView({ sessions, now }) {
+  const [tooltip, setTooltip] = useState(null);
+
+  const WINDOW_MS = 60 * 60 * 1000; // 60 minutes
+  const windowStart = now - WINDOW_MS;
+  const windowEnd = now;
+
+  // Filter sessions that overlap with the 60-minute window
+  const windowSessions = (sessions || []).filter(s => {
+    const start = new Date(s.issued_at).getTime();
+    const end = s.expires_at ? new Date(s.expires_at).getTime() : now;
+    return end > windowStart && start < windowEnd;
+  });
+
+  // Group by agent
+  const agentMap = {};
+  windowSessions.forEach(s => {
+    const agent = s.agent || 'unknown';
+    if (!agentMap[agent]) agentMap[agent] = [];
+    agentMap[agent].push(s);
+  });
+  const agentNames = Object.keys(agentMap).sort();
+
+  // Determine bar status class
+  const barClass = (s) => {
+    if (s.status === 'suspended') return 'suspended';
+    if (s.status === 'error' || s.status === 'revoked') return 'error';
+    if (s.status === 'active') {
+      const exp = s.expires_at ? new Date(s.expires_at).getTime() : Infinity;
+      return exp <= now ? 'expired' : 'active';
+    }
+    if (s.status === 'expired') return 'expired';
+    // Fallback: check if expired by time
+    const exp = s.expires_at ? new Date(s.expires_at).getTime() : Infinity;
+    return exp <= now ? 'expired' : 'active';
+  };
+
+  // Compute bar position and width as percentages
+  const barStyle = (s) => {
+    const start = Math.max(new Date(s.issued_at).getTime(), windowStart);
+    const end = Math.min(s.expires_at ? new Date(s.expires_at).getTime() : now, windowEnd);
+    const leftPct = ((start - windowStart) / WINDOW_MS) * 100;
+    const widthPct = ((end - start) / WINDOW_MS) * 100;
+    return {
+      left: Math.max(0, leftPct) + '%',
+      width: Math.max(0.3, Math.min(100 - Math.max(0, leftPct), widthPct)) + '%',
+    };
+  };
+
+  // Generate tick marks every 10 minutes
+  const ticks = [];
+  for (let i = 0; i <= 6; i++) {
+    const tickTime = windowStart + i * (10 * 60 * 1000);
+    const pct = (i / 6) * 100;
+    const mins = Math.round((tickTime - now) / 60000);
+    const label = mins === 0 ? 'now' : mins + 'm';
+    ticks.push({ pct, label });
+  }
+
+  const handleMouseEnter = (e, s) => {
+    const rect = e.target.getBoundingClientRect();
+    const remaining = parseTTL(s.expires_at, now);
+    setTooltip({
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+      agent: s.agent || '-',
+      target: s.target || '-',
+      role: s.role || '-',
+      status: s.status || '-',
+      issued: s.issued_at ? new Date(s.issued_at).toLocaleTimeString() : '-',
+      expires: s.expires_at ? new Date(s.expires_at).toLocaleTimeString() : '-',
+      remaining: remaining > 0 ? formatTTL(remaining) : 'EXPIRED',
+    });
+  };
+
+  const handleMouseLeave = () => setTooltip(null);
+
+  const legendItems = [
+    { label: 'Active', cls: 'active', color: 'var(--green)' },
+    { label: 'Suspended', cls: 'suspended', color: 'var(--amber)' },
+    { label: 'Expired', cls: 'expired', color: 'var(--text-dim)' },
+    { label: 'Error / Revoked', cls: 'error', color: 'var(--red)' },
+  ];
+
+  return (
+    <div className="timeline-container">
+      <div className="timeline-legend">
+        {legendItems.map(l => (
+          <div className="timeline-legend-item" key={l.cls}>
+            <div className="timeline-legend-bar" style={{ background: l.color, opacity: l.cls === 'expired' ? 0.4 : 1 }} />
+            <span>{l.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {agentNames.length === 0 ? (
+        <div style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '40px 0', fontSize: '12px' }}>
+          No sessions in the last 60 minutes
+        </div>
+      ) : (
+        <>
+          <div className="timeline-header">
+            <div className="timeline-agent-label">Agent</div>
+            <div className="timeline-axis">
+              {ticks.map((t, i) => (
+                <React.Fragment key={i}>
+                  <div className="timeline-tick" style={{ left: t.pct + '%' }} />
+                  <span style={{ position: 'absolute', left: t.pct + '%', transform: 'translateX(-50%)' }}>{t.label}</span>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          {agentNames.map(agent => (
+            <div className="timeline-row" key={agent}>
+              <div className="timeline-agent-name" title={agent}>{agent}</div>
+              <div className="timeline-track">
+                <div className="timeline-now-line" />
+                {agentMap[agent].map((s, idx) => (
+                  <div
+                    key={s.serial || idx}
+                    className={`timeline-bar ${barClass(s)}`}
+                    style={barStyle(s)}
+                    onMouseEnter={(e) => handleMouseEnter(e, s)}
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    {s.target || ''}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {tooltip && (
+        <div className="timeline-tooltip" style={{ left: tooltip.x + 'px', top: tooltip.y + 'px', transform: 'translate(-50%, -100%)' }}>
+          <div className="timeline-tooltip-row"><span className="timeline-tooltip-label">Agent:</span><span>{tooltip.agent}</span></div>
+          <div className="timeline-tooltip-row"><span className="timeline-tooltip-label">Target:</span><span>{tooltip.target}</span></div>
+          <div className="timeline-tooltip-row"><span className="timeline-tooltip-label">Role:</span><span>{tooltip.role}</span></div>
+          <div className="timeline-tooltip-row"><span className="timeline-tooltip-label">Status:</span><span>{tooltip.status}</span></div>
+          <div className="timeline-tooltip-row"><span className="timeline-tooltip-label">Issued:</span><span>{tooltip.issued}</span></div>
+          <div className="timeline-tooltip-row"><span className="timeline-tooltip-label">Expires:</span><span>{tooltip.expires}</span></div>
+          <div className="timeline-tooltip-row"><span className="timeline-tooltip-label">TTL:</span><span>{tooltip.remaining}</span></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 7c. SETTINGS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -5940,6 +6243,7 @@ function App() {
     { id: 'audit', label: 'Audit Log', icon: '\u25a4', group: 'MONITOR' },
     { id: 'tasks', label: 'Tasks', icon: '\u29C9', group: 'MONITOR' },
     { id: 'metrics', label: 'Metrics', icon: '\u2237', group: 'MONITOR' },
+    { id: 'timeline', label: 'Timeline', icon: '\u2261', group: 'MONITOR' },
     { id: 'terminal', label: 'Terminal', icon: '\u2318', group: 'TOOLS' },
     { id: 'token-inspector', label: 'Token Inspector', icon: '\u2387', group: 'TOOLS' },
     { id: 'settings', label: 'Settings', icon: '\u2699', group: 'TOOLS' },
@@ -5954,6 +6258,7 @@ function App() {
     audit: 'Audit Log',
     tasks: 'Task Management',
     metrics: 'Metrics',
+    timeline: 'Session Timeline',
     terminal: 'Terminal Access',
     'token-inspector': 'Token Inspector',
     services: 'Service Configuration',
@@ -6034,6 +6339,7 @@ function App() {
               {view === 'audit' && <AuditView token={token} events={events} />}
               {view === 'tasks' && <TasksView token={token} now={now} />}
               {view === 'metrics' && <MetricsView token={token} />}
+              {view === 'timeline' && <TimelineView sessions={sessions} now={now} />}
               {view === 'terminal' && <TerminalView hosts={hosts} token={token} />}
               {view === 'token-inspector' && <TokenInspectorView />}
               {view === 'services' && <ServicesView token={token} />}
