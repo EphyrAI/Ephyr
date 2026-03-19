@@ -2457,8 +2457,8 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
               timestamp: e.timestamp,
               action_type: e.action_type || e.type || 'unknown',
               agent: e.agent || '-',
-              target: e.target || e.service || '-',
-              details: typeof e.details === 'object' && e.details !== null ? JSON.stringify(e.details) : (e.details || e.command || e.url || ''),
+              target: e.target || e.service || (e.details && e.details.task_id ? 'task:' + e.details.task_id.slice(0,12) : '-'),
+              details: typeof e.details === 'object' && e.details !== null ? (e.details.description || e.details.command || JSON.stringify(e.details)) : (e.details || e.command || e.url || ''),
               status: e.status === 'error' || e.success === false || e.error ? 'error' : (e.status || 'success'),
               _source: 'activity',
             }));
@@ -2473,8 +2473,8 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
                 timestamp: e.timestamp,
                 action_type: evType,
                 agent: data.agent || e.agent || (isToggle ? 'dashboard' : '-'),
-                target: isToggle ? toggleName : (data.target || e.target || '-'),
-                details: isToggle ? (toggleName + ' ' + toggleState).trim() : (data.reason || data.role || data.message || ''),
+                target: isToggle ? toggleName : (data.target || e.target || data.task_id && ('task:' + data.task_id.slice(0,12)) || '-'),
+                details: isToggle ? (toggleName + ' ' + toggleState).trim() : (data.description || data.reason || data.role || data.message || ''),
                 status: (evType).includes('denied') ? 'error' : 'success',
                 _source: 'ws',
               };
