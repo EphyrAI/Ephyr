@@ -2195,10 +2195,13 @@ function ActivityGraph({ events, now }) {
 // 1. OVERVIEW VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function OverviewView({ summary, sessions, hosts, events, now, onRevoke, token, onNavigate }) {
+function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggleHost, token, onNavigate }) {
   const activeSessions = (sessions || []).filter(s => s.status === 'active' || s.status === 'suspended');
   const [recentActivity, setRecentActivity] = useState([]);
+  const [services, setServices] = useState([]);
+  const [remotes, setRemotes] = useState([]);
 
+  // Fetch activity feed
   useEffect(() => {
     if (!token) return;
     const fetchOvActivity = async () => {
@@ -2212,10 +2215,69 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, token, 
     return () => clearInterval(iv);
   }, [token]);
 
+  // Fetch services
+  useEffect(() => {
+    if (!token) return;
+    const fetchSvc = async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/services', null, token);
+        setServices((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+      } catch {}
+    };
+    fetchSvc();
+    const iv = setInterval(fetchSvc, 10000);
+    return () => clearInterval(iv);
+  }, [token]);
+
+  // Fetch MCP remotes
+  useEffect(() => {
+    if (!token) return;
+    const fetchRem = async () => {
+      try {
+        const data = await api('GET', '/v1/dashboard/remotes', null, token);
+        setRemotes((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+      } catch {}
+    };
+    fetchRem();
+    const iv = setInterval(fetchRem, 10000);
+    return () => clearInterval(iv);
+  }, [token]);
+
+  // Toggle service
+  const handleToggleService = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/services/${encodeURIComponent(name)}/toggle`, null, token);
+      setServices(prev => prev.map(s => s.name === name ? { ...s, enabled: result.enabled } : s));
+    } catch {}
+  };
+
+  // Toggle remote
+  const handleToggleRemote = async (name) => {
+    try {
+      const result = await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/toggle`, null, token);
+      setRemotes(prev => prev.map(r => r.name === name ? { ...r, enabled: result.enabled, status: result.enabled ? r.status : 'disconnected' } : r));
+    } catch {}
+  };
+
   // Determine overall system health
   const systemHealthy = (summary.broker_status === 'running' || summary.broker_status === 'ok') && summary.signer_ok;
   const healthLabel = systemHealthy ? 'HEALTHY' : 'DEGRADED';
   const healthColor = systemHealthy ? 'var(--green)' : 'var(--red)';
+
+  // Shared compact panel style
+  const panelStyle = {
+    background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px',
+    overflow: 'hidden', minWidth: 0,
+  };
+  const panelHeaderStyle = {
+    padding: '8px 12px', borderBottom: '1px solid var(--border)',
+    fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-dim)',
+  };
+  const rowStyle = {
+    display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px',
+    borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '11px',
+    fontFamily: "'JetBrains Mono', monospace",
+  };
 
   return (
     <div>
@@ -2249,43 +2311,82 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, token, 
         <span style={{ color: 'var(--text-dim)' }}>{summary.tasks_active || 0} tasks</span>
       </div>
 
-      {/* Hosts Status (compact dot row) */}
+      {/* Three-column grid: Hosts / Services / MCP Remotes */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px',
-        background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px',
-        marginBottom: '16px', flexWrap: 'wrap', fontSize: '12px',
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+        gap: '12px', marginBottom: '16px',
       }}>
-        <span style={{ color: 'var(--text-dim)', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: '6px' }}>Hosts</span>
-        {(hosts || []).length === 0 ? (
-          <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: '11px' }}>No hosts configured</span>
-        ) : (hosts || []).map((h, i) => {
-          const isDisabled = !h.access_enabled;
-          const dotColor = isDisabled ? 'var(--amber)' : (h.status === 'error' ? 'var(--red)' : 'var(--green)');
-          return (
-            <React.Fragment key={h.name}>
-              {i > 0 && <span style={{ color: 'var(--border-bright)', margin: '0 2px' }}>|</span>}
-              <span
-                onClick={() => onNavigate && onNavigate('hosts')}
-                style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', padding: '2px 4px', borderRadius: '3px', transition: 'background 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                title={isDisabled ? h.name + ' (disabled)' : h.name}
-              >
+        {/* Hosts panel */}
+        <div style={panelStyle}>
+          <div style={panelHeaderStyle}>Hosts ({(hosts || []).length})</div>
+          <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+            {(hosts || []).length === 0 ? (
+              <div className="empty-state" style={{ padding: '12px', fontSize: '11px' }}>No hosts configured</div>
+            ) : (hosts || []).map(h => {
+              const isDisabled = !h.access_enabled;
+              const dotColor = isDisabled ? 'var(--amber)' : (h.status === 'error' ? 'var(--red)' : 'var(--green)');
+              return (
+                <div key={h.name} style={rowStyle}>
+                  <span style={{
+                    width: '7px', height: '7px', borderRadius: '50%', display: 'inline-block', flexShrink: 0,
+                    background: dotColor,
+                    boxShadow: isDisabled ? 'none' : `0 0 4px ${dotColor}`,
+                  }} />
+                  <span style={{
+                    flex: 1, color: isDisabled ? 'var(--text-dim)' : 'var(--text)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{h.name}</span>
+                  <span style={{ fontSize: '9px', color: isDisabled ? 'var(--amber)' : 'var(--green)', fontWeight: 600, minWidth: '48px', textAlign: 'right' }}>
+                    {isDisabled ? 'DISABLED' : (h.status === 'error' ? 'ERROR' : 'ONLINE')}
+                  </span>
+                  <ToggleSwitch checked={!!h.access_enabled} onChange={() => onToggleHost && onToggleHost(h.name)} />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Services panel */}
+        <div style={panelStyle}>
+          <div style={panelHeaderStyle}>Services ({services.length})</div>
+          <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+            {services.length === 0 ? (
+              <div className="empty-state" style={{ padding: '12px', fontSize: '11px' }}>No services configured</div>
+            ) : services.map(s => (
+              <div key={s.name} style={{ ...rowStyle, opacity: s.enabled === false ? 0.5 : 1 }}>
                 <span style={{
-                  width: '7px', height: '7px', borderRadius: '50%', display: 'inline-block', flexShrink: 0,
-                  background: dotColor,
-                  boxShadow: isDisabled ? 'none' : `0 0 4px ${dotColor}`,
-                  animation: isDisabled ? 'none' : undefined,
-                }} />
-                <span style={{ color: isDisabled ? 'var(--text-dim)' : 'var(--text)', fontSize: '11px' }}>{h.name}</span>
-                {isDisabled && <span style={{ fontSize: '9px', color: 'var(--amber)', fontWeight: 600 }}>DISABLED</span>}
-              </span>
-            </React.Fragment>
-          );
-        })}
+                  flex: 1, color: 'var(--text)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{s.name}</span>
+                <AuthTypeBadge authType={s.auth_type || 'none'} />
+                <ToggleSwitch checked={s.enabled !== false} onChange={() => handleToggleService(s.name)} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* MCP Remotes panel */}
+        <div style={panelStyle}>
+          <div style={panelHeaderStyle}>MCP Remotes ({remotes.length})</div>
+          <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+            {remotes.length === 0 ? (
+              <div className="empty-state" style={{ padding: '12px', fontSize: '11px' }}>No MCP servers configured</div>
+            ) : remotes.map(r => (
+              <div key={r.name} style={{ ...rowStyle, opacity: r.enabled === false ? 0.5 : 1 }}>
+                <span style={{
+                  flex: 1, color: 'var(--text)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{r.name}</span>
+                <RemoteStatusBadge status={r.enabled === false ? 'disconnected' : r.status} />
+                <span style={{ fontSize: '9px', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{r.tool_count || 0} tools</span>
+                <ToggleSwitch checked={r.enabled !== false} onChange={() => handleToggleRemote(r.name)} />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* Active Sessions (compact list) */}
+      {/* Active Sessions (compact list with revoke) */}
       <div style={{
         background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px',
         marginBottom: '16px', overflow: 'hidden',
@@ -5921,7 +6022,7 @@ function App() {
             <div className="loading">Connecting to broker...</div>
           ) : (
             <>
-              {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onRevoke={handleRevoke} token={token} onNavigate={setView} />}
+              {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onRevoke={handleRevoke} onToggleHost={handleToggleHost} token={token} onNavigate={setView} />}
               {view === 'hosts' && <HostsView hosts={hosts} sessions={sessions} now={now} onToggleHost={handleToggleHost} token={token} onRefresh={fetchAll} />}
               {view === 'agents' && <AgentsView sessions={sessions} summary={summary} now={now} token={token} onViewActivity={(agentName) => { setActivityAgent(agentName); setView('activity'); }} />}
               {view === 'activity' && <ActivityView token={token} initialAgent={activityAgent} />}
