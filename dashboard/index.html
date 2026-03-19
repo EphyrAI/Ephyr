@@ -2195,48 +2195,16 @@ function ActivityGraph({ events, now }) {
 // 1. OVERVIEW VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onRevoke, token, onRefresh }) {
+function OverviewView({ summary, sessions, hosts, events, now, onRevoke, token, onNavigate }) {
   const activeSessions = (sessions || []).filter(s => s.status === 'active' || s.status === 'suspended');
-  const suspendedSessions = (sessions || []).filter(s => s.status === 'suspended');
-  const revokedSessions = (sessions || []).filter(s => s.status === 'revoked');
   const [recentActivity, setRecentActivity] = useState([]);
-  const [actSummary, setActSummary] = useState({});
-  const [remotes, setRemotes] = useState([]);
-  const [showAddHost, setShowAddHost] = useState(false);
-  const [ovRoles, setOvRoles] = useState([]);
-  useEffect(() => {
-    api('GET', '/v1/dashboard/config/roles', null, token)
-      .then(data => { if (Array.isArray(data)) setOvRoles(data.map(r => typeof r === 'string' ? { name: r, principal: r } : r)); })
-      .catch(() => {});
-  }, [token]);
-  useEffect(() => {
-    (async () => {
-      try {
-        const data = await api('GET', '/v1/dashboard/remotes', null, token);
-        setRemotes((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-      } catch {}
-    })();
-  }, [token]);
-  const [services, setServices] = useState([]);
-  useEffect(() => {
-    (async () => {
-      try {
-        const data = await api('GET', '/v1/dashboard/services', null, token);
-        setServices((data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-      } catch {}
-    })();
-  }, [token]);
 
   useEffect(() => {
     if (!token) return;
     const fetchOvActivity = async () => {
       try {
-        const [entries, sumData] = await Promise.all([
-          api('GET', '/v1/dashboard/activity?limit=50', null, token),
-          api('GET', '/v1/dashboard/activity/summary', null, token),
-        ]);
+        const entries = await api('GET', '/v1/dashboard/activity?limit=50', null, token);
         setRecentActivity(entries || []);
-        setActSummary(sumData || {});
       } catch {}
     };
     fetchOvActivity();
@@ -2244,334 +2212,142 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
     return () => clearInterval(iv);
   }, [token]);
 
-  const handleToggleService = async (name) => {
-    try {
-      const result = await api('POST', `/v1/dashboard/services/${encodeURIComponent(name)}/toggle`, null, token);
-      setServices(prev => prev.map(s => s.name === name ? { ...s, enabled: result.enabled } : s));
-    } catch {}
-  };
-
-  const handleToggleRemote = async (name) => {
-    try {
-      const result = await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/toggle`, null, token);
-      setRemotes(prev => prev.map(r => r.name === name ? { ...r, enabled: result.enabled } : r));
-    } catch {}
-  };
+  // Determine overall system health
+  const systemHealthy = (summary.broker_status === 'running' || summary.broker_status === 'ok') && summary.signer_ok;
+  const healthLabel = systemHealthy ? 'HEALTHY' : 'DEGRADED';
+  const healthColor = systemHealthy ? 'var(--green)' : 'var(--red)';
 
   return (
-    <>
     <div>
-      {/* Row 1: Access metrics */}
-      <div className="stats-row" style={{ marginBottom: '12px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
-        <div className="stat-card green">
-          <div className="stat-label">Access Granted</div>
-          <div className="stat-value green">{summary.total_granted || 0}</div>
-          <div className="stat-sub">total certificates</div>
-        </div>
-        <div className="stat-card amber">
-          <div className="stat-label">Pending</div>
-          <div className="stat-value amber">{summary.pending_requests || 0}</div>
-          <div className="stat-sub">awaiting approval</div>
-        </div>
-        <div className="stat-card red">
-          <div className="stat-label">Denied</div>
-          <div className="stat-value red">{summary.total_denied || 0}</div>
-          <div className="stat-sub">of {(summary.total_granted || 0) + (summary.total_denied || 0)} total</div>
-        </div>
+      {/* System Status Bar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '16px', padding: '10px 16px',
+        background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px',
+        marginBottom: '16px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px',
+        flexWrap: 'wrap',
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontWeight: 700, color: healthColor }}>{healthLabel}</span>
+        </span>
+        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: summary.signer_ok ? 'var(--green)' : 'var(--red)', display: 'inline-block', flexShrink: 0 }} />
+          <span style={{ color: 'var(--text-dim)' }}>Signer</span>
+        </span>
+        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: (summary.broker_status === 'running' || summary.broker_status === 'ok') ? 'var(--green)' : 'var(--red)', display: 'inline-block', flexShrink: 0 }} />
+          <span style={{ color: 'var(--text-dim)' }}>Broker</span>
+        </span>
+        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span style={{ color: 'var(--text-dim)' }}>Up: <span style={{ color: 'var(--text)' }}>{summary.uptime || '-'}</span></span>
+        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span style={{ color: 'var(--text-dim)' }}>{summary.hosts_online || 0} hosts online</span>
+        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span style={{ color: 'var(--text-dim)' }}>{summary.active_certs || 0} sessions</span>
+        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span style={{ color: 'var(--text-dim)' }}>{summary.tasks_active || 0} tasks</span>
       </div>
 
-      {/* Row 2: Active resources */}
-      <div className="stats-row" style={{ marginBottom: '16px', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <div className="stat-card green">
-          <div className="stat-label">Active Agents</div>
-          <div className="stat-value green">{summary.agents_active || 0}</div>
-          <div className="stat-sub">connected</div>
-        </div>
-        <div className="stat-card cyan">
-          <div className="stat-label">Active Sessions</div>
-          <div className="stat-value cyan">{summary.active_certs || 0}</div>
-          <div className="stat-sub">{(() => {
-            const ss = activeSessions || [];
-            const sshCount = ss.filter(s => !s.type || s.type === 'ssh_cert').length;
-            const svcCount = ss.filter(s => s.type === 'service').length;
-            const mcpCount = ss.filter(s => s.type === 'mcp').length;
-            const parts = [];
-            if (sshCount > 0) parts.push(`${sshCount} SSH`);
-            if (svcCount > 0) parts.push(`${svcCount} Service`);
-            if (mcpCount > 0) parts.push(`${mcpCount} MCP`);
-            return parts.length > 0 ? parts.join(' \u00b7 ') : 'certificates';
-          })()}</div>
-        </div>
-        <div className="stat-card amber">
-          <div className="stat-label">Hosts Online</div>
-          <div className="stat-value amber">{summary.hosts_online || 0}</div>
-          <div className="stat-sub">of {summary.hosts_enabled || 0} enabled</div>
-        </div>
-        <div className="stat-card purple">
-          <div className="stat-label">Active Tasks</div>
-          <div className="stat-value purple">{summary.tasks_active || 0}</div>
-          <div className="stat-sub">{summary.tasks_delegated || 0} delegated</div>
-        </div>
-        <div className="stat-card red">
-          <div className="stat-label">Commands Denied</div>
-          <div className="stat-value red">{summary.commands_denied || 0}</div>
-          <div className="stat-sub">by command filter</div>
-        </div>
-        <div className="stat-card" style={{borderColor:'var(--cyan)'}}>
-          <div className="stat-label">Macaroons Minted</div>
-          <div className="stat-value" style={{color:'var(--cyan)'}}>{summary.macaroons_minted || 0}</div>
-          <div className="stat-sub">total tokens</div>
-        </div>
+      {/* Hosts Status (compact dot row) */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px',
+        background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px',
+        marginBottom: '16px', flexWrap: 'wrap', fontSize: '12px',
+      }}>
+        <span style={{ color: 'var(--text-dim)', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: '6px' }}>Hosts</span>
+        {(hosts || []).length === 0 ? (
+          <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: '11px' }}>No hosts configured</span>
+        ) : (hosts || []).map((h, i) => {
+          const isDisabled = !h.access_enabled;
+          const dotColor = isDisabled ? 'var(--amber)' : (h.status === 'error' ? 'var(--red)' : 'var(--green)');
+          return (
+            <React.Fragment key={h.name}>
+              {i > 0 && <span style={{ color: 'var(--border-bright)', margin: '0 2px' }}>|</span>}
+              <span
+                onClick={() => onNavigate && onNavigate('hosts')}
+                style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', padding: '2px 4px', borderRadius: '3px', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                title={isDisabled ? h.name + ' (disabled)' : h.name}
+              >
+                <span style={{
+                  width: '7px', height: '7px', borderRadius: '50%', display: 'inline-block', flexShrink: 0,
+                  background: dotColor,
+                  boxShadow: isDisabled ? 'none' : `0 0 4px ${dotColor}`,
+                  animation: isDisabled ? 'none' : undefined,
+                }} />
+                <span style={{ color: isDisabled ? 'var(--text-dim)' : 'var(--text)', fontSize: '11px' }}>{h.name}</span>
+                {isDisabled && <span style={{ fontSize: '9px', color: 'var(--amber)', fontWeight: 600 }}>DISABLED</span>}
+              </span>
+            </React.Fragment>
+          );
+        })}
       </div>
 
-      {/* Row 3: Operational Health Strip */}
-      <div className="health-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '8px', marginBottom: '16px' }}>
-        <div className={'stat-card' + ((summary.macaroons_rejected > 0) ? ' health-red' : '')}>
-          <div className="stat-label">Auth Failures</div>
-          <div className="stat-value">{summary.macaroons_rejected || 0}</div>
+      {/* Active Sessions (compact list) */}
+      <div style={{
+        background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px',
+        marginBottom: '16px', overflow: 'hidden',
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 16px', borderBottom: '1px solid var(--border)',
+          fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-dim)',
+        }}>
+          <span>Active Sessions ({activeSessions.length})</span>
+          {activeSessions.filter(s => s.status === 'suspended').length > 0 && (
+            <span style={{ color: 'var(--amber)', fontWeight: 600, textTransform: 'none', letterSpacing: 0, fontSize: '10px' }}>
+              {activeSessions.filter(s => s.status === 'suspended').length} suspended
+            </span>
+          )}
         </div>
-        <div className={'stat-card' + ((summary.pop_rejected > 0) ? ' health-red' : '')}>
-          <div className="stat-label">PoP Rejected</div>
-          <div className="stat-value">{summary.pop_rejected || 0}</div>
-        </div>
-        <div className={'stat-card' + ((summary.auto_revocations > 0) ? ' health-red' : '')}>
-          <div className="stat-label">Auto-Revocations</div>
-          <div className="stat-value">{summary.auto_revocations || 0}</div>
-        </div>
-        <div className={'stat-card' + ((() => { const h = summary.auth_cache_hits || 0; const m = summary.auth_cache_misses || 0; const t = h + m; return t > 0 ? (h / t >= 0.8 ? ' health-green' : ' health-amber') : ''; })())}>
-          <div className="stat-label">Cache Hit Rate</div>
-          <div className="stat-value">{(() => { const h = summary.auth_cache_hits || 0; const m = summary.auth_cache_misses || 0; const t = h + m; return t > 0 ? Math.round(h / t * 100) + '%' : '-'; })()}</div>
-        </div>
-        <div className="stat-card health-cyan">
-          <div className="stat-label">PoP Verified</div>
-          <div className="stat-value">{summary.pop_verified || 0}</div>
-        </div>
-        <div className="stat-card health-cyan">
-          <div className="stat-label">Reducer Calls</div>
-          <div className="stat-value">{summary.reducer_invocations || 0}</div>
-        </div>
-        <div className={'stat-card' + ((summary.legacy_requests > 0) ? ' health-amber' : '')}>
-          <div className="stat-label">Legacy Requests</div>
-          <div className="stat-value">{summary.legacy_requests || 0}</div>
-        </div>
-      </div>
-
-      {/* Real-time Activity Graph */}
-      <ActivityGraph events={events} now={now} />
-
-      {/* 3 management panels: Hosts | Services | MCP Servers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
-        {/* Hosts panel */}
-        <div className="panel">
-          <div className="panel-header">
-            <span>Hosts</span>
-            <span className="panel-count" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--amber)' }}>{(hosts || []).filter(h => h.access_enabled).length}<span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>/{(hosts || []).length}</span></span>
-          </div>
-          <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
-            {(hosts || []).length === 0 ? (
-              <div className="empty-state">
-                No hosts configured
-                <div style={{ marginTop: '8px' }}>
-                  <a href="#" onClick={e => { e.preventDefault(); setShowAddHost(true); }}
-                    style={{ fontSize: '11px', color: 'var(--green)', textDecoration: 'none', opacity: 0.8 }}>
-                    + Add a host
-                  </a>
-                </div>
-              </div>
-            ) : (hosts || []).map(h => (
-              <div key={h.name} className={`host-item${h.active_sessions > 0 ? ' item-active' : ''}${!h.access_enabled ? ' item-disabled' : ''}`}>
-                <div className="host-left">
-                  <StatusDot status={h.status || (h.access_enabled ? 'online' : 'offline')} />
-                  <div>
-                    <div className="host-name">{h.name}</div>
-                    <div className="host-meta">
-                      {h.vlan > 0 && <span className={getVlanClass(h.vlan)}>V{h.vlan}</span>}
-                      {' \u00b7 '}
-                      <span style={{ color: 'var(--cyan)' }}>{h.host}</span>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {!h.access_enabled && <span className="disabled-badge">DISABLED</span>}
-                  {h.host_key_status === 'pinned'
-                    ? <span className="badge badge-key-pinned" style={{ fontSize: '8px', padding: '1px 5px' }} title="Host key pinned">PINNED</span>
-                    : <span className="badge badge-key-unpinned" style={{ fontSize: '8px', padding: '1px 5px' }} title="No host key pinned">UNPINNED</span>
-                  }
-                  {h.command_filter && <span className="badge badge-filtered" style={{ fontSize: '8px', padding: '1px 5px' }} title="Command filter active">FILTERED</span>}
-                  <ToggleSwitch checked={h.access_enabled} onChange={() => onToggleHost(h.name)} />
-                </div>
-              </div>
-            ))}
-            {(hosts || []).length > 0 && (hosts || []).length <= 3 && (
-              <div style={{ textAlign: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-                <a href="#" onClick={e => { e.preventDefault(); setShowAddHost(true); }}
-                  style={{ fontSize: '10px', color: 'var(--text-dim)', textDecoration: 'none' }}>
-                  + Add host
-                </a>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Services panel */}
-        <div className="panel">
-          <div className="panel-header">
-            <span>Services</span>
-            <span className="panel-count" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--cyan)' }}>{services.filter(s => s.enabled !== false).length}<span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>/{services.length}</span></span>
-          </div>
-          <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
-            {services.length === 0 ? (
-              <div className="empty-state">No services configured</div>
-            ) : services.map(s => (
-              <div key={s.name} className={`host-item${s.enabled === false ? ' item-disabled' : ' item-active-cyan'}`}>
-                <div className="host-left">
-                  <StatusDot status={s.enabled === false ? 'offline' : 'online'} />
-                  <div>
-                    <div className="host-name">{s.name}</div>
-                    <div className="host-meta">
-                      <span style={{ color: 'var(--cyan)', fontSize: '10px' }}>{s.url_prefix || '-'}</span>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {s.enabled === false && <span className="disabled-badge">DISABLED</span>}
-                  <AuthTypeBadge authType={s.auth_type || 'none'} />
-                  {s.url_prefix && s.url_prefix.startsWith('https://') && (
-                    s.tls_verify
-                      ? <span className="badge badge-tls-verified" style={{ fontSize: '8px', padding: '1px 5px' }}>{s.tls_fingerprint ? 'PINNED' : 'TLS'}</span>
-                      : <span className="badge badge-tls-insecure" style={{ fontSize: '8px', padding: '1px 5px' }}>INSECURE</span>
-                  )}
-                  <ToggleSwitch checked={s.enabled !== false} onChange={() => handleToggleService(s.name)} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* MCP Servers panel */}
-        <div className="panel">
-          <div className="panel-header">
-            <span>MCP Servers</span>
-            <span className="panel-count" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--purple)' }}>{remotes.filter(r => r.status === 'connected').length}<span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>/{remotes.length}</span></span>
-          </div>
-          <div className="panel-body" style={{ maxHeight: '240px', overflowY: 'auto' }}>
-            {remotes.length === 0 ? (
-              <div className="empty-state">No MCP servers configured</div>
-            ) : remotes.map(r => (
-              <div key={r.name} className={`host-item${r.status === 'connected' ? ' item-active-purple' : r.enabled === false ? ' item-disabled' : ''}`}>
-                <div className="host-left">
-                  <StatusDot status={r.status === 'connected' ? 'online' : r.status === 'error' ? 'error' : 'offline'} />
-                  <div>
-                    <div className="host-name">{r.name}</div>
-                    <div className="host-meta">
-                      <span style={{ color: 'var(--text-dim)', fontSize: '10px' }}>{r.tool_count || 0} tools &bull; {r.resource_count || 0} resources</span>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {r.enabled === false && <span className="disabled-badge">DISABLED</span>}
-                  <RemoteStatusBadge status={r.status} />
-                  <ToggleSwitch checked={r.enabled !== false} onChange={() => handleToggleRemote(r.name)} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Active Sessions panel - grouped by agent+target */}
-      <div className="panel" style={{ marginBottom: '16px' }}>
-        <div className="panel-header">
-          <span>Sessions</span>
-          <span className="panel-count">{activeSessions.length}{suspendedSessions.length > 0 ? ` (${suspendedSessions.length} suspended)` : ''}{revokedSessions.length > 0 ? ` + ${revokedSessions.length} revoked` : ''}</span>
-        </div>
-        <div className="panel-body" style={{ maxHeight: '320px', overflowY: 'auto' }}>
-          {(() => {
-            const visibleSessions = [...activeSessions, ...revokedSessions];
-            if (visibleSessions.length === 0 && recentActivity.filter(a => (a.type || a.action_type) === 'http_proxy' || (a.type || a.action_type) === 'mcp_call').length === 0) {
-              return <div className="empty-state">No active sessions</div>;
-            }
-            // Group sessions by agent+target
-            const groups = {};
-            visibleSessions.forEach(s => {
-              const key = `${s.agent}\u2192${s.target}`;
-              if (!groups[key]) groups[key] = { agent: s.agent, target: s.target, certs: [] };
-              groups[key].certs.push(s);
-            });
-            // Sort groups by earliest-expiring cert first
-            const sortedGroups = Object.values(groups).sort((a, b) => {
-              const aMin = Math.min(...a.certs.filter(c => c.status === 'active' || c.status === 'suspended').map(c => parseTTL(c.expires_at, now)).concat([Infinity]));
-              const bMin = Math.min(...b.certs.filter(c => c.status === 'active' || c.status === 'suspended').map(c => parseTTL(c.expires_at, now)).concat([Infinity]));
-              return aMin - bMin;
-            });
-            // Recent proxy & MCP activity
-            const proxyMcpActivity = (recentActivity || []).filter(a => (a.type || a.action_type) === 'http_proxy' || (a.type || a.action_type) === 'mcp_call').slice(0, 5);
+        <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
+          {activeSessions.length === 0 ? (
+            <div className="empty-state" style={{ padding: '16px', fontSize: '11px' }}>No active sessions</div>
+          ) : activeSessions.map(s => {
+            const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
+            const remaining = parseTTL(s.expires_at, now);
+            const isSuspended = s.status === 'suspended';
+            const mins = Math.floor(remaining / 60000);
+            const secs = Math.floor((remaining % 60000) / 1000);
+            const ttlText = remaining <= 0 ? 'expired' : `${mins}:${String(secs).padStart(2, '0')}`;
             return (
-              <>
-                {sortedGroups.map(group => (
-                  <div key={`${group.agent}-${group.target}`} style={{ marginBottom: '8px', border: '1px solid var(--border)', borderRadius: '4px', background: 'rgba(0,0,0,0.2)', overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', borderBottom: '1px solid var(--border)', background: 'rgba(0,0,0,0.15)' }}>
-                      <span style={{ color: 'var(--green)', fontWeight: 600, fontSize: '12px' }}>{group.agent}</span>
-                      <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
-                      <span style={{ color: 'var(--cyan)', fontWeight: 600, fontSize: '12px' }}>{group.target}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-dim)' }}>{group.certs.filter(c => c.status === 'active').length} active{group.certs.some(c => c.status === 'suspended') ? `, ${group.certs.filter(c => c.status === 'suspended').length} suspended` : ''}{group.certs.some(c => c.status === 'revoked') ? `, ${group.certs.filter(c => c.status === 'revoked').length} revoked` : ''}</span>
-                    </div>
-                    {group.certs.map(s => {
-                      const maxTTL = computeMaxTTL(s.issued_at, s.expires_at);
-                      const remaining = parseTTL(s.expires_at, now);
-                      const isRevoked = s.status === 'revoked';
-                      const isSuspended = s.status === 'suspended';
-                      return (
-                        <div key={s.serial} className={isRevoked ? 'session-revoked' : isSuspended ? 'session-suspended' : ''} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: isRevoked ? 0.5 : isSuspended ? 0.6 : 1, borderLeft: isRevoked ? '3px solid var(--red)' : isSuspended ? '3px solid var(--amber)' : 'none' }}>
-                          <GrantTypeBadge type={s.type || 'ssh_cert'} />
-                          <RoleBadge role={s.role} />
-                          <div style={{ flex: 1 }}>
-                            <TTLBar remaining={isRevoked ? Math.max(0, remaining) : remaining} maxTTL={maxTTL} />
-                          </div>
-                          {isRevoked ? (
-                            <span className="session-revoked-label" style={{ fontSize: '9px' }}>REVOKED</span>
-                          ) : isSuspended ? (
-                            <span className="session-suspended-label" style={{ fontSize: '9px' }}>SUSPENDED</span>
-                          ) : (
-                            <button className="btn btn-revoke" onClick={() => onRevoke(s.serial, s.type || 'ssh_cert')} style={{ fontSize: '9px', padding: '2px 8px' }}>REVOKE</button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-                {proxyMcpActivity.length > 0 && (
-                  <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
-                    <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px', fontWeight: 600 }}>Recent Proxy &amp; MCP</div>
-                    {proxyMcpActivity.map((a, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', fontSize: '11px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                        <span style={{ color: 'var(--green)', fontWeight: 600, minWidth: '50px' }}>{a.agent || '-'}</span>
-                        <span style={{ color: 'var(--text-dim)' }}>&rarr;</span>
-                        <span style={{ color: 'var(--cyan)' }}>{a.target || a.service || '-'}</span>
-                        <ActionTypeBadge type={a.type || a.action_type} />
-                        <span style={{ color: 'var(--text-dim)', fontSize: '10px', marginLeft: 'auto' }}>{relativeTime(a.timestamp)}</span>
-                      </div>
-                    ))}
-                  </div>
+              <div key={s.serial} className={isSuspended ? 'session-suspended' : ''} style={{
+                display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 16px',
+                borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '11px',
+                fontFamily: "'JetBrains Mono', monospace",
+                opacity: isSuspended ? 0.65 : 1,
+                borderLeft: isSuspended ? '3px solid var(--amber)' : '3px solid transparent',
+              }}>
+                <span style={{ color: 'var(--green)', fontWeight: 600, minWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {s.agent || '-'}
+                </span>
+                <span style={{ color: 'var(--text-dim)' }}>@</span>
+                <span style={{ color: 'var(--cyan)', minWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {s.target || '-'}
+                </span>
+                <RoleBadge role={s.role} />
+                <div style={{ flex: 1, minWidth: '60px' }}>
+                  <TTLBar remaining={remaining} maxTTL={maxTTL} />
+                </div>
+                <span style={{ color: remaining < 60000 ? 'var(--red)' : 'var(--text-dim)', fontSize: '10px', minWidth: '40px', textAlign: 'right' }}>{ttlText}</span>
+                {isSuspended && <span className="session-suspended-label" style={{ fontSize: '9px' }}>SUSPENDED</span>}
+                {!isSuspended && (
+                  <button className="btn btn-revoke" onClick={() => onRevoke(s.serial, s.type || 'ssh_cert')} style={{ fontSize: '9px', padding: '2px 6px' }}>REVOKE</button>
                 )}
-              </>
+              </div>
             );
-          })()}
+          })}
         </div>
       </div>
 
-      {/* Live Event Feed (consolidated) - merges recentActivity + WebSocket events */}
+      {/* Live Event Feed (last 10) */}
       <div className="overview-activity-section">
         <div className="overview-activity-header">
           <span className="panel-header" style={{ border: 'none', padding: 0 }}>
-            <span>Live Event Feed</span>
+            <span>Live Events</span>
           </span>
-          <div className="overview-activity-stats">
-            <span>Exec: <span style={{ color: 'var(--green)', fontWeight: 600 }}>{actSummary.total_exec || 0}</span></span>
-            <span>Proxy: <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{actSummary.total_proxy || 0}</span></span>
-            <span>MCP: <span style={{ color: 'var(--purple)', fontWeight: 600 }}>{actSummary.total_mcp || 0}</span></span>
-            <span>Errors: <span style={{ color: 'var(--red)', fontWeight: 600 }}>{actSummary.total_errors || 0}</span></span>
-          </div>
         </div>
         <div className="overview-activity-body">
           {(() => {
@@ -2602,7 +2378,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                 _source: 'ws',
               };
             });
-            // Merge and deduplicate (by timestamp+action_type+agent, prefer activity source)
+            // Merge and deduplicate
             const seen = new Set();
             const all = [];
             activityNorm.forEach(e => {
@@ -2617,11 +2393,9 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
                 all.push(e);
               }
             });
-            // Sort descending by timestamp, take top 8
+            // Sort descending, take last 10
             all.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
-            // Filter to last 5 minutes
-            const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-            const merged = all.filter(e => new Date(e.timestamp || 0).getTime() > fiveMinAgo);
+            const merged = all.slice(0, 10);
             if (merged.length === 0) {
               return <div className="empty-state" style={{ padding: '16px' }}>No recent activity</div>;
             }
@@ -2642,17 +2416,6 @@ function OverviewView({ summary, sessions, hosts, events, now, onToggleHost, onR
         </div>
       </div>
     </div>
-
-    <HostConfigPanel
-      host={null}
-      open={showAddHost}
-      onClose={() => setShowAddHost(false)}
-      onSave={() => { if (onRefresh) onRefresh(); }}
-      onDelete={() => {}}
-      token={token}
-      roles={ovRoles}
-    />
-    </>
   );
 }
 
@@ -6158,7 +5921,7 @@ function App() {
             <div className="loading">Connecting to broker...</div>
           ) : (
             <>
-              {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onToggleHost={handleToggleHost} onRevoke={handleRevoke} token={token} onRefresh={fetchAll} />}
+              {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onRevoke={handleRevoke} token={token} onNavigate={setView} />}
               {view === 'hosts' && <HostsView hosts={hosts} sessions={sessions} now={now} onToggleHost={handleToggleHost} token={token} onRefresh={fetchAll} />}
               {view === 'agents' && <AgentsView sessions={sessions} summary={summary} now={now} token={token} onViewActivity={(agentName) => { setActivityAgent(agentName); setView('activity'); }} />}
               {view === 'activity' && <ActivityView token={token} initialAgent={activityAgent} />}
