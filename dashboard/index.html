@@ -3467,7 +3467,7 @@ function AuditView({ token, events }) {
   // Auto-refresh from WS events
   useEffect(() => { fetchAudit(); }, [events.length]);
 
-  const filters = ['ALL', 'cert', 'mcp', 'http', 'toggle', 'session', 'policy'];
+  const filters = ['ALL', 'exec', 'http', 'mcp', 'task', 'denied', 'cert', 'toggle', 'session'];
 
   return (
     <div>
@@ -3496,18 +3496,22 @@ function AuditView({ token, events }) {
           <tbody>
             {audit.length === 0 ? (
               <tr><td colSpan="7" className="empty-state">No audit entries</td></tr>
-            ) : audit.map((e, i) => (
+            ) : [...audit].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)).map((e, i) => {
+              const det = e.details || {};
+              const target = e.target || det.target || det.service || det.remote || (det.task_id ? 'task:' + det.task_id.slice(0,12) : '-');
+              const detail = e.reason || det.description || det.command || e.serial || det.error || '-';
+              return (
               <tr key={i}>
                 <td style={{ color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{relativeTime(e.timestamp)}</td>
                 <td><EventTypeBadge type={e.event_type} /></td>
                 <td style={{ color: 'var(--green)' }}>{e.agent || '-'}</td>
-                <td style={{ color: 'var(--cyan)' }}>{e.target || '-'}</td>
+                <td style={{ color: 'var(--cyan)' }}>{target}</td>
                 <td><RoleBadge role={e.role} /></td>
-                <td style={{ color: 'var(--text-dim)' }}>{formatDuration(e.duration_ms)}</td>
+                <td style={{ color: 'var(--text-dim)' }}>{formatDuration(e.duration_ms || (det.duration_ms && parseInt(det.duration_ms)))}</td>
                 <td style={{ color: 'var(--text-dim)', fontSize: '11px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {e.reason || e.serial || '-'}
+                  {detail}
                 </td>
-              </tr>
+              </tr>);
             ))}
           </tbody>
         </table>
