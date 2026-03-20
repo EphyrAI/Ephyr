@@ -939,7 +939,7 @@
   /* Activity feed */
   .activity-feed { display: flex; flex-direction: column; gap: 4px; }
   .activity-entry {
-    display: grid; grid-template-columns: 80px 90px auto 120px 70px 60px;
+    display: grid; grid-template-columns: 60px 110px minmax(0, 1fr) 100px 60px 55px;
     align-items: center; gap: 8px; padding: 8px 12px;
     border: 1px solid var(--border); border-radius: 4px;
     background: var(--bg); transition: border-color 0.2s;
@@ -1487,7 +1487,7 @@
 
     /* Activity feed: reduce grid to more compact layout */
     .activity-entry {
-      grid-template-columns: 70px 80px auto 100px 60px 50px;
+      grid-template-columns: 55px 95px minmax(0, 1fr) 80px 50px 50px;
       padding: 6px 8px;
       font-size: 10px;
     }
