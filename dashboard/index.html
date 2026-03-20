@@ -1716,6 +1716,19 @@
   .badge-grant-ssh { background: var(--green-dim); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
   .badge-grant-service { background: var(--cyan-dim); color: var(--cyan); border: 1px solid rgba(59,130,246,0.3); }
   .badge-grant-mcp { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(139,92,246,0.3); }
+
+  /* Toast notifications */
+  .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+  .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0,0,0,0.3); animation: toast-in 0.3s ease-out; max-width: 360px; }
+  .toast.toast-success { border-left: 3px solid var(--green); }
+  .toast.toast-error { border-left: 3px solid var(--red); }
+  .toast.toast-info { border-left: 3px solid var(--cyan); }
+  .toast.toast-warning { border-left: 3px solid var(--amber); }
+  .toast-icon { font-size: 14px; flex-shrink: 0; }
+  .toast-message { color: var(--text); flex: 1; }
+  .toast-dismiss { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; padding: 0 0 0 8px; }
+  .toast-dismiss:hover { color: var(--text); }
+  @keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 </style>
 </head>
 <body>
@@ -2120,7 +2133,7 @@ function ActivityGraph({ events, now }) {
 // 1. OVERVIEW VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggleHost, token, onNavigate }) {
+function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggleHost, token, onNavigate, addToast }) {
   const activeSessions = (sessions || []).filter(s => s.status === 'active' || s.status === 'suspended');
   const [recentActivity, setRecentActivity] = useState([]);
   const [services, setServices] = useState([]);
@@ -2173,6 +2186,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
     try {
       const result = await api('POST', `/v1/dashboard/services/${encodeURIComponent(name)}/toggle`, null, token);
       setServices(prev => prev.map(s => s.name === name ? { ...s, enabled: result.enabled } : s));
+      if (addToast) addToast(name + ' ' + (result.enabled ? 'enabled' : 'disabled'), 'success');
     } catch {}
   };
 
@@ -2181,6 +2195,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
     try {
       const result = await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/toggle`, null, token);
       setRemotes(prev => prev.map(r => r.name === name ? { ...r, enabled: result.enabled, status: result.enabled ? r.status : 'disconnected' } : r));
+      if (addToast) addToast(name + ' ' + (result.enabled ? 'enabled' : 'disabled'), 'success');
     } catch {}
   };
 
@@ -2429,7 +2444,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
 // 2. HOSTS VIEW (with config slide-out)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function HostConfigPanel({ host, open, onClose, onSave, onDelete, token, roles }) {
+function HostConfigPanel({ host, open, onClose, onSave, onDelete, token, roles, addToast }) {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2518,6 +2533,7 @@ function HostConfigPanel({ host, open, onClose, onSave, onDelete, token, roles }
       const name = isNew ? encodeURIComponent(config.name) : encodeURIComponent(host.name);
       await api('PUT', `/v1/dashboard/config/hosts/${name}`, payload, token);
       if (onSave) onSave();
+      if (addToast) addToast('Host config saved', 'success');
       if (isNew) {
         setProvisioned(true);
       } else {
@@ -2826,7 +2842,7 @@ function HostConfigPanel({ host, open, onClose, onSave, onDelete, token, roles }
   );
 }
 
-function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
+function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh, addToast }) {
   const [configHost, setConfigHost] = useState(null);
   const [showAddHost, setShowAddHost] = useState(false);
   const [roles, setRoles] = useState([]);
@@ -2972,6 +2988,7 @@ function HostsView({ hosts, sessions, now, onToggleHost, token, onRefresh }) {
         onDelete={onRefresh}
         token={token}
         roles={roles}
+        addToast={addToast}
       />
     </>
   );
@@ -3353,7 +3370,7 @@ function SessionsView({ sessions, now, onRevoke }) {
 // 5. AUDIT LOG VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function AuditView({ token, events }) {
+function AuditView({ token, events, addToast }) {
   const [filter, setFilter] = useState('ALL');
   const [audit, setAudit] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -3469,6 +3486,7 @@ function AuditView({ token, events }) {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    if (addToast) addToast('CSV exported (' + filtered.length + ' rows)', 'success');
   };
 
   return (
@@ -3715,7 +3733,7 @@ function ActivityView({ token, initialAgent }) {
 // 5c. SERVICES VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function ServiceConfigPanel({ service, open, onClose, onSave, onDelete, token }) {
+function ServiceConfigPanel({ service, open, onClose, onSave, onDelete, token, addToast }) {
   const [config, setConfig] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -3755,6 +3773,7 @@ function ServiceConfigPanel({ service, open, onClose, onSave, onDelete, token })
       const name = isNew ? encodeURIComponent(payload.name) : encodeURIComponent(service.name);
       await api('PUT', `/v1/dashboard/services/${name}`, payload, token);
       if (onSave) onSave();
+      if (addToast) addToast('Service config saved', 'success');
       onClose();
     } catch (err) {
       setError(err.message);
@@ -3889,7 +3908,7 @@ function ServiceConfigPanel({ service, open, onClose, onSave, onDelete, token })
   );
 }
 
-function ServicesView({ token }) {
+function ServicesView({ token, addToast }) {
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [configService, setConfigService] = useState(null);
@@ -3939,6 +3958,7 @@ function ServicesView({ token }) {
     try {
       const result = await api('POST', `/v1/dashboard/services/${encodeURIComponent(name)}/toggle`, null, token);
       setServices(prev => prev.map(s => s.name === name ? { ...s, enabled: result.enabled } : s));
+      if (addToast) addToast(name + ' ' + (result.enabled ? 'enabled' : 'disabled'), 'success');
     } catch {}
   };
 
@@ -4011,6 +4031,7 @@ function ServicesView({ token }) {
         onSave={handleRefresh}
         onDelete={handleRefresh}
         token={token}
+        addToast={addToast}
       />
     </>
   );
@@ -4020,7 +4041,7 @@ function ServicesView({ token }) {
 // 5b. REMOTES VIEW (MCP Federation)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function RemoteConfigPanel({ remote, open, onClose, onSave, onDelete, token }) {
+function RemoteConfigPanel({ remote, open, onClose, onSave, onDelete, token, addToast }) {
   const [config, setConfig] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -4057,6 +4078,7 @@ function RemoteConfigPanel({ remote, open, onClose, onSave, onDelete, token }) {
       const name = isNew ? encodeURIComponent(payload.name) : encodeURIComponent(remote.name);
       await api('PUT', `/v1/dashboard/remotes/${name}`, payload, token);
       if (onSave) onSave();
+      if (addToast) addToast('Remote config saved', 'success');
       onClose();
     } catch (err) {
       setError(err.message);
@@ -4171,7 +4193,7 @@ function RemoteConfigPanel({ remote, open, onClose, onSave, onDelete, token }) {
   );
 }
 
-function MCPServersView({ token }) {
+function MCPServersView({ token, addToast }) {
   const [remotes, setRemotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [configRemote, setConfigRemote] = useState(null);
@@ -4198,6 +4220,7 @@ function MCPServersView({ token }) {
     try {
       const result = await api('POST', `/v1/dashboard/remotes/${encodeURIComponent(name)}/toggle`, null, token);
       setRemotes(prev => prev.map(r => r.name === name ? { ...r, enabled: result.enabled, status: result.enabled ? r.status : 'disconnected' } : r));
+      if (addToast) addToast(name + ' ' + (result.enabled ? 'enabled' : 'disabled'), 'success');
     } catch {}
   };
 
@@ -4273,6 +4296,7 @@ function MCPServersView({ token }) {
         onSave={handleRefresh}
         onDelete={handleRefresh}
         token={token}
+        addToast={addToast}
       />
     </>
   );
@@ -4419,7 +4443,7 @@ function TerminalInstance({ tab, token, onStatusChange }) {
 // 6b. TASKS VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function TasksView({ token, now }) {
+function TasksView({ token, now, addToast }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -4469,6 +4493,7 @@ function TasksView({ token, now }) {
       await api('POST', `/v1/dashboard/tasks/${revokeTarget.task.id}/revoke`, null, token);
       setRevokeTarget(null);
       fetchTasks();
+      if (addToast) addToast('Task revoked', 'success');
     } catch(e) { console.error('revoke:', e); }
   };
 
@@ -5941,6 +5966,12 @@ function App() {
 
   const [wsStatus, setWsStatus] = useState('DISCONNECTED');
   const [activityAgent, setActivityAgent] = useState('');
+  const [toasts, setToasts] = useState([]);
+  const addToast = useCallback((message, type = 'info') => {
+    const id = Date.now() + Math.random();
+    setToasts(prev => [...prev, { id, type, message }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+  }, []);
   const wsRef = useRef(null);
   const wsRetriesRef = useRef(0);
   const wsTimerRef = useRef(null);
@@ -6084,8 +6115,10 @@ function App() {
     try {
       const result = await api('POST', `/v1/dashboard/hosts/${encodeURIComponent(name)}/toggle`, null, token);
       setHosts(prev => prev.map(h => h.name === name ? { ...h, access_enabled: result.access_enabled } : h));
+      addToast(name + ' ' + (result.access_enabled ? 'enabled' : 'disabled'), 'success');
     } catch (err) {
       if (err.message === 'UNAUTHORIZED') { setToken(''); setTokenError('Invalid or expired token'); }
+      addToast('Toggle failed: ' + (err.message || 'unknown error'), 'error');
     }
   };
 
@@ -6098,9 +6131,11 @@ function App() {
       await api('POST', endpoint, null, token);
       setSessions(prev => prev.map(s => s.serial === serial ? { ...s, status: 'revoked' } : s));
       fetchLive();
+      addToast('Certificate revoked', 'success');
     } catch (err) {
       if (err.message === 'UNAUTHORIZED') { setToken(''); setTokenError('Invalid or expired token'); }
       console.error('Revoke failed:', err);
+      addToast('Revoke failed', 'error');
     }
   };
 
@@ -6206,23 +6241,32 @@ function App() {
             <div className="loading">Connecting to broker...</div>
           ) : (
             <>
-              {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onRevoke={handleRevoke} onToggleHost={handleToggleHost} token={token} onNavigate={setView} />}
-              {view === 'hosts' && <HostsView hosts={hosts} sessions={sessions} now={now} onToggleHost={handleToggleHost} token={token} onRefresh={fetchAll} />}
+              {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onRevoke={handleRevoke} onToggleHost={handleToggleHost} token={token} onNavigate={setView} addToast={addToast} />}
+              {view === 'hosts' && <HostsView hosts={hosts} sessions={sessions} now={now} onToggleHost={handleToggleHost} token={token} onRefresh={fetchAll} addToast={addToast} />}
               {view === 'agents' && <AgentsView sessions={sessions} summary={summary} now={now} token={token} onViewActivity={(agentName) => { setActivityAgent(agentName); setView('activity'); }} />}
               {view === 'activity' && <ActivityView token={token} initialAgent={activityAgent} />}
               {view === 'sessions' && <SessionsView sessions={sessions} now={now} onRevoke={handleRevoke} />}
-              {view === 'audit' && <AuditView token={token} events={events} />}
-              {view === 'tasks' && <TasksView token={token} now={now} />}
+              {view === 'audit' && <AuditView token={token} events={events} addToast={addToast} />}
+              {view === 'tasks' && <TasksView token={token} now={now} addToast={addToast} />}
               {view === 'metrics' && <MetricsView token={token} />}
               {view === 'timeline' && <TimelineView sessions={sessions} now={now} />}
               {view === 'terminal' && <TerminalView hosts={hosts} token={token} />}
               {view === 'token-inspector' && <TokenInspectorView />}
-              {view === 'services' && <ServicesView token={token} />}
-              {view === 'mcp-servers' && <MCPServersView token={token} />}
+              {view === 'services' && <ServicesView token={token} addToast={addToast} />}
+              {view === 'mcp-servers' && <MCPServersView token={token} addToast={addToast} />}
               {view === 'settings' && <SettingsView summary={summary} token={token} wsStatus={wsStatus} />}
             </>
           )}
         </div>
+      </div>
+      <div className="toast-container">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast toast-${t.type}`}>
+            <span className="toast-icon">{t.type === 'success' ? '\u2713' : t.type === 'error' ? '\u2717' : '\u2139'}</span>
+            <span className="toast-message">{t.message}</span>
+            <button className="toast-dismiss" onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}>&times;</button>
+          </div>
+        ))}
       </div>
     </div>
   );
