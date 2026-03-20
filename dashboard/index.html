@@ -1729,6 +1729,10 @@
   .toast-dismiss { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; padding: 0 0 0 8px; }
   .toast-dismiss:hover { color: var(--text); }
   @keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* View transitions */
+  .view-enter { animation: view-fade-in 0.15s ease-out; }
+  @keyframes view-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
 <body>
@@ -6240,7 +6244,7 @@ function App() {
           {loading ? (
             <div className="loading">Connecting to broker...</div>
           ) : (
-            <>
+            <div key={view} className="view-enter">
               {view === 'overview' && <OverviewView summary={summary} sessions={sessions} hosts={hosts} events={events} now={now} onRevoke={handleRevoke} onToggleHost={handleToggleHost} token={token} onNavigate={setView} addToast={addToast} />}
               {view === 'hosts' && <HostsView hosts={hosts} sessions={sessions} now={now} onToggleHost={handleToggleHost} token={token} onRefresh={fetchAll} addToast={addToast} />}
               {view === 'agents' && <AgentsView sessions={sessions} summary={summary} now={now} token={token} onViewActivity={(agentName) => { setActivityAgent(agentName); setView('activity'); }} />}
@@ -6255,7 +6259,7 @@ function App() {
               {view === 'services' && <ServicesView token={token} addToast={addToast} />}
               {view === 'mcp-servers' && <MCPServersView token={token} addToast={addToast} />}
               {view === 'settings' && <SettingsView summary={summary} token={token} wsStatus={wsStatus} />}
-            </>
+            </div>
           )}
         </div>
       </div>
