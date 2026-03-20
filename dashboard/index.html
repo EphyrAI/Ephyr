@@ -1733,6 +1733,11 @@
   /* View transitions */
   .view-enter { animation: view-fade-in 0.15s ease-out; }
   @keyframes view-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+/* Sortable table headers */
+.sortable-th { cursor: pointer; user-select: none; position: relative; }
+.sortable-th:hover { color: var(--text-bright); }
+.sort-indicator { margin-left: 4px; font-size: 8px; opacity: 0.5; }
+.sort-indicator.active { opacity: 1; color: var(--green); }
 </style>
 </head>
 <body>
@@ -1928,6 +1933,17 @@ function TTLBar({ remaining, maxTTL }) {
       </div>
       <span className={`ttl-text ${cls}`}>{formatTTL(remaining)}</span>
     </div>
+  );
+}
+
+function SortableHeader({ label, field, sortField, sortDir, onSort }) {
+  const isActive = sortField === field;
+  const arrow = isActive ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : '\u25BD';
+  return (
+    <th className="sortable-th" onClick={() => onSort(field)}>
+      {label}
+      <span className={`sort-indicator ${isActive ? 'active' : ''}`}>{arrow}</span>
+    </th>
   );
 }
 
@@ -3265,6 +3281,30 @@ function SessionsView({ sessions, now, onRevoke }) {
     return list;
   }, [sessions, statusFilter, filterType, now]);
 
+  const [sortField, setSortField] = useState('expires_at');
+  const [sortDir, setSortDir] = useState('desc');
+  const handleSort = (field) => {
+    if (sortField === field) setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir(field === 'expires_at' ? 'desc' : 'asc'); }
+  };
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let va, vb;
+      switch (sortField) {
+        case 'agent': va = a.agent || ''; vb = b.agent || ''; break;
+        case 'target': va = a.target || ''; vb = b.target || ''; break;
+        case 'role': va = a.role || ''; vb = b.role || ''; break;
+        case 'status': va = a.status || ''; vb = b.status || ''; break;
+        case 'expires_at': va = new Date(a.expires_at || 0).getTime(); vb = new Date(b.expires_at || 0).getTime(); break;
+        default: va = ''; vb = '';
+      }
+      if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filtered, sortField, sortDir]);
+
   const activeCount = (sessions || []).filter(s => s.status === 'active').length;
   const suspendedCount = (sessions || []).filter(s => s.status === 'suspended').length;
   const revokedCount = (sessions || []).filter(s => s.status === 'revoked').length;
@@ -3304,7 +3344,7 @@ function SessionsView({ sessions, now, onRevoke }) {
           </button>
         ))}
         <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginLeft: 'auto' }}>
-          Sorted: expiring soonest first
+          Click column headers to sort
         </span>
       </div>
       <div style={{ overflowX: 'auto' }}>
@@ -3313,19 +3353,19 @@ function SessionsView({ sessions, now, onRevoke }) {
             <tr>
               <th></th>
               <th>Type</th>
-              <th>Agent</th>
-              <th>Target</th>
-              <th>Role</th>
-              <th>Status</th>
+              <SortableHeader label="Agent" field="agent" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortableHeader label="Target" field="target" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortableHeader label="Role" field="role" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortableHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <th>Command</th>
-              <th>TTL</th>
+              <SortableHeader label="TTL" field="expires_at" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {sorted.length === 0 ? (
               <tr><td colSpan="9" className="empty-state">No sessions</td></tr>
-            ) : filtered.map(s => {
+            ) : sorted.map(s => {
               const isActive = s.status === 'active';
               const isSuspended = s.status === 'suspended';
               const isRevoked = s.status === 'revoked';
@@ -3383,6 +3423,16 @@ function AuditView({ token, events, addToast }) {
   const [targetFilter, setTargetFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [sortField, setSortField] = useState('timestamp');
+  const [sortDir, setSortDir] = useState('desc');
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir(field === 'timestamp' ? 'desc' : 'asc');
+    }
+  };
 
   const fetchAudit = useCallback(async () => {
     try {
@@ -3410,8 +3460,25 @@ function AuditView({ token, events, addToast }) {
     return e.reason || det.description || det.command || e.serial || det.error || '-';
   };
 
-  // Sort audit entries by timestamp descending
-  const sorted = useMemo(() => [...audit].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)), [audit]);
+  // Sort audit entries by selected column
+  const sorted = useMemo(() => {
+    return [...audit].sort((a, b) => {
+      let va, vb;
+      switch (sortField) {
+        case 'timestamp': va = new Date(a.timestamp || 0).getTime(); vb = new Date(b.timestamp || 0).getTime(); break;
+        case 'event_type': va = a.event_type || ''; vb = b.event_type || ''; break;
+        case 'agent': va = a.agent || ''; vb = b.agent || ''; break;
+        case 'target': va = getTarget(a); vb = getTarget(b); break;
+        case 'role': va = a.role || ''; vb = b.role || ''; break;
+        case 'duration': va = a.duration_ms || 0; vb = b.duration_ms || 0; break;
+        default: va = ''; vb = '';
+      }
+      if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [audit, sortField, sortDir]);
 
   // Extract unique agents and targets from raw audit data for dropdowns
   const uniqueAgents = useMemo(() => {
@@ -3528,12 +3595,12 @@ function AuditView({ token, events, addToast }) {
         <table className="audit-table">
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Type</th>
-              <th>Agent</th>
-              <th>Target</th>
-              <th>Role</th>
-              <th>Duration</th>
+              <SortableHeader label="Time" field="timestamp" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortableHeader label="Type" field="event_type" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortableHeader label="Agent" field="agent" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortableHeader label="Target" field="target" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortableHeader label="Role" field="role" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortableHeader label="Duration" field="duration" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <th>Detail</th>
             </tr>
           </thead>
