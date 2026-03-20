@@ -4521,7 +4521,7 @@ function TasksView({ token, now, addToast }) {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [depthFilter, setDepthFilter] = useState('ALL');
   const [agentFilter, setAgentFilter] = useState('');
-  const [viewMode, setViewMode] = useState('TABLE');
+
   const [inspectTask, setInspectTask] = useState(null);
   const [inspectDetail, setInspectDetail] = useState(null);
   const [revokeTarget, setRevokeTarget] = useState(null);
@@ -4687,10 +4687,6 @@ function TasksView({ token, now, addToast }) {
           <option value="">All Agents</option>
           {agents.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
-        <div style={{marginLeft:'auto',display:'flex',gap:'4px'}}>
-          <button className={`filter-btn ${viewMode==='TABLE'?'active':''}`} onClick={() => setViewMode('TABLE')} title="Flat list of all tasks">{'\u2630'} TABLE</button>
-          <button className={`filter-btn ${viewMode==='TREE'?'active':''}`} onClick={() => setViewMode('TREE')} title="Visualize delegation chains as parent\u2192child hierarchy">{'\u229E'} TREE</button>
-        </div>
       </div>
 
       {/* Content */}
@@ -4698,12 +4694,13 @@ function TasksView({ token, now, addToast }) {
         <div style={{color:'var(--text-dim)',padding:'20px'}}>Loading tasks...</div>
       ) : filtered.length === 0 ? (
         <div style={{color:'var(--text-dim)',padding:'20px'}}>No tasks found.</div>
-      ) : viewMode === 'TABLE' ? (
+      ) : (
         <table className="tasks-table">
           <thead>
             <tr>
               <th></th>
               <th>Depth</th>
+              <th>Parent</th>
               <th>Agent</th>
               <th>Description</th>
               <th>TTL</th>
@@ -4716,6 +4713,14 @@ function TasksView({ token, now, addToast }) {
               <tr key={t.id} className={t.status === 'revoked' ? 'revoked' : ''}>
                 <td><span className={`task-status-dot ${t.status}`} /></td>
                 <td><span className={`badge ${t.depth === 0 ? 'badge-root' : 'badge-delegated'}`}>{t.depth === 0 ? 'ROOT' : `D${t.depth}`}</span></td>
+                <td style={{fontSize:'11px',color:'var(--text-dim)',maxWidth:'120px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                  {t.depth > 0 && t.parent_id ? (
+                    (() => {
+                      const parent = tasks.find(p => p.id === t.parent_id);
+                      return parent ? (parent.description || parent.id.slice(0,8)) : t.parent_id.slice(0,8);
+                    })()
+                  ) : '-'}
+                </td>
                 <td>{t.agent_name}</td>
                 <td>
                   <div>{t.description || t.id.slice(0,12)}</div>
@@ -4746,19 +4751,6 @@ function TasksView({ token, now, addToast }) {
             ))}
           </tbody>
         </table>
-      ) : (
-        <div className="task-tree">
-          {delegatedCount === 0 && (
-            <div style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px', marginBottom: '12px' }}>
-              Tree view shows delegation hierarchies {'\u2014'} delegate tasks with attenuated envelopes to see parent{'\u2192'}child relationships here.
-            </div>
-          )}
-          {Object.entries(tasksByRoot).map(([rootId, treeTasks]) => (
-            <div key={rootId} style={{marginBottom:'16px'}}>
-              {treeTasks.filter(t => t.depth === 0).map(root => renderTreeNode(root, treeTasks))}
-            </div>
-          ))}
-        </div>
       )}
 
       {/* Envelope inspector slideout */}
