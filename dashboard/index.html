@@ -5665,8 +5665,7 @@ function SettingsView({ summary, token, wsStatus }) {
           <div style={{ padding: '4px 0' }}>
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', marginBottom: '4px', color: 'var(--text-dim)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>Grant Mode</label>
-              <select value={grantSettings.mode || 'ttl'} onChange={e => updateGrantSettings({ mode: e.target.value })}
-                style={{ background: 'rgba(0,0,0,0.3)', color: 'var(--text-bright)', border: '1px solid var(--border)', padding: '6px 8px', borderRadius: '4px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', outline: 'none' }}>
+              <select className="form-select" value={grantSettings.mode || 'ttl'} onChange={e => updateGrantSettings({ mode: e.target.value })}>
                 <option value="ttl">TTL (default) -- issue time-limited grants</option>
                 <option value="passthrough">Passthrough -- fire and forget, skip grants</option>
               </select>
@@ -5674,13 +5673,11 @@ function SettingsView({ summary, token, wsStatus }) {
             <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '4px', color: 'var(--text-dim)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>Service TTL</label>
-                <input value={grantSettings.default_service_ttl || '5m0s'} onChange={e => updateGrantSettings({ default_service_ttl: e.target.value })}
-                  style={{ background: 'rgba(0,0,0,0.3)', color: 'var(--text-bright)', border: '1px solid var(--border)', padding: '6px 8px', borderRadius: '4px', width: '100px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', outline: 'none' }} />
+                <input className="form-input" value={grantSettings.default_service_ttl || '5m0s'} onChange={e => updateGrantSettings({ default_service_ttl: e.target.value })} />
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '4px', color: 'var(--text-dim)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>MCP TTL</label>
-                <input value={grantSettings.default_mcp_ttl || '5m0s'} onChange={e => updateGrantSettings({ default_mcp_ttl: e.target.value })}
-                  style={{ background: 'rgba(0,0,0,0.3)', color: 'var(--text-bright)', border: '1px solid var(--border)', padding: '6px 8px', borderRadius: '4px', width: '100px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', outline: 'none' }} />
+                <input className="form-input" value={grantSettings.default_mcp_ttl || '5m0s'} onChange={e => updateGrantSettings({ default_mcp_ttl: e.target.value })} />
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '6px' }}>
                 <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>Active grants: <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{grantSettings.active_grants || 0}</span></span>
