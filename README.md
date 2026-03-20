@@ -663,6 +663,10 @@ make lint                           # Run linter
 
 Please open an issue before starting work on large changes.
 
+## Contact
+
+[ben@ephyr.ai](mailto:ben@ephyr.ai) | [LinkedIn](https://www.linkedin.com/in/ben-s-697812a7/)
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE) for details.
