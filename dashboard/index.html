@@ -473,10 +473,11 @@
   .host-meta { font-size: 10px; color: var(--text-dim); }
 
   /* Host cards grid */
-  .hosts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+  .hosts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 12px; }
   .host-card {
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: 6px; padding: 16px; transition: border-color 0.2s;
+    max-height: 420px; overflow-y: auto;
   }
   .host-card:hover { border-color: var(--border-bright); }
   .host-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -496,8 +497,8 @@
   .host-card-actions { display: flex; gap: 8px; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
 
   /* Agent cards */
-  .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
-  .agent-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+  .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 12px; }
+  .agent-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 16px; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; }
   .agent-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .agent-card-name {
     font-family: var(--heading-font); font-size: 14px;
@@ -510,7 +511,7 @@
     border: 1px solid rgba(0,212,255,0.3); color: var(--cyan);
     background: var(--cyan-dim);
   }
-  .agent-card-sessions { border-top: 1px solid var(--border); padding-top: 10px; }
+  .agent-card-sessions { border-top: 1px solid var(--border); padding-top: 10px; overflow-y: auto; flex-shrink: 1; min-height: 0; }
   .agent-session-item {
     display: flex; align-items: center; justify-content: space-between;
     padding: 6px 0; font-size: 11px;
@@ -1428,8 +1429,8 @@
     .panels-row { grid-template-columns: 1fr; }
 
     /* Card grids reduce minmax */
-    .hosts-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
-    .agents-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+    .hosts-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+    .agents-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
     .services-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 
     /* Tables: horizontal scroll */
