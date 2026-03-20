@@ -1702,6 +1702,17 @@
   .timeline-tooltip { position: fixed; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 8px 12px; font-size: 10px; color: var(--text); z-index: 1000; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); font-family: 'JetBrains Mono', monospace; }
   .timeline-tooltip-row { display: flex; gap: 8px; margin-bottom: 2px; }
   .timeline-tooltip-label { color: var(--text-dim); min-width: 50px; }
+  /* Overview compact panels */
+  .ov-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; min-width: 0; }
+  .ov-panel-header { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); }
+  .ov-row { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+  .ov-status-bar {
+    display: flex; align-items: center; gap: 16px; padding: 10px 16px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+    margin-bottom: 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    flex-wrap: wrap;
+  }
+  .ov-status-bar .sep { color: var(--border-bright); }
 </style>
 </head>
 <body>
@@ -2177,50 +2188,30 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
   const healthLabel = systemHealthy ? 'HEALTHY' : 'DEGRADED';
   const healthColor = systemHealthy ? 'var(--green)' : 'var(--red)';
 
-  // Shared compact panel style
-  const panelStyle = {
-    background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px',
-    overflow: 'hidden', minWidth: 0,
-  };
-  const panelHeaderStyle = {
-    padding: '8px 12px', borderBottom: '1px solid var(--border)',
-    fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-dim)',
-  };
-  const rowStyle = {
-    display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px',
-    borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '11px',
-    fontFamily: "'JetBrains Mono', monospace",
-  };
-
   return (
     <div>
       {/* System Status Bar */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: '16px', padding: '10px 16px',
-        background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '6px',
-        marginBottom: '16px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px',
-        flexWrap: 'wrap',
-      }}>
+      <div className="ov-status-bar">
         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ fontWeight: 700, color: healthColor }}>{healthLabel}</span>
         </span>
-        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span className="sep">|</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
           <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: summary.signer_ok ? 'var(--green)' : 'var(--red)', display: 'inline-block', flexShrink: 0 }} />
           <span style={{ color: 'var(--text-dim)' }}>Signer</span>
         </span>
-        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span className="sep">|</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
           <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: (summary.broker_status === 'running' || summary.broker_status === 'ok' || summary.broker_status === 'healthy') ? 'var(--green)' : 'var(--red)', display: 'inline-block', flexShrink: 0 }} />
           <span style={{ color: 'var(--text-dim)' }}>Broker</span>
         </span>
-        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span className="sep">|</span>
         <span style={{ color: 'var(--text-dim)' }}>Up: <span style={{ color: 'var(--text)' }}>{summary.uptime || '-'}</span></span>
-        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span className="sep">|</span>
         <span style={{ color: 'var(--text-dim)' }}>{summary.hosts_online || 0} hosts online</span>
-        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span className="sep">|</span>
         <span style={{ color: 'var(--text-dim)' }}>{summary.active_certs || 0} sessions</span>
-        <span style={{ color: 'var(--border-bright)' }}>|</span>
+        <span className="sep">|</span>
         <span style={{ color: 'var(--text-dim)' }}>{summary.tasks_active || 0} tasks</span>
       </div>
 
@@ -2230,8 +2221,8 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
         gap: '12px', marginBottom: '16px',
       }}>
         {/* Hosts panel */}
-        <div style={panelStyle}>
-          <div style={panelHeaderStyle}>Hosts ({(hosts || []).length})</div>
+        <div className="ov-panel">
+          <div className="ov-panel-header">Hosts ({(hosts || []).length})</div>
           <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
             {(hosts || []).length === 0 ? (
               <div className="empty-state" style={{ padding: '12px', fontSize: '11px' }}>No hosts configured</div>
@@ -2239,7 +2230,7 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
               const isDisabled = !h.access_enabled;
               const dotColor = isDisabled ? 'var(--amber)' : (h.status === 'error' ? 'var(--red)' : 'var(--green)');
               return (
-                <div key={h.name} style={rowStyle}>
+                <div key={h.name} className="ov-row">
                   <span style={{
                     width: '7px', height: '7px', borderRadius: '50%', display: 'inline-block', flexShrink: 0,
                     background: dotColor,
@@ -2260,13 +2251,13 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
         </div>
 
         {/* Services panel */}
-        <div style={panelStyle}>
-          <div style={panelHeaderStyle}>Services ({services.length})</div>
+        <div className="ov-panel">
+          <div className="ov-panel-header">Services ({services.length})</div>
           <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
             {services.length === 0 ? (
               <div className="empty-state" style={{ padding: '12px', fontSize: '11px' }}>No services configured</div>
             ) : services.map(s => (
-              <div key={s.name} style={{ ...rowStyle, opacity: s.enabled === false ? 0.5 : 1 }}>
+              <div key={s.name} className="ov-row" style={{ opacity: s.enabled === false ? 0.5 : 1 }}>
                 <span style={{
                   flex: 1, color: 'var(--text)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -2279,13 +2270,13 @@ function OverviewView({ summary, sessions, hosts, events, now, onRevoke, onToggl
         </div>
 
         {/* MCP Remotes panel */}
-        <div style={panelStyle}>
-          <div style={panelHeaderStyle}>MCP Remotes ({remotes.length})</div>
+        <div className="ov-panel">
+          <div className="ov-panel-header">MCP Remotes ({remotes.length})</div>
           <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
             {remotes.length === 0 ? (
               <div className="empty-state" style={{ padding: '12px', fontSize: '11px' }}>No MCP servers configured</div>
             ) : remotes.map(r => (
-              <div key={r.name} style={{ ...rowStyle, opacity: r.enabled === false ? 0.5 : 1 }}>
+              <div key={r.name} className="ov-row" style={{ opacity: r.enabled === false ? 0.5 : 1 }}>
                 <span style={{
                   flex: 1, color: 'var(--text)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
