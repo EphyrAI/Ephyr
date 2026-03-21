@@ -663,6 +663,16 @@ make lint                           # Run linter
 
 Please open an issue before starting work on large changes.
 
+## Security Roadmap
+
+Planned security hardening (not yet implemented):
+
+- **Credential encryption at rest** -- Service credentials in `services.json` are currently plaintext. Will encrypt with a broker master key derived from the CA private key.
+- **Signing rate limits** -- The signer currently has no cert-per-minute cap. Will add configurable rate limiting to prevent runaway cert minting from a compromised broker.
+- **Hash-chained audit log** -- Tamper-evident logging with chained SHA-256 hashes. Each audit entry will include the hash of the previous entry, making silent modification detectable.
+
+See [THREAT_MODEL.md](docs/THREAT_MODEL.md) for the full enumeration of risks and mitigations.
+
 ## Contact
 
 [ben@ephyr.ai](mailto:ben@ephyr.ai) | [LinkedIn](https://www.linkedin.com/in/ben-s-697812a7/)
