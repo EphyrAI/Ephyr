@@ -663,13 +663,13 @@ make lint                           # Run linter
 
 Please open an issue before starting work on large changes.
 
-## Security Roadmap
+## Security Features
 
-Planned security hardening (not yet implemented):
+Implemented security hardening (shipped):
 
-- **Credential encryption at rest** -- Service credentials in `services.json` are currently plaintext. Will encrypt with a broker master key derived from the CA private key.
-- **Signing rate limits** -- The signer currently has no cert-per-minute cap. Will add configurable rate limiting to prevent runaway cert minting from a compromised broker.
-- **Hash-chained audit log** -- Tamper-evident logging with chained SHA-256 hashes. Each audit entry will include the hash of the previous entry, making silent modification detectable.
+- **Credential encryption at rest** -- Service credentials in `services.json` and `remotes.json` are encrypted with AES-256-GCM when the `EPHYR_ENCRYPTION_KEY` environment variable is set. Transparent migration from plaintext on first load.
+- **Signing rate limits** -- Configurable per-window rate limiting on the signer. Set via `EPHYR_SIGNER_RATE_LIMIT` (default: 60 requests) and `EPHYR_SIGNER_RATE_WINDOW` (default: 60 seconds). Prevents runaway certificate minting from a compromised broker.
+- **Hash-chained audit log** -- Each audit entry includes a SHA-256 hash of the previous entry, making silent modification or deletion detectable. Verifiable via `ephyr doctor`. Legacy entries without hashes are tolerated during migration.
 
 See [THREAT_MODEL.md](docs/THREAT_MODEL.md) for the full enumeration of risks and mitigations.
 

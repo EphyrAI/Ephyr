@@ -146,8 +146,9 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 | Aspect | Detail |
 |--------|--------|
 | **Current mitigation** | The CA private key is isolated in the signer process. The signer restricts callers to broker UID 999 via `SO_PEERCRED`, has no network access (`AF_UNIX` only), and runs with `MemoryDenyWriteExecute`, all capabilities dropped, and a syscall allowlist. An attacker in the broker process cannot extract the CA key. |
-| **Residual risk** | An attacker with broker code execution can: (1) request certificates from the signer within policy constraints, (2) read plaintext credentials in `/var/lib/ephyr/services.json`, (3) read plaintext credentials for federated MCP servers in `/var/lib/ephyr/remotes.json`, (4) read or truncate audit logs, (5) modify host/service/remote state, (6) sign arbitrary CTT-E task tokens using the in-memory delegation key. The attacker is still bounded by policy (the signer enforces duration caps and principal restrictions independently), but has full access to all configured backend credentials and can forge task tokens within the delegation certificate's validity period. |
-| **Planned** | Credential encryption at rest with a derived key. Remote audit log shipping so the tamper window is bounded. |
+| **Residual risk** | An attacker with broker code execution can: (1) request certificates from the signer within policy constraints (rate-limited to prevent runaway minting), (2) access in-memory decrypted credentials (credentials are encrypted at rest with AES-256-GCM when `EPHYR_ENCRYPTION_KEY` is set, but must be decrypted for use), (3) read or truncate audit logs (hash-chained entries make silent modification detectable via `ephyr doctor`), (4) modify host/service/remote state, (5) sign arbitrary CTT-E task tokens using the in-memory delegation key. The attacker is still bounded by policy (the signer enforces duration caps, principal restrictions, and rate limits independently), but has access to decrypted backend credentials in memory and can forge task tokens within the delegation certificate's validity period. |
+| **Implemented** | Credential encryption at rest with AES-256-GCM (set `EPHYR_ENCRYPTION_KEY`). Hash-chained audit log for tamper detection. Signer rate limits to bound certificate minting from a compromised broker. |
+| **Planned** | Remote audit log shipping so the tamper window is bounded. |
 
 ### T4: Signer Compromise
 
@@ -215,9 +216,9 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 
 | Aspect | Detail |
 |--------|--------|
-| **Current mitigation** | `/var/lib/ephyr/services.json` and `/var/lib/ephyr/remotes.json` are owned by the broker service user with permissions 0600. The broker's systemd unit uses `ProtectSystem=strict` and `ReadWritePaths` limited to `/run/ephyr`, `/var/log/ephyr`, and `/var/lib/ephyr`. |
-| **Residual risk** | Credentials are stored in plaintext JSON. Any process running as the broker user, or root, can read all stored backend credentials. Disk-level access (physical theft, snapshot, backup) exposes all credentials. MCP API keys are bcrypt-hashed, but service and remote MCP server credentials are not. |
-| **Planned** | Encryption at rest using a key derived from a passphrase or hardware token, provided at service startup. Secrets management integration (e.g., HashiCorp Vault) for environments that have it. |
+| **Current mitigation** | `/var/lib/ephyr/services.json` and `/var/lib/ephyr/remotes.json` are owned by the broker service user with permissions 0600. The broker's systemd unit uses `ProtectSystem=strict` and `ReadWritePaths` limited to `/run/ephyr`, `/var/log/ephyr`, and `/var/lib/ephyr`. When `EPHYR_ENCRYPTION_KEY` is set, all service and remote MCP server credentials are encrypted at rest with AES-256-GCM. Plaintext credentials are transparently migrated to encrypted form on first load. |
+| **Residual risk** | Without `EPHYR_ENCRYPTION_KEY`, credentials remain in plaintext JSON. With encryption enabled, the key must be provided at service startup (e.g., via systemd `EnvironmentFile`) -- anyone who can read the environment or attach to the broker process can recover the key and decrypt credentials. Disk-level access without the encryption key cannot recover credentials. MCP API keys are bcrypt-hashed regardless. |
+| **Planned** | Secrets management integration (e.g., HashiCorp Vault) for environments that have it. |
 
 ### T11: Audit Log Tampering
 
@@ -225,9 +226,9 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 
 | Aspect | Detail |
 |--------|--------|
-| **Current mitigation** | Audit log (`/var/log/ephyr/audit.json`) is written in append-only mode. It is stored separately from configuration files. Logrotate manages 30-day retention. Events are also broadcast via WebSocket to connected dashboard clients (providing a real-time secondary record). |
-| **Residual risk** | The broker process has write access to the audit log file and could truncate or overwrite it if compromised. Logrotated archives on the same filesystem can also be modified. There is no cryptographic integrity protection (signing, hash chaining) on log entries. |
-| **Planned** | Log entry signing (HMAC or Ed25519) for tamper detection. Remote log shipping to an external SIEM or append-only log store. |
+| **Current mitigation** | Audit log (`/var/log/ephyr/audit.json`) is written in append-only mode. It is stored separately from configuration files. Logrotate manages 30-day retention. Events are also broadcast via WebSocket to connected dashboard clients (providing a real-time secondary record). Each audit entry includes a SHA-256 hash chain -- the hash of the previous entry is embedded in the current entry, making silent modification or deletion of entries detectable. Integrity can be verified with `ephyr doctor`. Legacy entries without hash chain fields are tolerated during migration. |
+| **Residual risk** | The broker process has write access to the audit log file and could truncate or overwrite it if compromised. Logrotated archives on the same filesystem can also be modified. Hash chaining detects tampering after the fact but does not prevent it. A compromised broker could write a new valid chain from the point of tampering. |
+| **Planned** | Remote log shipping to an external SIEM or append-only log store to bound the tamper window. |
 
 ### T12: Denial of Service
 
@@ -235,9 +236,9 @@ The dashboard at `:8553` is protected by a static token compared with `crypto/su
 
 | Aspect | Detail |
 |--------|--------|
-| **Current mitigation** | Per-UID rate limiting on the Unix socket API (default: 10 requests / 60 seconds, configurable). bcrypt cost on MCP API key verification provides implicit rate limiting on authentication attempts (each comparison is computationally expensive). Global and per-agent certificate concurrency limits prevent resource exhaustion from certificate accumulation. |
-| **Residual risk** | There is no rate limiting on the MCP TCP endpoint for authenticated agents beyond the per-UID Unix socket limits. A compromised API key could be used to flood the broker with tool calls. The dashboard WebSocket endpoint has a 64-message backpressure buffer per client but no connection limit. bcrypt's computational cost, while a defense against brute force, also makes the authentication endpoint itself a CPU exhaustion vector if an attacker sends many invalid keys. |
-| **Planned** | Per-agent rate limiting on the MCP endpoint. Connection limits on the dashboard WebSocket. Configurable bcrypt cost with adaptive rate limiting on failed authentication attempts. |
+| **Current mitigation** | Per-UID rate limiting on the Unix socket API (default: 10 requests / 60 seconds, configurable). bcrypt cost on MCP API key verification provides implicit rate limiting on authentication attempts (each comparison is computationally expensive). Global and per-agent certificate concurrency limits prevent resource exhaustion from certificate accumulation. The signer enforces its own rate limit (configurable via `EPHYR_SIGNER_RATE_LIMIT`, default 60 per window, and `EPHYR_SIGNER_RATE_WINDOW`, default 60 seconds) to prevent runaway certificate minting even if the broker is compromised. |
+| **Residual risk** | A compromised API key could be used to flood the broker with tool calls (rate limiting on MCP TCP is per-UID only). The dashboard WebSocket endpoint has a 64-message backpressure buffer per client but no connection limit. bcrypt's computational cost, while a defense against brute force, also makes the authentication endpoint itself a CPU exhaustion vector if an attacker sends many invalid keys. |
+| **Planned** | Connection limits on the dashboard WebSocket. Configurable bcrypt cost with adaptive rate limiting on failed authentication attempts. |
 
 ### T13: Auth Cache Poisoning
 
@@ -352,11 +353,11 @@ The following table provides a consolidated view of the most significant residua
 |---|----------|----------|----------|--------|
 | 1 | SSH host key verification disabled (`InsecureIgnoreHostKey`) | **Critical** | B2 | Mitigated -- host key pinning available via `host_key` / `host_key_fingerprint` per target; `host_key_strict` enforces pinning |
 | 2 | TLS certificate verification disabled (`InsecureSkipVerify`) | **High** | B3, B4 | Mitigated -- per-service/per-remote `tls_verify`, `tls_ca`, `tls_ca_inline`, `tls_fingerprint` fields available; default `false` for backward compatibility |
-| 3 | Backend credentials stored in plaintext JSON | **High** | -- | Open -- encryption at rest planned |
+| 3 | Backend credentials stored in plaintext JSON | **High** | -- | Mitigated -- AES-256-GCM encryption at rest when `EPHYR_ENCRYPTION_KEY` is set; transparent migration from plaintext |
 | 4 | Dashboard token in WebSocket URL query parameter | **Medium** | B5 | Open -- message-based auth planned |
 | 5 | MCP API keys are bearer tokens with no secondary factor | **Medium** | B0r | Open -- mTLS/OIDC planned |
-| 6 | No per-agent rate limiting on MCP TCP endpoint | **Medium** | B0r | Open -- planned |
-| 7 | Audit logs lack cryptographic integrity protection | **Medium** | -- | Open -- log signing planned |
+| 6 | No per-agent rate limiting on MCP TCP endpoint | **Medium** | B0r | Mitigated -- signer rate limits (`EPHYR_SIGNER_RATE_LIMIT`) cap certificate minting; per-UID rate limiting on Unix socket API |
+| 7 | Audit logs lack cryptographic integrity protection | **Medium** | -- | Mitigated -- SHA-256 hash chain on all entries; verifiable via `ephyr doctor`; legacy entries tolerated |
 | 8 | Root on broker host can read CA key | **Low** | B1 | Accepted -- HSM/TPM long-term |
 | 9 | No push-revocation for SSH certificates | **Low** | B2 | Accepted -- OpenSSH limitation |
 | 10 | Network bypass possible for remote (non-co-located) agents | **Low** | B0r | Accepted -- architectural |
@@ -401,3 +402,4 @@ The following table provides a consolidated view of the most significant residua
 | 2026-03-12 | Initial | Initial threat model based on architecture review |
 | 2026-03-14 | Update | Added T14-T16: bearer token replay, bind deadline window, body tampering; renumbered delegation key compromise to T17 |
 | 2026-03-17 | Update | Added weakness #17: HTTP proxy credential leakage; updated B3 boundary description with proxy hardening details (RISK-3) |
+| 2026-03-20 | Update | T3, T10, T11, T12: credential encryption at rest (AES-256-GCM), hash-chained audit log (SHA-256), signer rate limits now implemented; updated weakness table #3, #6, #7 |

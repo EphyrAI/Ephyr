@@ -449,6 +449,7 @@ precedence if both are set.
 | EPHYR_SOCKET_GROUP | ephyr-agents | Unix group name for the broker socket. The socket is chown'd to this group with 0660 permissions so group members can connect. |
 | EPHYR_AUTH_CACHE_TTL | 60s | TTL for the MCP API key authentication cache. Accepts Go duration strings (e.g., `"30s"`, `"2m"`, `"0"`). Set to `"0"` to disable caching entirely -- every MCP request will perform a full bcrypt comparison. The cache avoids repeated bcrypt work for the same API key within the TTL window. |
 | EPHYR_POP_CLOCK_SKEW | 30s | Maximum allowed clock skew for proof-of-possession timestamp validation (Ephyr Bind). Accepts Go duration strings. PoP proofs with timestamps outside `now +/- skew` are rejected. Increase if agents and broker clocks are loosely synchronized. |
+| EPHYR_ENCRYPTION_KEY | (none) | Encryption key for service and remote MCP server credentials at rest. When set, credentials in `services.json` and `remotes.json` are encrypted with AES-256-GCM. On first startup with this variable set, plaintext credentials are transparently migrated to encrypted form. Omit or leave empty to store credentials in plaintext. |
 
 ### Signer (ephyr signer / ephyr-signer)
 
@@ -457,6 +458,8 @@ precedence if both are set.
 | EPHYR_CA_KEY | /etc/ephyr/ca_key | Path to the Ed25519 CA private key file. |
 | EPHYR_SOCKET | /run/ephyr/signer.sock | Unix socket path for the signer's IPC listener. |
 | EPHYR_BROKER_UID | -1 (any) | UID allowed to connect to the signer socket. Set to the ephyr-broker user's UID (e.g., 999) to restrict access. -1 allows any caller. |
+| EPHYR_SIGNER_RATE_LIMIT | 60 | Maximum number of signing requests allowed per rate limit window. Set to `0` for unlimited. Prevents runaway certificate minting from a compromised broker. |
+| EPHYR_SIGNER_RATE_WINDOW | 60 | Rate limit window duration in seconds. Signing requests exceeding `EPHYR_SIGNER_RATE_LIMIT` within this window are rejected. |
 
 ### BrokerConfig Struct Reference
 
@@ -490,6 +493,7 @@ agents are added or removed from the policy.
   -socket-group GROUP      Socket group name (env: EPHYR_SOCKET_GROUP)
   -auth-cache-ttl DUR      Auth cache TTL (env: EPHYR_AUTH_CACHE_TTL, default 60s, 0 disables)
   -pop-clock-skew DUR      PoP timestamp skew tolerance (env: EPHYR_POP_CLOCK_SKEW, default 30s)
+  -encryption-key KEY      Credential encryption key (env: EPHYR_ENCRYPTION_KEY, default none)
   -version                 Print version and exit
 ```
 
@@ -506,6 +510,8 @@ The legacy `ephyr-broker` binary accepts the same flags and is functionally iden
   -ca-key PATH             CA private key file (env: EPHYR_CA_KEY)
   -socket PATH             IPC Unix socket (env: EPHYR_SOCKET)
   -broker-uid UID          Allowed caller UID (env: EPHYR_BROKER_UID)
+  -rate-limit N            Max signing requests per window (env: EPHYR_SIGNER_RATE_LIMIT, default 60, 0=unlimited)
+  -rate-window SECS        Rate limit window in seconds (env: EPHYR_SIGNER_RATE_WINDOW, default 60)
 ```
 
 The legacy `ephyr-signer` binary accepts the same flags and is functionally identical.
