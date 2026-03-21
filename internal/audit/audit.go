@@ -1,6 +1,10 @@
 package audit
 
 import (
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -58,14 +62,17 @@ type AuditEvent struct {
 	TaskID        string            `json:"task_id,omitempty"`
 	TaskRootID    string            `json:"task_root_id,omitempty"`
 	InitiatedBy   string            `json:"initiated_by,omitempty"`
+	PrevHash      string            `json:"prev_hash,omitempty"`
+	Hash          string            `json:"hash,omitempty"`
 }
 
 // AuditLogger writes structured JSON audit events to a file and optionally
 // mirrors them to stdout. Thread-safe.
 type AuditLogger struct {
-	mu      sync.Mutex
-	writers []io.Writer
-	file    *os.File
+	mu       sync.Mutex
+	writers  []io.Writer
+	file     *os.File
+	prevHash string // hash of the last written entry
 }
 
 // NewLogger creates an AuditLogger. If path is non-empty, events are appended
@@ -97,27 +104,49 @@ func NewLogger(path string, stdout bool) (*AuditLogger, error) {
 		l.writers = append(l.writers, os.Stdout)
 	}
 
+	l.initChain()
+
 	return l, nil
 }
 
-// LogEvent writes a single audit event as a JSON line.
+// LogEvent writes a single audit event as a JSON line with hash chaining.
+// Each entry includes a SHA-256 hash of its contents and the hash of the
+// previous entry, forming a tamper-evident chain.
 func (l *AuditLogger) LogEvent(event AuditEvent) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
 
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Chain: include hash of previous entry
+	event.PrevHash = l.prevHash
+	event.Hash = "" // clear before computing
+
+	// Marshal without hash to compute digest
+	preHash, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+
+	// Compute SHA-256
+	h := sha256.Sum256(preHash)
+	event.Hash = hex.EncodeToString(h[:])
+
+	// Marshal final entry with hash
 	data, err := json.Marshal(event)
 	if err != nil {
 		return
 	}
 	data = append(data, '\n')
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	for _, w := range l.writers {
 		_, _ = w.Write(data)
 	}
+
+	// Update chain
+	l.prevHash = event.Hash
 }
 
 // Close closes the underlying log file, if any.
@@ -133,6 +162,107 @@ func (l *AuditLogger) Close() error {
 // file was configured.
 func (l *AuditLogger) Writer() io.Writer {
 	return l.file
+}
+
+// initChain reads the last line of the audit log to seed the hash chain.
+func (l *AuditLogger) initChain() {
+	if l.file == nil {
+		return
+	}
+	// Seek to end, scan backward for last newline
+	fi, err := l.file.Stat()
+	if err != nil || fi.Size() == 0 {
+		return
+	}
+
+	// Read last 4KB (should contain last entry)
+	readSize := int64(4096)
+	if fi.Size() < readSize {
+		readSize = fi.Size()
+	}
+	buf := make([]byte, readSize)
+	f, err := os.Open(l.file.Name())
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	_, err = f.ReadAt(buf, fi.Size()-readSize)
+	if err != nil && err != io.EOF {
+		return
+	}
+
+	// Find last complete JSON line
+	lines := bytes.Split(bytes.TrimRight(buf, "\n"), []byte("\n"))
+	if len(lines) == 0 {
+		return
+	}
+	lastLine := lines[len(lines)-1]
+
+	var lastEvent AuditEvent
+	if err := json.Unmarshal(lastLine, &lastEvent); err != nil {
+		return
+	}
+	if lastEvent.Hash != "" {
+		l.prevHash = lastEvent.Hash
+	}
+}
+
+// VerifyChain reads the audit log and verifies the hash chain integrity.
+// Returns the number of verified entries and any error.
+func VerifyChain(path string) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
+
+	var prevHash string
+	count := 0
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+
+		var event AuditEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			return count, fmt.Errorf("line %d: invalid JSON: %w", count+1, err)
+		}
+
+		// Skip legacy entries without hashes
+		if event.Hash == "" {
+			count++
+			continue
+		}
+
+		// Verify prev_hash chain
+		if event.PrevHash != prevHash {
+			return count, fmt.Errorf("line %d: chain broken: expected prev_hash %s, got %s", count+1, prevHash, event.PrevHash)
+		}
+
+		// Verify self-hash
+		savedHash := event.Hash
+		event.Hash = ""
+		preHash, err := json.Marshal(event)
+		if err != nil {
+			return count, fmt.Errorf("line %d: marshal error: %w", count+1, err)
+		}
+		h := sha256.Sum256(preHash)
+		computed := hex.EncodeToString(h[:])
+		if computed != savedHash {
+			return count, fmt.Errorf("line %d: hash mismatch: expected %s, computed %s", count+1, savedHash, computed)
+		}
+
+		prevHash = savedHash
+		count++
+	}
+
+	return count, scanner.Err()
 }
 
 // dirOf returns the directory portion of a file path.

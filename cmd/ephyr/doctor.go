@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EphyrAI/Ephyr/internal/audit"
 	"github.com/EphyrAI/Ephyr/internal/policy"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
@@ -58,6 +59,9 @@ func cmdDoctor(args []string) {
 
 	// Storage checks.
 	checks = append(checks, checkStorage()...)
+
+	// Audit chain integrity.
+	checks = append(checks, checkAuditChain()...)
 
 	// System checks.
 	checks = append(checks, checkVersion())
@@ -484,6 +488,36 @@ func checkVersion() CheckResult {
 		Status:   "ok",
 		Message:  fmt.Sprintf("ephyr %s", version),
 	}
+}
+
+// checkAuditChain verifies the hash chain integrity of the audit log.
+func checkAuditChain() []CheckResult {
+	var results []CheckResult
+	auditPath := "/var/log/ephyr/audit.json"
+
+	if _, err := os.Stat(auditPath); err != nil {
+		// File doesn't exist -- already reported by checkStorage, skip.
+		return results
+	}
+
+	count, err := audit.VerifyChain(auditPath)
+	if err != nil {
+		results = append(results, CheckResult{
+			Category: "Integrity",
+			Name:     "Audit chain",
+			Status:   "fail",
+			Message:  fmt.Sprintf("chain broken at entry %d: %v", count+1, err),
+		})
+	} else {
+		results = append(results, CheckResult{
+			Category: "Integrity",
+			Name:     "Audit chain",
+			Status:   "ok",
+			Message:  fmt.Sprintf("%d entries verified (SHA-256 hash chain)", count),
+		})
+	}
+
+	return results
 }
 
 // printDoctorResults renders all check results in either text or JSON format.
