@@ -59,6 +59,22 @@ func main() {
 
 	log.Printf("listening on %s (broker-uid=%d)", *socketPath, *brokerUID)
 
+	// Initialize signing rate limiter from environment.
+	maxRate := 60 // default: 60 certs per window
+	if v := os.Getenv("EPHYR_SIGNER_RATE_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			maxRate = n
+		}
+	}
+	windowSecs := 60 // default: 60 second window
+	if v := os.Getenv("EPHYR_SIGNER_RATE_WINDOW"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			windowSecs = n
+		}
+	}
+	rateLimiter := signer.NewSignerRateLimiter(maxRate, time.Duration(windowSecs)*time.Second)
+	log.Printf("[signer] rate limit: %d requests per %ds window", maxRate, windowSecs)
+
 	// Graceful shutdown on SIGTERM/SIGINT.
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT)
@@ -85,12 +101,12 @@ func main() {
 			continue
 		}
 
-		go handleConn(conn, ca, *brokerUID)
+		go handleConn(conn, ca, *brokerUID, rateLimiter)
 	}
 }
 
 // handleConn processes a single IPC connection.
-func handleConn(conn net.Conn, ca *signer.CA, allowedUID int) {
+func handleConn(conn net.Conn, ca *signer.CA, allowedUID int, rl *signer.SignerRateLimiter) {
 	defer conn.Close()
 
 	// Set a generous deadline for the entire exchange.
@@ -110,6 +126,15 @@ func handleConn(conn net.Conn, ca *signer.CA, allowedUID int) {
 	if err := dec.Decode(&req); err != nil {
 		writeError(conn, fmt.Sprintf("invalid request: %v", err))
 		return
+	}
+
+	// Rate limit signing operations.
+	if req.Action == "sign" || req.Action == "sign_delegation" {
+		if !rl.Allow() {
+			writeError(conn, "rate limit exceeded: too many signing requests")
+			log.Printf("[signer] rate limit exceeded (%d in window)", rl.Count())
+			return
+		}
 	}
 
 	switch req.Action {
