@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -188,7 +189,7 @@ func (l *AuditLogger) initChain() {
 	defer f.Close()
 
 	_, err = f.ReadAt(buf, fi.Size()-readSize)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return
 	}
 
