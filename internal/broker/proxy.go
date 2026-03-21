@@ -848,6 +848,8 @@ func (p *ProxyEngine) save() error {
 		if encKey != nil && cp.Credential != "" {
 			if enc, err := encryptValue(cp.Credential, encKey); err == nil {
 				cp.Credential = enc
+			} else {
+				log.Printf("[proxy] WARNING: failed to encrypt credential for %s: %v", k, err)
 			}
 		}
 		toSave[k] = &cp

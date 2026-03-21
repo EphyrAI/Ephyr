@@ -15,6 +15,8 @@ import (
 // deriveEncryptionKey derives a 32-byte AES key from the EPHYR_ENCRYPTION_KEY
 // environment variable using SHA-256. Returns nil if the variable is not set,
 // which disables encryption (plaintext mode for backward compatibility).
+// The key value must be high-entropy random (e.g., openssl rand -hex 32),
+// not a human-chosen password — a single SHA-256 pass is not a KDF.
 func deriveEncryptionKey() ([]byte, error) {
 	keyStr := os.Getenv("EPHYR_ENCRYPTION_KEY")
 	if keyStr == "" {
