@@ -840,8 +840,21 @@ func (p *ProxyEngine) GetServiceDirect(name string) (*ServiceConfig, bool) {
 }
 func (p *ProxyEngine) save() error {
 	p.mu.RLock()
-	data, err := json.MarshalIndent(p.services, "", "  ")
+	// Create a copy with encrypted credentials for persistence.
+	encKey, _ := deriveEncryptionKey()
+	toSave := make(map[string]*ServiceConfig, len(p.services))
+	for k, v := range p.services {
+		cp := *v
+		if encKey != nil && cp.Credential != "" {
+			if enc, err := encryptValue(cp.Credential, encKey); err == nil {
+				cp.Credential = enc
+			}
+		}
+		toSave[k] = &cp
+	}
 	p.mu.RUnlock()
+
+	data, err := json.MarshalIndent(toSave, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal services: %w", err)
 	}
@@ -871,6 +884,19 @@ func (p *ProxyEngine) load() error {
 	var services map[string]*ServiceConfig
 	if err := json.Unmarshal(data, &services); err != nil {
 		return fmt.Errorf("parse %s: %w", p.filePath, err)
+	}
+
+	// Decrypt credentials loaded from disk.
+	encKey, _ := deriveEncryptionKey()
+	for _, svc := range services {
+		if svc.Credential != "" {
+			dec, err := decryptValue(svc.Credential, encKey)
+			if err != nil {
+				log.Printf("[proxy] WARNING: failed to decrypt credential for %s: %v (using as-is)", svc.Name, err)
+			} else {
+				svc.Credential = dec
+			}
+		}
 	}
 
 	p.mu.Lock()
